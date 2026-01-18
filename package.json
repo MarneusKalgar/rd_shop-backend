@@ -78,8 +78,8 @@
     "testEnvironment": "node"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx}": [
-      "eslint",
+    "*.{js,ts}": [
+      "eslint --fix",
       "prettier --write"
     ],
     "*.{json,yml,yaml,md}": [
