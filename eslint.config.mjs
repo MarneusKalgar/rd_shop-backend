@@ -11,8 +11,9 @@ export default [
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
+  ...tseslint.configs.stylisticTypeChecked,
   eslintPluginPrettierRecommended,
-  perfectionist.configs.recommended,
+  perfectionist.configs["recommended-natural"],
   {
     languageOptions: {
       globals: {
