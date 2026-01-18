@@ -6,6 +6,7 @@ export function validate(config: Record<string, unknown>) {
   const validatedConfig = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });
+
   const errors = validateSync(validatedConfig, {
     skipMissingProperties: false,
   });
