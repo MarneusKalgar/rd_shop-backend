@@ -1,7 +1,7 @@
 export const DEFAULT_VALUES = {
-  PORT: 3000,
   ENV: '.env',
   NODE_HOSTNAME: 'localhost',
+  PORT: 3000,
 } as const;
 
 export const envToEnvFileMap: Record<string, string> = {

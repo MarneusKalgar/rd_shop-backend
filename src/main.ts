@@ -1,9 +1,10 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
 import { INestApplication, Logger } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
-import { setupProcessErrorHandlers, safeClose, getEnvVariable } from './core';
+
+import { AppModule } from './app.module';
 import { getLogLevels } from './config';
+import { getEnvVariable, safeClose, setupProcessErrorHandlers } from './core';
 
 async function bootstrap() {
   setupProcessErrorHandlers();

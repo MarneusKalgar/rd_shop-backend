@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import { DEFAULT_VALUES, envToEnvFileMap } from './constants';
 import { EnvironmentVariables } from './schema';
 import { DefaultEnvKey, EnvVariable } from './types';
@@ -13,7 +14,7 @@ import { DefaultEnvKey, EnvVariable } from './types';
  * getEnvFile(); // Returns: '.env.development.local'
  */
 export const getEnvFile = () => {
-  const nodeEnv = process.env.NODE_ENV || 'development';
+  const nodeEnv = process.env.NODE_ENV ?? 'development';
   return envToEnvFileMap[nodeEnv] || DEFAULT_VALUES.ENV;
 };
 
@@ -33,7 +34,7 @@ export const getEnvVariable = <K extends keyof EnvironmentVariables>(
   key: K,
 ): EnvVariable<K> => {
   const configService = app.get(ConfigService);
-  const value = configService.get<EnvVariable<K>>(key) as EnvVariable<K>;
+  const value = configService.get<EnvVariable<K>>(key)!;
   const defaultValue = DEFAULT_VALUES[key as DefaultEnvKey] as EnvVariable<K>;
   return value ?? defaultValue;
 };

@@ -1,6 +1,7 @@
 import { plainToInstance } from 'class-transformer';
-import { EnvironmentVariables } from './schema';
 import { validateSync } from 'class-validator';
+
+import { EnvironmentVariables } from './schema';
 
 export function validate(config: Record<string, unknown>) {
   const validatedConfig = plainToInstance(EnvironmentVariables, config, {
@@ -13,7 +14,7 @@ export function validate(config: Record<string, unknown>) {
 
   if (errors.length > 0) {
     const errorMessages = errors
-      .map((err) => Object.values(err.constraints || {}).join(', '))
+      .map((err) => Object.values(err.constraints ?? {}).join(', '))
       .join('\n');
     throw new Error(`Environment validation failed:\n${errorMessages}`);
   }

@@ -1,5 +1,5 @@
-import { IGracefulShutdownConfigOptions } from '@tygra/nestjs-graceful-shutdown';
 import { Logger } from '@nestjs/common';
+import { IGracefulShutdownConfigOptions } from '@tygra/nestjs-graceful-shutdown';
 
 /**
  * Graceful shutdown configuration for the application.
@@ -15,13 +15,6 @@ import { Logger } from '@nestjs/common';
  * GracefulShutdownModule.forRoot(gracefulShutdownConfig)
  */
 export const gracefulShutdownConfig: IGracefulShutdownConfigOptions = {
-  /**
-   * Timeout for graceful shutdown in milliseconds.
-   * After this time, the process will be forcefully terminated.
-   * @default 10000 (10 seconds)
-   */
-  gracefulShutdownTimeout: 10000,
-
   /**
    * Optional cleanup function to run before shutdown.
    * Use this to close database connections, flush logs, etc.
@@ -49,6 +42,13 @@ export const gracefulShutdownConfig: IGracefulShutdownConfigOptions = {
       Logger.error('❌ Cleanup failed:', (error as Error).message);
     }
   },
+
+  /**
+   * Timeout for graceful shutdown in milliseconds.
+   * After this time, the process will be forcefully terminated.
+   * @default 10000 (10 seconds)
+   */
+  gracefulShutdownTimeout: 10000,
 };
 
 /**
@@ -77,8 +77,8 @@ export const gracefulShutdownConfigByEnv: Record<
    * Test environment: Quick shutdown for fast test runs
    */
   test: {
-    gracefulShutdownTimeout: 3000,
     cleanup: undefined, // Skip cleanup in tests
+    gracefulShutdownTimeout: 3000,
   },
 };
 
@@ -93,7 +93,7 @@ export const gracefulShutdownConfigByEnv: Record<
  * GracefulShutdownModule.forRoot(config);
  */
 export const getGracefulShutdownConfig = (): IGracefulShutdownConfigOptions => {
-  const env = process.env.NODE_ENV || 'development';
+  const env = process.env.NODE_ENV ?? 'development';
   const envConfig = gracefulShutdownConfigByEnv[env] || {};
 
   return {

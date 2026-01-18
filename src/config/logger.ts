@@ -13,16 +13,16 @@ import { LogLevel } from '@nestjs/common';
  */
 export const loggerConfigByEnv: Record<string, LogLevel[]> = {
   /**
-   * Production: Minimal logging for performance
-   * Only errors and warnings
-   */
-  production: ['error', 'warn'],
-
-  /**
    * Development: Detailed logging for debugging
    * Everything except verbose traces
    */
   development: ['error', 'warn', 'log', 'debug'],
+
+  /**
+   * Production: Minimal logging for performance
+   * Only errors and warnings
+   */
+  production: ['error', 'warn'],
 
   /**
    * Test: Quiet logging to avoid cluttering test output
@@ -52,6 +52,6 @@ export const defaultLogLevels: LogLevel[] = ['error', 'warn', 'log'];
  */
 export const getLogLevels = (): LogLevel[] => {
   // Get environment-specific config
-  const env = process.env.NODE_ENV || 'development';
+  const env = process.env.NODE_ENV ?? 'development';
   return loggerConfigByEnv[env] || defaultLogLevels;
 };
