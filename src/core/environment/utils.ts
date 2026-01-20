@@ -26,7 +26,6 @@ import { DefaultEnvKey, EnvVariable } from './types';
  */
 export const getEnvFile = (): string => {
   const nodeEnv = process.env.NODE_ENV?.toLowerCase().trim();
-  console.log('Determining env file for NODE_ENV:', nodeEnv);
 
   if (!nodeEnv) {
     return DEFAULT_VALUES.ENV;
@@ -36,6 +35,7 @@ export const getEnvFile = (): string => {
   return `.env.${nodeEnv}`;
 };
 
+// TODO this function may be an overhead. Consider removing in the future.
 /**
  * Retrieves a type-safe environment variable from the application's ConfigService.
  * Automatically falls back to default values if the variable is not set.

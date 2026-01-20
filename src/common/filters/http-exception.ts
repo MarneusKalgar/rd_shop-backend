@@ -8,9 +8,12 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 
+import { REQUEST_ID_HEADER } from '../constants';
+
 interface ErrorResponse {
   message: string | string[];
   path: string;
+  requestId?: string;
   statusCode: number;
   timestamp: string;
 }
@@ -30,10 +33,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const status = this.extractStatus(exception);
     const message = this.extractMessage(exception);
+    const requestId = this.extractRequestId(request);
 
     const errorResponse: ErrorResponse = {
       message: this.formatMessage(message),
       path: request.url,
+      requestId,
       statusCode: status,
       timestamp: new Date().toISOString(),
     };
@@ -56,6 +61,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         : response;
     }
     return 'Internal server error';
+  }
+
+  /**
+   * Extracts the request ID from the request headers.
+   * @param request - The Express request object
+   * @returns The request ID or undefined if not present
+   */
+  private extractRequestId(request: Request): string | undefined {
+    return request.headers[REQUEST_ID_HEADER] as string | undefined;
   }
 
   /**

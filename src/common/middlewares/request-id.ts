@@ -2,6 +2,8 @@ import { Injectable, NestMiddleware } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { NextFunction, Request, Response } from 'express';
 
+import { REQUEST_ID_HEADER } from '../constants';
+
 // TODO register globally
 export type RequestWithId = Request & { requestId: string };
 
@@ -17,10 +19,10 @@ export class RequestIdMiddleware implements NestMiddleware {
    * @param next - Express next function
    */
   use(req: RequestWithId, res: Response, next: NextFunction): void {
-    const requestId = (req.headers['x-request-id'] as string) || randomUUID();
+    const requestId = (req.headers[REQUEST_ID_HEADER] as string) || randomUUID();
 
     // Add request ID to request headers for tracing
-    req.headers['x-request-id'] = requestId;
+    req.headers[REQUEST_ID_HEADER] = requestId;
 
     req.requestId = requestId;
 

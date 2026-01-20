@@ -2,6 +2,7 @@
 
 - Add ShutdownModule
 - Add Rate Limiting middleware
+- Integrate Swagger
 
 ## DB
 
