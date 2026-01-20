@@ -226,7 +226,10 @@ Request → Middleware → Guards → Interceptors → Controller → Intercepto
 │   {                  │
 │     "statusCode": n, │
 │     "message": "...",│
-│     "errorCode": "..."│
+│     "error": "...",  │
+│     "errorCode": ".. │
+│     "path": "...",   │
+│     "timestamp": "..."│
 │     "requestId": "..."│
 │   }                  │
 └──────────────────────┘
@@ -360,7 +363,6 @@ All errors follow this standardized format:
   "statusCode": 404,
   "message": "User not found",
   "error": "Not Found Error",
-  "errorCode": "NOT_FOUND",
   "path": "/api/v1/users/123",
   "timestamp": "2026-01-20T10:30:00.000Z",
   "requestId": "abc-123-def"

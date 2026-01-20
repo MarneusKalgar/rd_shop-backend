@@ -52,7 +52,7 @@ export const getEnvVariable = <K extends keyof EnvironmentVariables>(
   key: K,
 ): EnvVariable<K> => {
   const configService = app.get(ConfigService);
-  const value = configService.get<EnvVariable<K>>(key)!;
+  const value = configService.get<EnvVariable<K>>(key);
   const defaultValue = DEFAULT_VALUES[key as DefaultEnvKey] as EnvVariable<K>;
   return value ?? defaultValue;
 };

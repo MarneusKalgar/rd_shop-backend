@@ -1,23 +1,24 @@
+/* eslint-disable perfectionist/sort-decorators */
 import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateUserDto {
+  @IsOptional()
   @IsEmail()
   @IsNotEmpty()
-  @IsOptional()
   email?: string;
 
-  @IsNotEmpty()
   @IsOptional()
+  @IsNotEmpty()
   @IsString()
   firstName?: string;
 
-  @IsNotEmpty()
   @IsOptional()
+  @IsNotEmpty()
   @IsString()
   lastName?: string;
 
-  @IsNotEmpty()
   @IsOptional()
+  @IsNotEmpty()
   @IsString()
   @MinLength(8)
   password?: string;

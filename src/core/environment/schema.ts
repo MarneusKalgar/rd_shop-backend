@@ -6,7 +6,7 @@ export class EnvironmentVariables {
   APP_LOG_LEVEL?: string;
 
   @IsString()
-  NODE_ENV?: string;
+  NODE_ENV: string;
 
   @IsOptional()
   @IsString()
