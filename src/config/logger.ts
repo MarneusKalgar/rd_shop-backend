@@ -1,57 +1,65 @@
 import { LogLevel } from '@nestjs/common';
 
 /**
- * Logger configuration per environment.
- * Controls which log levels are enabled for each environment.
- *
- * Log levels (in order of verbosity):
- * - error: Only critical errors
- * - warn: Warnings and errors
- * - log: General information, warnings, and errors
- * - debug: Debugging information + all above
- * - verbose: Everything including detailed traces
+ * Valid log levels supported by NestJS.
+ * Ordered from least to most verbose.
  */
-export const loggerConfigByEnv: Record<string, LogLevel[]> = {
-  /**
-   * Development: Detailed logging for debugging
-   * Everything except verbose traces
-   */
-  development: ['error', 'warn', 'log', 'debug'],
+const LOG_LEVELS: readonly LogLevel[] = ['error', 'warn', 'log', 'debug', 'verbose'] as const;
 
-  /**
-   * Production: Minimal logging for performance
-   * Only errors and warnings
-   */
-  production: ['error', 'warn'],
+/**
+ * Default log level if APP_LOG_LEVEL is not specified.
+ */
+const DEFAULT_LOG_LEVEL: LogLevel = 'log';
 
-  /**
-   * Test: Quiet logging to avoid cluttering test output
-   * Only errors
-   */
-  test: ['error'],
+/**
+ * Validates if a string is a valid NestJS log level.
+ * @param level - The log level string to validate
+ * @returns True if the level is valid, false otherwise
+ */
+const isValidLogLevel = (level: string): level is LogLevel => {
+  return LOG_LEVELS.includes(level as LogLevel);
 };
 
 /**
- * Default log levels if environment not specified.
+ * Gets all log levels up to and including the specified level.
+ * For example, if level is 'log', returns ['error', 'warn', 'log'].
+ *
+ * @param level - The maximum log level to include
+ * @returns Array of log levels from error up to the specified level
+ *
+ * @example
+ * getLevelsUpTo('log') // Returns: ['error', 'warn', 'log']
+ * getLevelsUpTo('debug') // Returns: ['error', 'warn', 'log', 'debug']
  */
-export const defaultLogLevels: LogLevel[] = ['error', 'warn', 'log'];
+const getLevelsUpTo = (level: LogLevel): LogLevel[] => {
+  const index = LOG_LEVELS.indexOf(level);
+  return index === -1 ? [DEFAULT_LOG_LEVEL] : LOG_LEVELS.slice(0, index + 1);
+};
 
 /**
- * Get logger configuration based on current environment.
- * Can be overridden by LOG_LEVEL environment variable.
+ * Resolves the log level from APP_LOG_LEVEL environment variable.
+ * Falls back to the default log level if not specified or invalid.
  *
  * @returns {LogLevel[]} Array of enabled log levels
  *
  * @example
- * // Get config for current environment
- * const logLevels = getLogLevels();
+ * // With APP_LOG_LEVEL=debug
+ * getLogLevels(); // Returns: ['error', 'warn', 'log', 'debug']
  *
  * @example
- * // Override with specific log level
- * const logLevels = getLogLevels();
+ * // Without APP_LOG_LEVEL (or invalid value)
+ * getLogLevels(); // Returns: ['error', 'warn', 'log']
  */
 export const getLogLevels = (): LogLevel[] => {
-  // Get environment-specific config
-  const env = process.env.NODE_ENV ?? 'development';
-  return loggerConfigByEnv[env] || defaultLogLevels;
+  const envLogLevel = process.env.APP_LOG_LEVEL?.toLowerCase();
+
+  if (!envLogLevel) {
+    return getLevelsUpTo(DEFAULT_LOG_LEVEL);
+  }
+
+  if (!isValidLogLevel(envLogLevel)) {
+    return getLevelsUpTo(DEFAULT_LOG_LEVEL);
+  }
+
+  return getLevelsUpTo(envLogLevel);
 };

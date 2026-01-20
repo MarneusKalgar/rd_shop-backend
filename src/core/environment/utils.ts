@@ -1,21 +1,39 @@
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { DEFAULT_VALUES, envToEnvFileMap } from './constants';
+import { DEFAULT_VALUES } from './constants';
 import { EnvironmentVariables } from './schema';
 import { DefaultEnvKey, EnvVariable } from './types';
 
 /**
  * Determines the appropriate environment file path based on NODE_ENV.
- * Maps NODE_ENV values to their corresponding .env files using envToEnvFileMap.
- * @returns {string} The path to the environment file (e.g., '.env.development.local')
+ * Dynamically resolves to .env.{NODE_ENV} format.
+ * Falls back to .env if NODE_ENV is not set or the environment is not recognized.
+ *
+ * @returns {string} The path to the environment file
+ *
  * @example
  * // If NODE_ENV is 'development'
- * getEnvFile(); // Returns: '.env.development.local'
+ * getEnvFile(); // Returns: '.env.development'
+ *
+ * @example
+ * // If NODE_ENV is 'production'
+ * getEnvFile(); // Returns: '.env.production'
+ *
+ * @example
+ * // If NODE_ENV is not set
+ * getEnvFile(); // Returns: '.env'
  */
-export const getEnvFile = () => {
-  const nodeEnv = process.env.NODE_ENV ?? 'development';
-  return envToEnvFileMap[nodeEnv] || DEFAULT_VALUES.ENV;
+export const getEnvFile = (): string => {
+  const nodeEnv = process.env.NODE_ENV?.toLowerCase().trim();
+  console.log('Determining env file for NODE_ENV:', nodeEnv);
+
+  if (!nodeEnv) {
+    return DEFAULT_VALUES.ENV;
+  }
+
+  // Dynamically construct the environment file path
+  return `.env.${nodeEnv}`;
 };
 
 /**

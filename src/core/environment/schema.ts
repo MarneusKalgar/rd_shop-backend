@@ -1,6 +1,10 @@
 import { IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class EnvironmentVariables {
+  @IsOptional()
+  @IsString()
+  APP_LOG_LEVEL?: string;
+
   @IsString()
   NODE_ENV?: string;
 
