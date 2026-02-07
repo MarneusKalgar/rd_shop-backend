@@ -7,6 +7,7 @@ import { GlobalExceptionFilter } from './common/filters';
 import { TransformInterceptor } from './common/interceptors';
 import { getLogLevels } from './config';
 import { getEnvVariable, safeClose, setupProcessErrorHandlers } from './core';
+import { setupSwagger } from './core/swagger';
 
 async function bootstrap() {
   setupProcessErrorHandlers();
@@ -43,8 +44,11 @@ async function bootstrap() {
       }),
     );
 
+    setupSwagger(app);
+
     const port = getEnvVariable(app, 'PORT');
     Logger.log(`Application is running on port: ${port}`);
+    Logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`);
     await app.listen(port);
   } catch (error) {
     Logger.error('Error during application bootstrap', (error as Error).stack);
