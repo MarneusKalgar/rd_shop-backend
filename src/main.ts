@@ -8,6 +8,7 @@ import { TransformInterceptor } from './common/interceptors';
 import { getLogLevels } from './config';
 import { getEnvVariable, safeClose, setupProcessErrorHandlers } from './core';
 import { setupSwagger } from './core/swagger';
+import { isProduction } from './utils';
 
 async function bootstrap() {
   setupProcessErrorHandlers();
@@ -36,19 +37,25 @@ async function bootstrap() {
 
     app.useGlobalPipes(
       new ValidationPipe({
-        forbidNonWhitelisted: true, // Throw error if non-whitelisted properties are present
-        transform: true, // Automatically transform payloads to DTO instances
-        transformOptions: { enableImplicitConversion: true }, // Enable implicit type conversion
-        validationError: { target: false, value: false }, // Do not expose the original object
-        whitelist: true, // Strip properties that don't have decorators
+        forbidNonWhitelisted: true,
+        transform: true,
+        transformOptions: { enableImplicitConversion: true },
+        validationError: { target: false, value: false },
+        whitelist: true,
       }),
     );
 
-    setupSwagger(app);
+    if (!isProduction) {
+      setupSwagger(app);
+    }
 
     const port = getEnvVariable(app, 'PORT');
-    Logger.log(`Application is running on port: ${port}`);
-    Logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`);
+
+    if (!isProduction) {
+      Logger.log(`Application is running on port: ${port}`);
+      Logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`);
+    }
+
     await app.listen(port);
   } catch (error) {
     Logger.error('Error during application bootstrap', (error as Error).stack);

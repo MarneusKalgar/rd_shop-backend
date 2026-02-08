@@ -1,23 +1,19 @@
 /**
- * Checks if the application is running in development environment.
- * @returns {boolean} True if NODE_ENV is 'development', false otherwise
+ * True if the application is running in development environment.
  */
-export const isDevelopment = () => process.env.NODE_ENV === 'development';
+export const isDevelopment = process.env.NODE_ENV === 'development';
 
 /**
- * Checks if the application is running in production environment.
- * @returns {boolean} True if NODE_ENV is 'production', false otherwise
+ * True if the application is running in production environment.
  */
-export const isProduction = () => process.env.NODE_ENV === 'production';
+export const isProduction = process.env.NODE_ENV === 'production';
 
 /**
- * Checks if the application is running in test environment.
- * @returns {boolean} True if NODE_ENV is 'test', false otherwise
+ * True if the application is running in test environment.
  */
-export const isTest = () => process.env.NODE_ENV === 'test';
+export const isTest = process.env.NODE_ENV === 'test';
 
 /**
- * Checks if the application is running on localhost.
- * @returns {boolean} True if NODE_HOSTNAME is 'localhost', false otherwise
+ * True if the application is running on localhost.
  */
-export const isLocal = () => process.env.NODE_HOSTNAME === 'localhost';
+export const isLocal = process.env.NODE_HOSTNAME === 'localhost';

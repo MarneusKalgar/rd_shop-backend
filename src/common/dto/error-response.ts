@@ -4,9 +4,6 @@ export class ApiErrorResponseDto {
   @ApiProperty({ example: 'VALIDATION_FAILED' })
   code!: string;
 
-  @ApiProperty({ example: 'req-123' })
-  correlationId!: string;
-
   @ApiPropertyOptional({
     example: { fields: [{ errors: ['email must be an email'], field: 'email' }] },
   })
@@ -14,4 +11,7 @@ export class ApiErrorResponseDto {
 
   @ApiProperty({ example: 'Validation failed' })
   message!: string;
+
+  @ApiProperty({ example: 'req-123' })
+  requestId!: string;
 }
