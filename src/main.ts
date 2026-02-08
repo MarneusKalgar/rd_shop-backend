@@ -45,18 +45,21 @@ async function bootstrap() {
       }),
     );
 
-    if (!isProduction) {
+    const isProd = isProduction();
+
+    if (!isProd) {
       setupSwagger(app);
     }
 
     const port = getEnvVariable(app, 'PORT');
 
-    if (!isProduction) {
-      Logger.log(`Application is running on port: ${port}`);
+    await app.listen(port);
+
+    Logger.log(`Application is running on port: ${port}`);
+
+    if (!isProd) {
       Logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`);
     }
-
-    await app.listen(port);
   } catch (error) {
     Logger.error('Error during application bootstrap', (error as Error).stack);
     await safeClose(app);
