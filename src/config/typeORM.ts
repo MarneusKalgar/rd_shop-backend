@@ -36,6 +36,8 @@ export const getTypeOrmConfig = (databaseUrl?: string): DataSourceOptions => {
   const { entities, migrations } = getTypeOrmPaths();
   const isDev = isDevelopment();
 
+  console.log(`Using database URL: ${databaseUrl}`);
+
   return {
     entities,
     logger: isDev ? 'advanced-console' : 'simple-console',
@@ -44,7 +46,7 @@ export const getTypeOrmConfig = (databaseUrl?: string): DataSourceOptions => {
     ssl: true,
     synchronize: false,
     type: 'postgres',
-    url: databaseUrl ?? process.env.DATABASE_URL,
+    url: databaseUrl,
   };
 };
 

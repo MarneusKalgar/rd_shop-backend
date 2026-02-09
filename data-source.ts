@@ -1,12 +1,15 @@
-import dotenv from 'dotenv';
+import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 
 import { getTypeOrmConfig } from '@/config/typeORM';
 
-console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+config({ path: `.env.${process.env.NODE_ENV}` });
 
-dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
+// Validate DATABASE_URL is available
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is not set');
+}
 
-const AppDataSource = new DataSource(getTypeOrmConfig());
+const AppDataSource = new DataSource(getTypeOrmConfig(process.env.DATABASE_URL));
 
 export default AppDataSource;
