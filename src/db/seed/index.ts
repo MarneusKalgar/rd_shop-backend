@@ -9,14 +9,11 @@ import { seedOrders, seedProducts, seedUsers } from './data';
 
 async function seed() {
   if (isProduction()) {
-    console.error('⛔ Seeding should not be run in production environment');
-    console.error('   This operation will overwrite production data!');
-    process.exit(1);
+    throw new Error('Seeding should not be run in production environment');
   }
 
-  if (!process.env.DATABASE_URL) {
-    console.error('⛔ DATABASE_URL environment variable is not set');
-    process.exit(1);
+  if (!process.env.DATABASE_URL || !process.env.DATABASE_PROVIDER) {
+    throw new Error('DATABASE_URL or DATABASE_PROVIDER environment variable is not set');
   }
 
   await dataSource.initialize();

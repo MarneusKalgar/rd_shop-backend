@@ -32,7 +32,6 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **[TypeORM](https://typeorm.io/)** ^0.3.21 - ORM for TypeScript and JavaScript
 - **[PostgreSQL](https://www.postgresql.org/)** - Relational database
 - **[pg](https://node-postgres.com/)** - PostgreSQL client for Node.js
-- **[@neondatabase/serverless](https://neon.tech/)** - Neon database driver
 
 ### Validation & Configuration
 

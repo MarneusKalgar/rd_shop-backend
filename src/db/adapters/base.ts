@@ -46,7 +46,35 @@ export abstract class BasePostgresAdapter implements IDatabaseAdapter {
   abstract validateConfig(): void;
 
   protected getSslConfig(): boolean | { rejectUnauthorized: boolean } {
-    // Override in child classes if different SSL config is needed
-    return true;
+    const url = this.getConnectionUrl();
+    if (url) {
+      try {
+        const urlObj = new URL(url);
+        const sslMode = urlObj.searchParams.get('sslmode');
+
+        if (sslMode === 'disable') {
+          return false;
+        }
+        if (sslMode === 'require' || sslMode === 'verify-ca' || sslMode === 'verify-full') {
+          return true;
+        }
+        if (sslMode === 'prefer' || sslMode === 'allow') {
+          return { rejectUnauthorized: false };
+        }
+      } catch {
+        console.warn(
+          '⚠ Unable to parse DATABASE_URL for SSL configuration, falling back to defaults',
+        );
+      }
+    }
+
+    const isDev = isDevelopment();
+
+    if (isDev) {
+      return false;
+    }
+
+    // Production: SSL enabled but don't reject self-signed certs
+    return { rejectUnauthorized: true };
   }
 }
