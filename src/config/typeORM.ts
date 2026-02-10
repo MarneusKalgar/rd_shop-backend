@@ -1,8 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
-import { DataSourceOptions } from 'typeorm';
 
-import { isDevelopment, isProduction } from '@/utils/env';
+import { DatabaseAdapterFactory } from '@/db/adapters';
+import { isProduction } from '@/utils/env';
 
 import { OrderItem } from '../orders/order-item.entity';
 import { Order } from '../orders/order.entity';
@@ -14,9 +14,8 @@ import { User } from '../users/user.entity';
  */
 export const getTypeOrmPaths = () => {
   const isProd = isProduction();
-  const isCompiled = __dirname.includes('dist');
 
-  if (isProd || isCompiled) {
+  if (isProd) {
     return {
       entities: ['dist/**/*.entity.js'],
       migrations: ['dist/db/migrations/*.js'],
@@ -24,29 +23,8 @@ export const getTypeOrmPaths = () => {
   }
 
   return {
-    entities: ['src/**/*.entity.ts'],
-    migrations: ['src/db/migrations/*.ts'],
-  };
-};
-
-/**
- * Base TypeORM configuration shared between NestJS and CLI
- */
-export const getTypeOrmConfig = (databaseUrl?: string): DataSourceOptions => {
-  const { entities, migrations } = getTypeOrmPaths();
-  const isDev = isDevelopment();
-
-  console.log(`Using database URL: ${databaseUrl}`);
-
-  return {
-    entities,
-    logger: isDev ? 'advanced-console' : 'simple-console',
-    logging: isDev ? ['query', 'error', 'schema', 'warn'] : ['error', 'warn'],
-    migrations,
-    ssl: true,
-    synchronize: false,
-    type: 'postgres',
-    url: databaseUrl,
+    entities: ['src/**/*.entity{.ts,.js}'],
+    migrations: ['src/db/migrations/*{.ts,.js}'],
   };
 };
 
@@ -54,7 +32,9 @@ export const getTypeOrmConfig = (databaseUrl?: string): DataSourceOptions => {
  * TypeORM configuration for NestJS (includes explicit entity references)
  */
 export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmModuleOptions => {
-  const baseConfig = getTypeOrmConfig(configService.getOrThrow<string>('DATABASE_URL'));
+  const databaseProvider = configService.get<string>('DATABASE_PROVIDER');
+  const adapter = DatabaseAdapterFactory.create(databaseProvider);
+  const baseConfig = adapter.getModuleOptions();
 
   return {
     ...baseConfig,

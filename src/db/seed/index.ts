@@ -1,6 +1,6 @@
+import dataSource from '@/data-source';
 import { isProduction } from '@/utils';
 
-import dataSource from '../../../data-source';
 import { OrderItem } from '../../orders/order-item.entity';
 import { Order } from '../../orders/order.entity';
 import { Product } from '../../products/product.entity';
@@ -13,8 +13,6 @@ async function seed() {
     console.error('   This operation will overwrite production data!');
     process.exit(1);
   }
-
-  console.log(process.env.DATABASE_URL);
 
   if (!process.env.DATABASE_URL) {
     console.error('⛔ DATABASE_URL environment variable is not set');

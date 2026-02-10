@@ -21,10 +21,10 @@
     "prepare": "husky",
     "type-check": "tsc --noEmit",
     "typeorm": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
-    "db:generate": "npm run typeorm -- migration:generate -d data-source.ts ./src/db/migrations/init",
-    "db:migrate:dev": "npm run typeorm -- migration:run -d data-source.ts",
+    "db:generate": "npm run typeorm -- migration:generate -d src/data-source.ts",
+    "db:migrate:dev": "npm run typeorm -- migration:run -d src/data-source.ts",
     "db:migrate:prod": "cross-env NODE_ENV=production node ./node_modules/typeorm/cli.js migration:run -d dist/data-source.js",
-    "db:revert:dev": "npm run typeorm -- migration:revert -d data-source.ts",
+    "db:revert:dev": "npm run typeorm -- migration:revert -d src/data-source.ts",
     "db:revert:prod": "cross-env NODE_ENV=production node ./node_modules/typeorm/cli.js migration:revert -d dist/data-source.js",
     "db:seed": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register src/db/seed/index.ts"
   },
