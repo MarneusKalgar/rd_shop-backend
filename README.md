@@ -4,6 +4,10 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 
 ## 🚀 Features
 
+- **Database Integration** - TypeORM with PostgreSQL, supporting multiple providers (Neon, standard PostgreSQL)
+- **Database Migrations** - Version-controlled schema management with TypeORM migrations
+- **Database Seeding** - Idempotent seed data for development and testing
+- **Entity Relationships** - Complete domain model with User, Order, OrderItem, and Product entities
 - **Type-Safe Environment Management** - Runtime validation with class-validator
 - **Graceful Shutdown** - Proper cleanup of resources and connections
 - **Global Error Handling** - Consistent error responses with request tracing
@@ -22,6 +26,12 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **[TypeScript](https://www.typescriptlang.org/)** ^5.7.3 - Type-safe JavaScript
 - **[Node.js](https://nodejs.org/)** - Runtime environment
 - **[Express](https://expressjs.com/)** - HTTP server
+
+### Database
+
+- **[TypeORM](https://typeorm.io/)** ^0.3.21 - ORM for TypeScript and JavaScript
+- **[PostgreSQL](https://www.postgresql.org/)** - Relational database
+- **[pg](https://node-postgres.com/)** - PostgreSQL client for Node.js
 
 ### Validation & Configuration
 
@@ -88,6 +98,10 @@ NODE_HOSTNAME=localhost
 
 # Logging
 APP_LOG_LEVEL=log  # Options: error, warn, log, debug, verbose
+
+# Database Configuration
+DATABASE_URL=postgresql://user:password@localhost:5432/rd_shop
+DATABASE_PROVIDER=neon  # Options: neon, postgres
 ```
 
 The application automatically loads the appropriate `.env.{NODE_ENV}` file based on the `NODE_ENV` variable.
@@ -109,6 +123,93 @@ npm run build
 ```
 
 The API will be available at `http://localhost:4000` (or your configured PORT).
+
+## 🗄️ Database Management
+
+### Database Schema
+
+The application includes a complete e-commerce data model:
+
+```
+User (1) ──────< (N) Order (1) ──────< (N) OrderItem (N) >────── (1) Product
+         orders              items                    product
+```
+
+**Entities:**
+
+- **User** - Customer accounts with email and timestamps
+- **Order** - Customer orders with status tracking (CREATED, PAID, CANCELLED)
+- **OrderItem** - Line items with quantity and price at purchase
+- **Product** - Product catalog with pricing and active status
+
+### Running Migrations
+
+Migrations track and version your database schema changes:
+
+```bash
+# Run pending migrations (development)
+npm run db:migrate:dev
+
+# Run pending migrations (production)
+npm run db:migrate:prod
+
+# Generate a new migration after entity changes
+npm run db:generate -- AddUserRoleColumn
+
+# Revert the last migration (development)
+npm run db:revert:dev
+
+# Revert the last migration (production)
+npm run db:revert:prod
+```
+
+### Seeding the Database
+
+Populate your database with test data:
+
+```bash
+# Run seed data (dev/test only)
+npm run db:seed
+```
+
+**Seed Data Includes:**
+
+- 5 test users
+- 12 products (various prices and states)
+- 8 orders with multiple items
+
+**Features:**
+
+- Idempotent (safe to run multiple times)
+- Production safety (prevents accidental seeding in production)
+- Relationship resolution (maintains foreign key integrity)
+
+### Database Commands Reference
+
+```bash
+# Migration commands
+npm run db:migrate:dev       # Apply migrations (development)
+npm run db:migrate:prod      # Apply migrations (production)
+npm run db:generate -- Name  # Generate new migration
+npm run db:revert:dev        # Rollback last migration (dev)
+npm run db:revert:prod       # Rollback last migration (prod)
+
+# Seed command
+npm run db:seed              # Seed database with test data
+
+# TypeORM CLI (advanced)
+npm run typeorm -- migration:show  # Show all migrations
+npm run typeorm -- query "SELECT * FROM users"  # Run SQL query
+```
+
+### Database Adapter Pattern
+
+The application uses an adapter pattern for database flexibility:
+
+- **NeonAdapter** - Optimized for Neon Database (serverless PostgreSQL)
+- **BasePostgresAdapter** - Standard PostgreSQL configuration
+- Auto-detection based on DATABASE_URL
+- Easy to extend for other providers
 
 ## 🧪 Testing
 
@@ -241,98 +342,64 @@ Request → Middleware → Guards → Interceptors → Controller → Intercepto
 rd_shop/
 ├── src/
 │   ├── common/                    # Shared utilities & components
+│   │   ├── constants/             # Application constants
+│   │   ├── dto/                   # Common DTOs
+│   │   ├── errors/                # Custom error classes
 │   │   ├── filters/               # Exception filters
-│   │   │   ├── http-exception.ts  # Global exception filter
-│   │   │   └── index.ts
 │   │   ├── interceptors/          # Request/response interceptors
-│   │   │   ├── transform-response.ts  # Wraps responses
-│   │   │   └── index.ts
 │   │   └── middlewares/           # HTTP middlewares
-│   │       ├── request-id.ts      # Adds X-Request-ID
-│   │       └── index.ts
 │   │
 │   ├── config/                    # Application configuration
-│   │   ├── graceful-shutdown.ts   # Graceful shutdown config
-│   │   ├── logger.ts              # Log level management
-│   │   └── index.ts
 │   │
 │   ├── core/                      # Core utilities
 │   │   ├── environment/           # Environment management
-│   │   │   ├── constants.ts       # Default values
-│   │   │   ├── injectConfig.ts    # @InjectConfig decorator
-│   │   │   ├── schema.ts          # Environment schema
-│   │   │   ├── types.ts           # TypeScript types
-│   │   │   ├── utils.ts           # Helper functions
-│   │   │   ├── validation.ts      # Env validation
-│   │   │   └── index.ts
-│   │   └── process/               # Process error handlers
-│   │       └── index.ts
+│   │   ├── process/               # Process error handlers
+│   │   └── swagger/               # API documentation setup
+│   │
+│   ├── db/                        # Database layer
+│   │   ├── adapters/              # Database adapter pattern
+│   │   ├── migrations/            # TypeORM migrations
+│   │   └── seed/                  # Database seeding
 │   │
 │   ├── users/                     # Users feature module
-│   │   ├── dto/                   # Data Transfer Objects
-│   │   │   ├── create-user.ts
-│   │   │   ├── update-user.ts
-│   │   │   └── index.ts
-│   │   ├── interfaces/            # TypeScript interfaces
-│   │   │   └── index.ts
-│   │   ├── users.controller.ts    # HTTP endpoints
-│   │   ├── users.service.ts       # Business logic
-│   │   └── users.module.ts        # Module definition
+│   │   ├── dto/                   # User DTOs
+│   │   ├── interfaces/            # User interfaces
+│   │   └── v1/                    # API version 1 controllers
 │   │
-│   ├── utils/                     # Utility functions
-│   │   ├── env.ts
-│   │   └── index.ts
+│   ├── orders/                    # Orders feature module
 │   │
-│   ├── app.controller.ts          # Root controller
-│   ├── app.service.ts             # Root service
-│   ├── app.module.ts              # Root module
-│   └── main.ts                    # Application bootstrap
+│   ├── products/                  # Products feature module
+│   │
+│   └── utils/                     # Utility functions
 │
-├── test/                          # E2E tests
-├── .env.example                   # Environment template
-├── package.json
-├── tsconfig.json
-└── README.md
+└── test/                          # E2E tests
 ```
 
 ### Folder Descriptions
 
 #### `/src/common/` - Shared Components
 
-Contains reusable components used across the application:
-
-- **filters/** - Exception filters for error handling
-- **interceptors/** - Request/response transformation
-- **middlewares/** - HTTP middleware (e.g., request ID)
+Reusable components across the application including filters, interceptors, middlewares, DTOs, and error classes.
 
 #### `/src/config/` - Application Configuration
 
-Application-level configuration files:
-
-- Graceful shutdown settings
-- Logger configuration
-- Environment-specific settings
+Application-level configuration for graceful shutdown, logging, TypeORM, and environment-specific settings.
 
 #### `/src/core/` - Core Utilities
 
-Framework-level utilities and infrastructure:
+Framework-level utilities including environment management, process handlers, and Swagger configuration.
 
-- **environment/** - Complete environment management system with validation
-- **process/** - Process-level error handlers
+#### `/src/db/` - Database Layer
 
-#### `/src/users/` - Feature Module Example
+Database configuration with adapter pattern for provider flexibility, TypeORM migrations, and seeding system.
 
-Example of a feature module structure:
+#### `/src/users/`, `/src/orders/`, `/src/products/` - Feature Modules
 
-- **dto/** - Request/response validation schemas
-- **interfaces/** - TypeScript interfaces
-- **controller** - HTTP route handlers
-- **service** - Business logic
-- **module** - Module configuration
+Domain-driven feature modules containing entities, DTOs, services, controllers, and business logic.
 
 #### `/src/utils/` - Utility Functions
 
-Helper functions and utilities used across the app.
+Helper functions and utilities used across the application.
 
 ## 🔌 API Endpoints
 
@@ -489,7 +556,9 @@ Configuration per environment in `src/config/graceful-shutdown.ts`
 
 See [TODO.md](TODO.md) for planned features:
 
-- [ ] Database integration (TypeORM + PostgreSQL)
+- [x] Database integration (TypeORM + PostgreSQL)
+- [x] Database migrations and seeding
+- [ ] Complete service layer implementation (CRUD operations)
 - [ ] Authentication & Authorization (JWT)
 - [ ] Health check endpoint
 - [ ] Rate limiting

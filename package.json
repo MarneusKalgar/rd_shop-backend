@@ -19,7 +19,14 @@
     "test:debug": "cross-env NODE_ENV=test node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "cross-env NODE_ENV=test jest --config ./test/jest-e2e.json",
     "prepare": "husky",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "typeorm": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
+    "db:generate": "npm run typeorm -- migration:generate -d src/data-source.ts",
+    "db:migrate:dev": "npm run typeorm -- migration:run -d src/data-source.ts",
+    "db:migrate:prod": "cross-env NODE_ENV=production node ./node_modules/typeorm/cli.js migration:run -d dist/data-source.js",
+    "db:revert:dev": "npm run typeorm -- migration:revert -d src/data-source.ts",
+    "db:revert:prod": "cross-env NODE_ENV=production node ./node_modules/typeorm/cli.js migration:revert -d dist/data-source.js",
+    "db:seed": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register src/db/seed/index.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -27,11 +34,14 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^11.2.6",
+    "@nestjs/typeorm": "^11.0.0",
     "@tygra/nestjs-graceful-shutdown": "^2.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
+    "pg": "^8.18.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "typeorm": "^0.3.28"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

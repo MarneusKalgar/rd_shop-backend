@@ -6,6 +6,12 @@ export class EnvironmentVariables {
   APP_LOG_LEVEL?: string;
 
   @IsString()
+  DATABASE_PROVIDER: string;
+
+  @IsString()
+  DATABASE_URL: string;
+
+  @IsString()
   NODE_ENV: string;
 
   @IsOptional()

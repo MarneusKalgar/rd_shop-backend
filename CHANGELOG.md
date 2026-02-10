@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.2] - 2026-02-10
+
+### Added
+
+- **TypeORM Integration** - Full TypeORM setup with PostgreSQL support
+- **Database Adapter Pattern** - Flexible database provider abstraction with NeonAdapter implementation
+- **Entity Models** - User, Order, OrderItem, and Product entities with proper relationships
+- **Migration System** - TypeORM migration support with environment-specific configurations
+- **Database Seeding** - Idempotent seed data system with production safety checks
+- **Database CLI Commands** - npm scripts for running migrations, generating migrations, and seeding
+- **Environment-based Paths** - Dynamic entity and migration paths for development and production
+- **Database Connection Validation** - Environment variable validation for DATABASE_URL and DATABASE_PROVIDER
+- **Feature Modules** - UsersModule, OrdersModule, and ProductsModule with TypeORM integration
+
+### Changed
+
+- **Configuration System** - Enhanced with database adapter factory and provider detection
+- **AppModule** - Added TypeOrmModule.forRootAsync with ConfigService integration
+- **Environment Schema** - Extended with DATABASE_URL and DATABASE_PROVIDER validation
+
+### Fixed
+
+- **Migration Loading** - Separated migration configuration for CLI vs runtime to prevent ES module errors
+- **TypeORM Configuration** - Split getDataSourceOptions() for CLI and getModuleOptions() for NestJS runtime
+
 ## [0.0.1] - 2026-01-20
 
 ### Added
@@ -50,4 +75,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.0.2]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.2
 [0.0.1]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.1
