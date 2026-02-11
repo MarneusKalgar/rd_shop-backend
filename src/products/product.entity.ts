@@ -28,6 +28,9 @@ export class Product {
   @Column('numeric', { precision: 12, scale: 2 })
   price: string;
 
+  @Column({ default: 0, name: 'stock', type: 'int' })
+  stock: number;
+
   @Column({ length: 200, type: 'varchar' })
   title: string;
 

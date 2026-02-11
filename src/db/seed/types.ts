@@ -14,6 +14,7 @@ export interface SeedProduct {
   id: string;
   isActive: boolean;
   price: string;
+  stock: number;
   title: string;
 }
 

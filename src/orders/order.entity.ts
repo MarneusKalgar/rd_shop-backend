@@ -29,6 +29,9 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ length: 255, name: 'idempotency_key', nullable: true, type: 'varchar', unique: true })
+  idempotencyKey: null | string;
+
   @OneToMany(() => OrderItem, (item) => item.order)
   items: OrderItem[];
 
