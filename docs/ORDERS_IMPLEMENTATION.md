@@ -91,7 +91,7 @@ return await this.dataSource.transaction(async (manager) => {
 
 Would require:
 
-- Adding `version` column to Product (implemented but not used)
+- Adding `version` column to Product
 - Retry logic (2-3 attempts)
 - Handling version conflicts
 - Better for low contention scenarios
@@ -153,13 +153,6 @@ idempotencyKey: string | null;
 ```typescript
 @Column({ default: 0, name: 'stock', type: 'int' })
 stock: number;
-```
-
-**Optional for future optimistic locking:**
-
-```typescript
-@VersionColumn({ name: 'version' })
-version: number;  // Not currently used - for future optimistic locking
 ```
 
 ## Usage Examples
@@ -338,11 +331,7 @@ npm run db:seed
    - Split order creation into multiple steps
    - Add compensation logic for failures
 
-3. **Optimistic Locking:**
-   - Use the `version` field for less contentious scenarios
-   - Implement retry logic with exponential backoff
-
-4. **Stock Reservation:**
+3. **Stock Reservation:**
    - Reserve stock for a time period
    - Auto-release if payment not completed
 

@@ -10,7 +10,7 @@ import { DataSource, In, Repository } from 'typeorm';
 
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
-import { CreateOrderDto } from './dto';
+import { CreateOrderDto, FindOrdersFilterDto, GetOrdersResponseDto } from './dto';
 import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 
@@ -33,34 +33,6 @@ export class OrdersService {
   /**
    * Creates a new order with idempotency support and transaction safety.
    * Uses pessimistic locking (FOR NO KEY UPDATE) to prevent oversell in concurrent scenarios.
-   *
-   * Workflow:
-   * 1. Pre-validation (outside transaction):
-   *    - Validates user exists
-   *    - Validates item quantities are positive
-   *    - Checks idempotency key for duplicate submissions
-   *    - Pre-checks all products exist (fail fast)
-   * 2. Transaction execution:
-   *    - Sets PostgreSQL timeouts (statement: 10s, lock: 5s)
-   *    - Locks products with pessimistic locking (FOR NO KEY UPDATE)
-   *    - Validates product state (active, sufficient stock)
-   *    - Updates product stock
-   *    - Creates order and order items
-   *    - Re-fetches order with relations
-   * 3. Error handling:
-   *    - Handles idempotency key race conditions (PostgreSQL error 23505)
-   *    - Automatic rollback on any failure
-   *
-   * Approach: Pessimistic Locking
-   * - Locks product rows using PostgreSQL's FOR NO KEY UPDATE
-   * - Prevents concurrent modifications while allowing foreign key references
-   * - Provides strong consistency guarantees without retry logic
-   * - Suitable for high-contention scenarios where correctness is critical
-   *
-   * Timeout Configuration:
-   * - statement_timeout: 10000ms (prevents long-running queries)
-   * - lock_timeout: 5000ms (prevents indefinite lock waiting)
-   * - Set via SET LOCAL within transaction scope
    *
    * @param createOrderDto - Order creation data
    * @returns Created order or existing order if idempotency key matches
@@ -205,5 +177,46 @@ export class OrdersService {
       this.logger.error('Order creation failed, transaction rolled back', error);
       throw error;
     }
+  }
+
+  async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<GetOrdersResponseDto> {
+    const { endDate, limit = 10, offset = 0, productName, startDate, status, userEmail } = params;
+
+    const queryBuilder = this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.items', 'orderItem')
+      .leftJoinAndSelect('orderItem.product', 'product');
+
+    if (status) {
+      queryBuilder.andWhere('order.status = :status', { status });
+    }
+
+    if (startDate) {
+      queryBuilder.andWhere('order.createdAt >= :startDate', { startDate });
+    }
+    if (endDate) {
+      queryBuilder.andWhere('order.createdAt <= :endDate', { endDate });
+    }
+
+    if (userEmail) {
+      queryBuilder.andWhere('user.email ILIKE :userEmail', {
+        userEmail: `%${userEmail}%`,
+      });
+    }
+
+    if (productName) {
+      queryBuilder.andWhere('product.title ILIKE :productName', {
+        productName: `%${productName}%`,
+      });
+    }
+
+    queryBuilder.orderBy('order.createdAt', 'DESC');
+
+    queryBuilder.skip(offset).take(limit);
+
+    const [orders, total] = await queryBuilder.getManyAndCount();
+
+    return { orders, total };
   }
 }

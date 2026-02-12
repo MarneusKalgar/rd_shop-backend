@@ -22,6 +22,8 @@ export enum OrderStatus {
 @Entity('orders')
 @Index('IDX_orders_user_id', ['userId'])
 @Index('IDX_orders_created_at', ['createdAt'])
+@Index('IDX_orders_user_created', ['userId', 'createdAt'])
+@Index('IDX_orders_status_created', ['status', 'createdAt'])
 export class Order {
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

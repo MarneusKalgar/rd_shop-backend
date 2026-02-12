@@ -1,7 +1,7 @@
-import { Body, Controller, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { CreateOrderDto } from '../dto';
+import { CreateOrderDto, FindOrdersFilterDto } from '../dto';
 import { Order } from '../order.entity';
 import { OrdersService } from '../orders.service';
 
@@ -36,5 +36,32 @@ export class OrdersController {
   @Post()
   async createOrder(@Body() createOrderDto: CreateOrderDto): Promise<Order> {
     return await this.ordersService.createOrder(createOrderDto);
+  }
+
+  @ApiOperation({ summary: 'Get orders with filters' })
+  @ApiResponse({
+    description: 'Orders retrieved successfully',
+    status: HttpStatus.OK,
+    type: [Order],
+  })
+  @ApiResponse({
+    description: 'Invalid query parameters',
+    status: HttpStatus.BAD_REQUEST,
+  })
+  @Get()
+  async getOrders(@Query() filters: FindOrdersFilterDto): Promise<{
+    data: Order[];
+    limit: number;
+    offset: number;
+    total: number;
+  }> {
+    const { orders, total } = await this.ordersService.findOrdersWithFilters(filters);
+
+    return {
+      data: orders,
+      limit: filters.limit ?? 10,
+      offset: filters.offset ?? 0,
+      total,
+    };
   }
 }
