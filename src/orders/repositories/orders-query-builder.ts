@@ -29,39 +29,62 @@ export class OrdersQueryBuilder {
     queryBuilder.orderBy('order.createdAt', 'DESC').addOrderBy('order.id', 'DESC').take(limit);
   }
 
-  buildFilteredQuery(params: FindOrdersFilterDto): SelectQueryBuilder<Order> {
-    const { endDate, productName, startDate, status, userEmail } = params;
-
-    const queryBuilder = this.orderRepository
+  /**
+   * Builds the main query that joins relations for the paginated order IDs.
+   */
+  buildMainQuery(orderIds: string[]): SelectQueryBuilder<Order> {
+    return this.orderRepository
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.user', 'user')
       .leftJoinAndSelect('order.items', 'orderItem')
-      .leftJoinAndSelect('orderItem.product', 'product');
+      .leftJoinAndSelect('orderItem.product', 'product')
+      .where('order.id IN (:...orderIds)', { orderIds })
+      .orderBy('order.createdAt', 'DESC')
+      .addOrderBy('order.id', 'DESC');
+  }
 
+  /**
+   * Builds a subquery to get paginated order IDs with filters applied.
+   * This ensures LIMIT applies to distinct orders, not joined rows.
+   */
+  buildOrderIdsSubquery(params: FindOrdersFilterDto): SelectQueryBuilder<Order> {
+    const { endDate, productName, startDate, status, userEmail } = params;
+
+    const subquery = this.orderRepository
+      .createQueryBuilder('order')
+      .select('order.id', 'id')
+      .addSelect('order.createdAt', 'createdAt');
+
+    // Apply filters (same as before, but no joins yet)
     if (status) {
-      queryBuilder.andWhere('order.status = :status', { status });
+      subquery.andWhere('order.status = :status', { status });
     }
 
     if (startDate) {
-      queryBuilder.andWhere('order.createdAt >= :startDate', { startDate });
+      subquery.andWhere('order.createdAt >= :startDate', { startDate });
     }
 
     if (endDate) {
-      queryBuilder.andWhere('order.createdAt <= :endDate', { endDate });
+      subquery.andWhere('order.createdAt <= :endDate', { endDate });
     }
 
+    // For user email filter, we need to join users in the subquery
     if (userEmail) {
-      queryBuilder.andWhere('user.email ILIKE :userEmail', {
+      subquery.innerJoin('order.user', 'user').andWhere('user.email ILIKE :userEmail', {
         userEmail: `%${userEmail}%`,
       });
     }
 
+    // For product name filter, we need to join order_items and products in the subquery
     if (productName) {
-      queryBuilder.andWhere('product.title ILIKE :productName', {
-        productName: `%${productName}%`,
-      });
+      subquery
+        .innerJoin('order.items', 'orderItem')
+        .innerJoin('orderItem.product', 'product')
+        .andWhere('product.title ILIKE :productName', {
+          productName: `%${productName}%`,
+        });
     }
 
-    return queryBuilder;
+    return subquery;
   }
 }

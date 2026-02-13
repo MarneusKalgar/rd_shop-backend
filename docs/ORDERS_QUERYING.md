@@ -34,8 +34,8 @@ GET /api/v1/orders?limit=20
 
 // Response includes nextCursor
 {
-  "items": [...],
-  "limit": 20,
+  "data": [...],
+  "limit": 10,
   "nextCursor": "550e8400-e29b-41d4-a716-446655440000"
 }
 
@@ -50,7 +50,7 @@ GET /api/v1/orders?limit=20&cursor=550e8400-e29b-41d4-a716-446655440000
 WHERE (order.createdAt < :cursorDate OR
        (order.createdAt = :cursorDate AND order.id < :cursorId))
 ORDER BY order.createdAt DESC, order.id DESC
-LIMIT 20
+LIMIT 10
 ```
 
 This ensures:
@@ -68,53 +68,94 @@ The API supports multiple filters that can be combined:
 | `status`      | Enum   | Filter by order status                                   | `PAID`, `CREATED`, `CANCELLED`             |
 | `userEmail`   | String | Search by user email (case-insensitive, partial match)   | `john` matches `john@example.com`          |
 | `productName` | String | Search by product name (case-insensitive, partial match) | `headphones` matches `Wireless Headphones` |
-| `startDate`   | Date   | Orders created on or after this date                     | `2024-01-01T00:00:00.000Z`                 |
-| `endDate`     | Date   | Orders created on or before this date                    | `2024-12-31T23:59:59.999Z`                 |
+| `startDate`   | Date   | Orders created on or after this date                     | `2026-01-01T00:00:00.000Z`                 |
+| `endDate`     | Date   | Orders created on or before this date                    | `2026-12-31T23:59:59.999Z`                 |
 | `cursor`      | UUID   | Pagination cursor (ID of last item in previous page)     | `550e8400-e29b-41d4-a716-446655440000`     |
-| `limit`       | Number | Number of results to return (1-100, default: 20)         | `50`                                       |
+| `limit`       | Number | Number of results to return (1-100, default: 10)         | `50`                                       |
 
 **Filter Combinations:**
 
 All filters are optional and can be combined using AND logic:
 
 ```typescript
-GET /api/v1/orders?status=PAID&startDate=2024-01-01&limit=50
-// Returns paid orders created after Jan 1, 2024
+GET /api/v1/orders?status=PAID&startDate=2026-01-01&limit=50
+// Returns paid orders created after Jan 1, 2026
 ```
 
 ### 3. Query Builder Pattern
 
 **Architecture:**
 
-The implementation uses a dedicated `OrdersQueryBuilder` class for query construction:
+The implementation uses a dedicated `OrdersQueryBuilder` class with a **two-step subquery approach** to prevent row explosion from one-to-many joins:
 
 ```typescript
 @Injectable()
 export class OrdersQueryBuilder {
-  buildFilteredQuery(params: FindOrdersFilterDto): SelectQueryBuilder<Order> {
-    const queryBuilder = this.orderRepository
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.user', 'user')
-      .leftJoinAndSelect('order.items', 'orderItem')
-      .leftJoinAndSelect('orderItem.product', 'product');
+  /**
+   * Step 1: Build subquery to get paginated order IDs with filters.
+   * LIMIT applies to distinct orders, not joined rows.
+   */
+  buildOrderIdsSubquery(params: FindOrdersFilterDto): SelectQueryBuilder<Order> {
+    const { status, userEmail, productName, startDate, endDate } = params;
 
-    // Apply filters dynamically
+    const subquery = this.orderRepository
+      .createQueryBuilder('order')
+      .select('order.id', 'id')
+      .addSelect('order.createdAt', 'createdAt');
+
+    // Apply filters (joins only when needed for filtering)
     if (status) {
-      queryBuilder.andWhere('order.status = :status', { status });
+      subquery.andWhere('order.status = :status', { status });
     }
 
     if (userEmail) {
-      queryBuilder.andWhere('user.email ILIKE :userEmail', {
-        userEmail: `%${userEmail}%`,
-      });
+      subquery
+        .innerJoin('order.user', 'user')
+        .andWhere('user.email ILIKE :userEmail', { userEmail: `%${userEmail}%` });
+    }
+
+    if (productName) {
+      subquery
+        .innerJoin('order.items', 'orderItem')
+        .innerJoin('orderItem.product', 'product')
+        .andWhere('product.title ILIKE :productName', { productName: `%${productName}%` });
     }
 
     // ... more filters
 
-    return queryBuilder;
+    return subquery;
+  }
+
+  /**
+   * Step 2: Build main query with all relations for paginated order IDs.
+   */
+  buildMainQuery(orderIds: string[]): SelectQueryBuilder<Order> {
+    return this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.items', 'orderItem')
+      .leftJoinAndSelect('orderItem.product', 'product')
+      .where('order.id IN (:...orderIds)', { orderIds })
+      .orderBy('order.createdAt', 'DESC')
+      .addOrderBy('order.id', 'DESC');
   }
 }
 ```
+
+**Why Two-Step Approach?**
+
+The previous single-query approach had a critical bug: when using `LEFT JOIN` with one-to-many relationships (orders → items → products), the `LIMIT` clause operated on **joined rows**, not distinct orders, causing:
+
+- **Row explosion**: An order with 5 items creates 5 joined rows
+- **Incorrect pagination**: `LIMIT 10` might return only 2-3 orders (depending on item counts)
+- **Invalid cursors**: Skipping or duplicating orders between pages
+
+The subquery approach fixes this by:
+
+1. **Subquery fetches distinct order IDs** with filters applied (no row explosion)
+2. **LIMIT operates on distinct orders**, ensuring exactly `limit` orders per page
+3. **Main query joins relations** only for the paginated order IDs
+4. **Correct cursor calculation** based on actual order count
 
 **Benefits:**
 
@@ -122,10 +163,11 @@ export class OrdersQueryBuilder {
 - **Testability**: Query builder can be tested independently
 - **Reusability**: Query construction logic can be reused
 - **Maintainability**: Easier to modify filter logic
+- **Correctness**: Prevents pagination bugs from row explosion
 
 ### 4. Eager Loading of Relations
 
-The query **always** loads related entities:
+The main query **always** loads related entities for the paginated orders:
 
 ```typescript
 .leftJoinAndSelect('order.user', 'user')           // User who placed the order
@@ -136,77 +178,11 @@ The query **always** loads related entities:
 This ensures:
 
 - No N+1 query problems
-- Complete order information in a single query
+- Complete order information in the main query
 - Predictable performance
+- **No row explosion issues**: Joins applied only after pagination on distinct orders
 
 ## Performance Optimization
-
-### 1. Composite Indexes
-
-From migration `1770927715288-AddOrdersQueryIndexes.ts`:
-
-```sql
--- For user-specific queries (optimizes userEmail filter)
-CREATE INDEX "IDX_orders_user_created"
-ON "orders" ("user_id", "created_at" DESC);
-
--- For status-filtered queries (optimizes status filter)
-CREATE INDEX "IDX_orders_status_created"
-ON "orders" ("status", "created_at" DESC);
-
--- For order items optimization (optimizes joins)
-CREATE INDEX "IDX_order_items_order_product"
-ON "order_items" ("order_id", "product_id");
-```
-
-**Index Selection:**
-
-PostgreSQL automatically selects the most appropriate index based on the query:
-
-- **Query with status filter** → Uses `IDX_orders_status_created`
-- **Query with user filter** → Uses `IDX_orders_user_created`
-- **Query with both** → Uses the more selective one
-- **Query with product filter** → Joins use `IDX_order_items_order_product`
-
-**Performance Improvements:**
-
-From [QUERY_OPTIMIZATION.md](QUERY_OPTIMIZATION.md):
-
-- **90-95% faster** query execution
-- **95-99% fewer** rows scanned
-- **10x faster** joins (Nested Loop vs Hash Join)
-
-See the full analysis in [QUERY_OPTIMIZATION.md](QUERY_OPTIMIZATION.md).
-
-### 2. Query Execution Strategy
-
-```typescript
-async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
-  const { cursor, limit = 10 } = params;
-
-  // 1. Build filtered query
-  const queryBuilder = this.ordersQueryBuilder.buildFilteredQuery(params);
-
-  // 2. Apply cursor pagination if present
-  if (cursor) {
-    const cursorOrder = await this.ordersRepository.findByCursor(cursor);
-    if (cursorOrder) {
-      this.ordersQueryBuilder.applyCursorPagination(queryBuilder, cursorOrder);
-    }
-  }
-
-  // 3. Apply ordering and limit
-  this.ordersQueryBuilder.applyOrderingAndLimit(queryBuilder, limit);
-
-  // 4. Execute query (single database round-trip)
-  const orders = await queryBuilder.getMany();
-
-  // 5. Calculate next cursor
-  const nextCursor = orders.length === limit ? orders[orders.length - 1].id : null;
-
-  return { nextCursor, orders };
-}
-```
 
 **Optimization Points:**
 
@@ -223,19 +199,9 @@ The total count is intentionally omitted to optimize query performance. For curs
 - Caching the count with a reasonable TTL
 - Using approximate counts for large datasets
 
-### 3. Limit Constraints
-
-```typescript
-@IsInt()
-@Max(100)
-@Min(1)
-@Type(() => Number)
-limit?: number;
-```
-
 **Rationale:**
 
-- **Default: 20** - Balances response size and API calls
+- **Default: 10** - Balances response size and API calls
 - **Min: 1** - Prevents empty queries
 - **Max: 100** - Protects against excessive memory usage and slow queries
 - **Type coercion** - Handles string query parameters
@@ -245,7 +211,7 @@ limit?: number;
 ### Basic Usage
 
 ```bash
-# Get first page of orders (default limit: 20)
+# Get first page of orders (default limit: 10)
 curl -X GET "http://localhost:3000/api/v1/orders"
 
 # Custom limit
@@ -265,11 +231,11 @@ curl -X GET "http://localhost:3000/api/v1/orders?status=CREATED"
 ### Date Range Filtering
 
 ```bash
-# Orders from January 2024
-curl -X GET "http://localhost:3000/api/v1/orders?startDate=2024-01-01T00:00:00.000Z&endDate=2024-01-31T23:59:59.999Z"
+# Orders from January 2026
+curl -X GET "http://localhost:3000/api/v1/orders?startDate=2026-01-01T00:00:00.000Z&endDate=2026-01-31T23:59:59.999Z"
 
 # Orders in the last 30 days
-curl -X GET "http://localhost:3000/api/v1/orders?startDate=2024-11-01T00:00:00.000Z"
+curl -X GET "http://localhost:3000/api/v1/orders?startDate=2026-11-01T00:00:00.000Z"
 ```
 
 ### Searching by User
@@ -293,11 +259,11 @@ curl -X GET "http://localhost:3000/api/v1/orders?productName=laptop"
 ### Combined Filters
 
 ```bash
-# Paid orders for a specific user in 2024
-curl -X GET "http://localhost:3000/api/v1/orders?status=PAID&userEmail=john&startDate=2024-01-01T00:00:00.000Z"
+# Paid orders for a specific user in 2026
+curl -X GET "http://localhost:3000/api/v1/orders?status=PAID&userEmail=john&startDate=2026-01-01T00:00:00.000Z"
 
-# Orders containing "headphones" in December 2024
-curl -X GET "http://localhost:3000/api/v1/orders?productName=headphones&startDate=2024-12-01T00:00:00.000Z&endDate=2024-12-31T23:59:59.999Z"
+# Orders containing "headphones" in December 2026
+curl -X GET "http://localhost:3000/api/v1/orders?productName=headphones&startDate=2026-12-01T00:00:00.000Z&endDate=2026-12-31T23:59:59.999Z"
 ```
 
 ### Pagination
@@ -308,8 +274,8 @@ curl -X GET "http://localhost:3000/api/v1/orders?limit=20"
 
 # Response:
 {
-  "items": [...],
-  "limit": 20,
+  "data": [...],
+  "limit": 10,
   "nextCursor": "550e8400-e29b-41d4-a716-446655440000"
 }
 
@@ -325,14 +291,14 @@ curl -X GET "http://localhost:3000/api/v1/orders?limit=20&cursor=550e8400-e29b-4
 
 ```json
 {
-  "items": [
+  "data": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "userId": "user-uuid",
       "status": "PAID",
       "idempotencyKey": "client-key-123",
-      "createdAt": "2024-12-01T10:30:00.000Z",
-      "updatedAt": "2024-12-01T10:30:05.000Z",
+      "createdAt": "2026-12-01T10:30:00.000Z",
+      "updatedAt": "2026-12-01T10:30:05.000Z",
       "user": {
         "id": "user-uuid",
         "email": "john@example.com",
@@ -356,7 +322,7 @@ curl -X GET "http://localhost:3000/api/v1/orders?limit=20&cursor=550e8400-e29b-4
       ]
     }
   ],
-  "limit": 20,
+  "limit": 10,
   "nextCursor": "550e8400-e29b-41d4-a716-446655440001"
 }
 ```

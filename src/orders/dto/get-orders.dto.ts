@@ -25,9 +25,9 @@ export class FindOrdersFilterDto {
   endDate?: Date;
 
   @ApiProperty({
-    default: 20,
+    default: 10,
     description: 'Number of results to return',
-    example: 20,
+    example: 10,
     maximum: 100,
     minimum: 1,
     required: false,

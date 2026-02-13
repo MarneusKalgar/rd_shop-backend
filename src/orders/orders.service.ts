@@ -136,21 +136,31 @@ export class OrdersService {
   async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
     const { cursor, limit = 10 } = params;
 
-    const queryBuilder = this.ordersQueryBuilder.buildFilteredQuery(params);
+    const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(params);
 
     if (cursor) {
       const cursorOrder = await this.ordersRepository.findByCursor(cursor);
-      if (cursorOrder) {
-        this.ordersQueryBuilder.applyCursorPagination(queryBuilder, cursorOrder);
+      if (!cursorOrder) {
+        throw new BadRequestException(`Invalid cursor: no order found for id "${cursor}"`);
       }
+
+      this.ordersQueryBuilder.applyCursorPagination(subquery, cursorOrder);
     }
 
-    this.ordersQueryBuilder.applyOrderingAndLimit(queryBuilder, limit);
+    this.ordersQueryBuilder.applyOrderingAndLimit(subquery, limit);
 
     // Using getMany() here to match cursor pagination logic
     // and avoid performance issues with getManyAndCount() on complex queries.
     // Total count can be added in the future if needed.
-    const orders = await queryBuilder.getMany();
+    const paginatedOrders: { createdAt: Date; id: string }[] = await subquery.getRawMany();
+    if (!paginatedOrders.length) {
+      return { nextCursor: null, orders: [] };
+    }
+
+    const orderIds = paginatedOrders.map((row) => row.id);
+    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds);
+    const orders = await mainQuery.getMany();
+
     const nextCursor = orders.length === limit ? orders[orders.length - 1].id : null;
 
     return { nextCursor, orders };
