@@ -4,7 +4,7 @@ import { Client } from 'pg';
 
 config({ path: `.env.${process.env.NODE_ENV}` });
 
-interface PgCLient {
+interface PgClient {
   connect();
   end();
   query(sql: string): Promise<SQLResult>;
@@ -15,7 +15,7 @@ interface SQLResult {
 }
 
 async function runSqlFile(filePath: string) {
-  const client: PgCLient = new Client({
+  const client: PgClient = new Client({
     connectionString: process.env.DATABASE_URL,
     ssl: {
       rejectUnauthorized: false, // Neon uses SSL

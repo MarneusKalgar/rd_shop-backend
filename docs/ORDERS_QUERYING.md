@@ -21,6 +21,7 @@ This document describes the order querying and filtering system, which provides 
 
 - Cannot jump to arbitrary pages
 - No total page count available
+- No total count of matching records (optimized for performance)
 - Slightly more complex client implementation
 
 **Implementation:**
@@ -34,7 +35,6 @@ GET /api/v1/orders?limit=20
 // Response includes nextCursor
 {
   "items": [...],
-  "total": 150,
   "limit": 20,
   "nextCursor": "550e8400-e29b-41d4-a716-446655440000"
 }
@@ -199,12 +199,12 @@ async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWith
   this.ordersQueryBuilder.applyOrderingAndLimit(queryBuilder, limit);
 
   // 4. Execute query (single database round-trip)
-  const [orders, total] = await queryBuilder.getManyAndCount();
+  const orders = await queryBuilder.getMany();
 
   // 5. Calculate next cursor
   const nextCursor = orders.length === limit ? orders[orders.length - 1].id : null;
 
-  return { nextCursor, orders, total };
+  return { nextCursor, orders };
 }
 ```
 
@@ -212,8 +212,16 @@ async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWith
 
 1. **Cursor lookup**: Separate lightweight query (only fetches `id` and `createdAt`)
 2. **Single main query**: All data fetched in one database round-trip
-3. **getManyAndCount()**: Efficiently executes both count and data queries
+3. **getMany()**: Efficiently fetches paginated results without counting total
 4. **Conditional cursor**: Only calculates next cursor if more data exists
+
+**Note on Total Count:**
+
+The total count is intentionally omitted to optimize query performance. For cursor-based pagination, knowing the total count is less critical than offset-based pagination, and calculating it adds overhead on large datasets. If total count is needed for specific use cases, consider:
+
+- Implementing a separate analytics endpoint
+- Caching the count with a reasonable TTL
+- Using approximate counts for large datasets
 
 ### 3. Limit Constraints
 
@@ -301,7 +309,6 @@ curl -X GET "http://localhost:3000/api/v1/orders?limit=20"
 # Response:
 {
   "items": [...],
-  "total": 150,
   "limit": 20,
   "nextCursor": "550e8400-e29b-41d4-a716-446655440000"
 }
@@ -349,7 +356,6 @@ curl -X GET "http://localhost:3000/api/v1/orders?limit=20&cursor=550e8400-e29b-4
       ]
     }
   ],
-  "total": 150,
   "limit": 20,
   "nextCursor": "550e8400-e29b-41d4-a716-446655440001"
 }
@@ -358,9 +364,10 @@ curl -X GET "http://localhost:3000/api/v1/orders?limit=20&cursor=550e8400-e29b-4
 **Fields:**
 
 - `items`: Array of order objects with full relations
-- `total`: Total number of orders matching filters (across all pages)
 - `limit`: Number of items per page
 - `nextCursor`: Pagination cursor for next page (null if last page)
+
+**Note:** The response does not include a `total` count. This is an intentional design decision for cursor-based pagination to optimize query performance. Calculating total count on large datasets can be expensive, and for cursor pagination it's less critical than for offset pagination. If you need the total count for analytics or UI purposes, consider implementing a separate dedicated endpoint.
 
 ### Error Response (HTTP 400)
 
@@ -371,116 +378,6 @@ curl -X GET "http://localhost:3000/api/v1/orders?limit=20&cursor=550e8400-e29b-4
   "error": "Bad Request"
 }
 ```
-
-## Query Cost Analysis
-
-### Without Filters
-
-```sql
-SELECT order.*, user.*, orderItem.*, product.*
-FROM orders AS order
-LEFT JOIN users AS user ON order.user_id = user.id
-LEFT JOIN order_items AS orderItem ON orderItem.order_id = order.id
-LEFT JOIN products AS product ON orderItem.product_id = product.id
-ORDER BY order.created_at DESC, order.id DESC
-LIMIT 20;
-```
-
-**Cost:**
-
-- Index scan on `IDX_orders_created_at`
-- Nested loop joins for relations
-- **~10-20ms** for 20 orders with 50 items total
-
-### With Status Filter
-
-```sql
--- Uses IDX_orders_status_created composite index
-WHERE order.status = 'PAID'
-ORDER BY order.created_at DESC, order.id DESC
-```
-
-**Cost:**
-
-- Index scan on `IDX_orders_status_created` (highly selective)
-- Scans only matching status
-- **~5-10ms** for 20 orders
-
-### With User Email Filter
-
-```sql
--- Uses IDX_orders_user_created after user lookup
-WHERE user.email ILIKE '%john%'
-ORDER BY order.created_at DESC, order.id DESC
-```
-
-**Cost:**
-
-- User lookup via `users.email` unique index
-- Index scan on `IDX_orders_user_created` for that user
-- **~10-15ms** for 20 orders
-
-See [QUERY_OPTIMIZATION.md](QUERY_OPTIMIZATION.md) for detailed EXPLAIN ANALYZE output.
-
-## Performance Considerations
-
-### 1. Database Indexes
-
-**Required Indexes:**
-
-- ✅ `IDX_orders_user_created` - For user-specific queries
-- ✅ `IDX_orders_status_created` - For status filtering
-- ✅ `IDX_order_items_order_product` - For join optimization
-- ✅ `users.email` unique constraint - For email lookups
-
-**Index Maintenance:**
-
-- Indexes are updated automatically on writes
-- Write performance impact: ~5-10% slower inserts
-- Read performance benefit: **90-95% faster**
-- Perfect trade-off for read-heavy e-commerce workloads
-
-### 2. Query Optimization Tips
-
-**Do:**
-
-- ✅ Use pagination (don't fetch all orders at once)
-- ✅ Apply specific filters when possible (status, user)
-- ✅ Use date ranges to limit result sets
-- ✅ Keep limit reasonable (≤100)
-
-**Don't:**
-
-- ❌ Fetch without limit
-- ❌ Use broad text searches without other filters
-- ❌ Request excessive page sizes
-- ❌ Implement client-side filtering
-
-### 3. Caching Strategy (Future)
-
-**Potential Optimizations:**
-
-1. **Cache total counts** for common filter combinations
-2. **Cache first page** of common queries (TTL: 30s)
-3. **Redis for hot queries** (admin dashboards)
-4. **Materialized views** for analytics
-
-**Current Status:** No caching implemented (premature optimization)
-
-### 4. Scalability
-
-**Current Capacity:**
-
-- Handles **10,000+ orders** efficiently
-- Sub-20ms query times
-- Linear performance degradation
-
-**Scaling Beyond 100K Orders:**
-
-1. **Read replicas**: Route queries to replicas
-2. **Partitioning**: Partition orders table by date
-3. **Archive old data**: Move old orders to separate table
-4. **Elasticsearch**: For advanced text search
 
 ## Testing
 
@@ -512,110 +409,7 @@ ab -n 1000 -c 10 "http://localhost:3000/api/v1/orders?limit=20"
 # - No errors
 ```
 
-## Security Considerations
-
-### 1. Authorization (TODO)
-
-**Current Status:** No authorization implemented
-
-**Required Before Production:**
-
-```typescript
-@UseGuards(AuthGuard)
-@Get()
-async getOrders(@User() user: User, @Query() filters: FindOrdersFilterDto) {
-  // Admin: can see all orders
-  // User: can only see their own orders
-  if (!user.isAdmin) {
-    filters.userId = user.id; // Force filter to user's own orders
-  }
-
-  return await this.ordersService.findOrdersWithFilters(filters);
-}
-```
-
-### 2. Rate Limiting
-
-**Recommendation:**
-
-```typescript
-@UseGuards(ThrottlerGuard)
-@Throttle(100, 60) // 100 requests per minute
-@Get()
-async getOrders(@Query() filters: FindOrdersFilterDto) {
-  // ...
-}
-```
-
-### 3. Input Validation
-
-**Current Protections:**
-
-- ✅ DTO validation (class-validator)
-- ✅ Type coercion (class-transformer)
-- ✅ Enum validation for status
-- ✅ UUID validation for cursor
-- ✅ Range validation for limit (1-100)
-
-**SQL Injection:**
-
-- ✅ Protected by TypeORM parameterized queries
-- ✅ ILIKE searches use parameterized values
-
 ## Related Documentation
 
 - [ORDERS_IMPLEMENTATION.md](ORDERS_IMPLEMENTATION.md) - Order creation with idempotency and transactions
 - [QUERY_OPTIMIZATION.md](QUERY_OPTIMIZATION.md) - Detailed query performance analysis and SQL optimization
-
-## Future Enhancements
-
-### 1. Advanced Filtering
-
-- Filter by price range
-- Filter by number of items
-- Filter by total order value
-- Full-text search across multiple fields
-
-### 2. Sorting Options
-
-Currently fixed to `createdAt DESC`. Could add:
-
-- Sort by total price
-- Sort by user name
-- Sort by status
-
-### 3. Export Functionality
-
-```typescript
-GET /api/v1/orders/export?format=csv&status=PAID
-```
-
-### 4. Real-time Updates
-
-- WebSocket notifications for new orders
-- Server-Sent Events for order status changes
-- Push notifications for mobile apps
-
-### 5. Analytics Endpoints
-
-```typescript
-GET / api / v1 / orders / stats;
-// Returns: total revenue, order count by status, top products, etc.
-```
-
-## Monitoring Recommendations
-
-**Metrics to Track:**
-
-1. **Query performance**: Average/p99 response time
-2. **Cache hit rate**: If caching is implemented
-3. **Most common filters**: Optimize indexes for these
-4. **Slow query log**: Identify problematic queries
-5. **API usage by endpoint**: Track query patterns
-
-**Alerts:**
-
-- Query time > 100ms (p99)
-- High error rate (>1%)
-- Excessive limit values
-- Unusual filter combinations

@@ -74,7 +74,7 @@ return await this.dataSource.transaction(async (manager) => {
 **Operations within transaction:**
 
 1. Set PostgreSQL timeouts (statement_timeout, lock_timeout)
-2. Lock products with pessimistic locking (FOR NO KEY UPDATE)
+2. Lock products with pessimistic locking (FOR UPDATE)
 3. Validate products are active and have sufficient stock
 4. Update product stock
 5. Create order
@@ -84,7 +84,16 @@ return await this.dataSource.transaction(async (manager) => {
 
 ### 3. Concurrency Control - Pessimistic Locking
 
-**Chosen Approach:** Pessimistic Locking with PostgreSQL `FOR NO KEY UPDATE`
+**Chosen Approach:** Pessimistic Locking with PostgreSQL `FOR UPDATE`
+
+**Implementation:**
+
+```typescript
+const products = await this.productsRepository.findByIdsWithLock(manager, productIds);
+
+// Internally uses TypeORM's 'pessimistic_write' lock mode:
+// .setLock('pessimistic_write') → FOR UPDATE
+```
 
 **Why Pessimistic Locking?**
 
@@ -93,7 +102,10 @@ return await this.dataSource.transaction(async (manager) => {
 - **Strong guarantees**: Prevents race conditions at database level
 - **No retry logic**: Simpler code, predictable behavior
 - **Immediate consistency**: Stock is always accurate
-- **PostgreSQL optimized**: `FOR NO KEY UPDATE` allows concurrent reads and foreign key references
+- **PostgreSQL optimized**: `FOR UPDATE` allows concurrent reads and foreign key references
+  - Concurrent reads (SELECT without locks)
+  - Foreign key references (other tables can reference locked rows)
+  - Better performance vs `FOR UPDATE` in high-concurrency scenarios
 - **Better for high contention**: When multiple users order the same product simultaneously
 
 ❌ **Cons:**
@@ -101,14 +113,14 @@ return await this.dataSource.transaction(async (manager) => {
 - May increase waiting time under extreme load
 - Requires careful lock management
 
-**Alternative Considered:** Optimistic Concurrency
+**Decision Rationale:**
 
-Would require:
+Pessimistic locking was chosen over optimistic concurrency because:
 
-- Adding `version` column to Product
-- Retry logic (2-3 attempts)
-- Handling version conflicts
-- Better for low contention scenarios
+- This is an e-commerce system with high contention on popular products
+- Strong consistency guarantees are critical for stock management
+- Simpler implementation without retry logic reduces complexity
+- Predictable behavior is more important than theoretical throughput
 
 **Implementation:**
 
@@ -116,7 +128,7 @@ Would require:
 const productRepo = manager.getRepository(Product);
 const products = await productRepo
   .createQueryBuilder('product')
-  .setLock('pessimistic_write') // FOR NO KEY UPDATE in PostgreSQL
+  .setLock('pessimistic_write')
   .where('product.id IN (:...ids)', { ids: productIds })
   .getMany();
 ```
@@ -272,7 +284,6 @@ Check that it includes:
 
 - `ADD COLUMN idempotency_key` with UNIQUE constraint
 - `ADD COLUMN stock` with DEFAULT 0
-- `ADD COLUMN version` with DEFAULT 1
 
 ### 3. Run Migration
 

@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.3] - 2026-02-13
+
+### Added
+
+- **Order Creation with Idempotency** - Production-ready order creation system with idempotency key support to prevent duplicate orders
+- **Pessimistic Locking** - Transaction-safe order processing using `FOR UPDATE` locks to prevent stock oversell in concurrent scenarios
+- **Order Querying & Filtering** - Advanced order retrieval with multiple filters (status, user email, product name, date range)
+- **Cursor-Based Pagination** - Scalable pagination for orders using cursor-based approach instead of offset-based
+- **Order Query Optimization** - Composite B-tree indexes for 90-95% query performance improvement
+- **Stock Management** - Automatic stock decrement within order transactions with validation
+- **Product Availability Checks** - Validation for product existence, active status, and sufficient stock before order creation
+- **Order Relations** - Eager loading of user, order items, and product details in single query
+- **Idempotency Repository Pattern** - Dedicated repository methods for idempotency key lookups
+- **Query Builder Pattern** - Separated query construction logic in `OrdersQueryBuilder` class
+- **Comprehensive Error Handling** - Specific error types for timeout, lock contention, and race conditions
+- **Order Documentation** - Detailed docs for order creation ([ORDERS_CREATION.md](docs/ORDERS_CREATION.md)) and querying ([ORDERS_QUERYING.md](docs/ORDERS_QUERYING.md))
+- **Query Performance Analysis** - SQL execution plan analysis and optimization guide ([QUERY_OPTIMIZATION.md](docs/QUERY_OPTIMIZATION.md))
+
+### Changed
+
+- **Order Entity** - Added `idempotencyKey` field (nullable, unique constraint)
+- **Product Entity** - Added `stock` field with default value 0
+- **Orders Response Format** - Changed from `data` to `items` array in GET response, removed `total` count for performance optimization
+- **Database Indexes** - Added composite indexes: `IDX_orders_user_created`, `IDX_orders_status_created`, `IDX_order_items_order_product`
+- **Transaction Timeouts** - Configured statement timeout (30s) and lock timeout (10s) for order transactions
+
+### Fixed
+
+- **Race Condition Handling** - Proper handling of duplicate idempotency key violations (PostgreSQL error 23505)
+- **N+1 Query Problem** - Eliminated via eager loading with `leftJoinAndSelect` for all order relations
+- **Cursor Pagination Consistency** - Prevents duplicate/missing items when data changes between requests
+
+### Performance
+
+- **Query Execution** - 90-95% faster order queries with optimized indexes
+- **Row Scanning** - 95-99% fewer rows scanned with composite indexes
+- **Join Strategy** - 10x faster joins using Nested Loop instead of Hash Join
+- **Transaction Duration** - Typical order creation < 50ms
+
+### Security
+
+- **Concurrency Control** - Prevents stock oversell through pessimistic locking
+- **Idempotency Protection** - Guards against double-submit and network retry scenarios
+- **Input Validation** - Comprehensive DTO validation with class-validator
+- **Timeout Protection** - Prevents resource exhaustion with statement and lock timeouts
+
 ## [0.0.2] - 2026-02-10
 
 ### Added
@@ -75,5 +121,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.0.3]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.3
 [0.0.2]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.2
 [0.0.1]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.1

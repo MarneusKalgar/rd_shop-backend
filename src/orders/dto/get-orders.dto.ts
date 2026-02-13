@@ -84,7 +84,7 @@ export class GetOrdersResponseDto {
     description: 'List of orders matching the filters',
     type: [Order], // You can replace Object with a more specific OrderDto if you have one
   })
-  items: Order[];
+  data: Order[];
 
   @ApiProperty({
     description: 'Number of items per page',
@@ -104,13 +104,4 @@ export class GetOrdersResponseDto {
   @IsOptional()
   @IsUUID()
   nextCursor?: null | string;
-
-  @ApiProperty({
-    description: 'Total number of orders matching the filters (ignoring pagination)',
-    example: 100,
-  })
-  @IsInt()
-  @IsOptional()
-  @Type(() => Number)
-  total: number;
 }

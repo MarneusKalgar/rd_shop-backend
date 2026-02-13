@@ -4,7 +4,6 @@ import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
 
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
-import { TransformInterceptor } from './common/interceptors';
 import { getLogLevels } from './config';
 import { getEnvVariable, safeClose, setupProcessErrorHandlers } from './core';
 import { setupSwagger } from './core/swagger';
@@ -32,8 +31,6 @@ async function bootstrap() {
     });
 
     app.useGlobalFilters(new GlobalExceptionFilter());
-
-    app.useGlobalInterceptors(new TransformInterceptor());
 
     app.useGlobalPipes(
       new ValidationPipe({

@@ -10,10 +10,8 @@ import { map } from 'rxjs/operators';
  */
 export type Response<T> = Record<string, number | string | T>;
 
-export interface ServiceResponse<T> {
-  data: Record<string, number | string | T>;
-}
-
+// NOTE: Currently isn't used. Consider removing or implementing in the future
+// if needed for consistent response formatting across the app.
 /**
  * Interceptor that transforms all responses to a standardized format.
  * Wraps the response data in a `Response<T>` object with a `data` property.

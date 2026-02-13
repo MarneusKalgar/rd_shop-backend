@@ -13,6 +13,9 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { MAX_ORDER_QUANTITY } from '../constants';
+import { Order } from '../order.entity';
+
 export class CreateOrderItemDto {
   @ApiProperty({
     description: 'ID of the product to order',
@@ -27,7 +30,7 @@ export class CreateOrderItemDto {
     example: 1,
   })
   @IsInt()
-  @Max(10000, { message: 'Quantity cannot exceed 10,000' })
+  @Max(MAX_ORDER_QUANTITY, { message: `Quantity cannot exceed ${MAX_ORDER_QUANTITY}` })
   @Min(1)
   quantity: number;
 }
@@ -61,4 +64,12 @@ export class CreateOrderDto {
   @IsNotEmpty()
   @IsUUID()
   userId: string;
+}
+
+export class CreateOrderResponseDto {
+  @ApiProperty({
+    description: 'The created order',
+    type: Object,
+  })
+  data: Order;
 }
