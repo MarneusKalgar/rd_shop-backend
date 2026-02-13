@@ -8,10 +8,10 @@ import { map } from 'rxjs/operators';
  * @property data - The response data payload
  * @todo Extend in the future to include metadata, pagination, etc.
  */
-export interface Response<T> {
-  data: T;
-}
+export type Response<T> = Record<string, number | string | T>;
 
+// NOTE: Currently isn't used. Consider removing or implementing in the future
+// if needed for consistent response formatting across the app.
 /**
  * Interceptor that transforms all responses to a standardized format.
  * Wraps the response data in a `Response<T>` object with a `data` property.
@@ -27,9 +27,17 @@ export class TransformInterceptor<T> implements NestInterceptor<T, Response<T>> 
    */
   intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
     return next.handle().pipe(
-      map((data: T) => ({
-        data,
-      })),
+      map((data: Response<T>) => {
+        if ('items' in data) {
+          const { items, ...rest } = data;
+          return {
+            data: items,
+            ...rest,
+          };
+        }
+
+        return data;
+      }),
     );
   }
 }

@@ -5,7 +5,7 @@ import { DatabaseAdapterFactory } from '@/db/adapters';
 
 config({ path: `.env.${process.env.NODE_ENV}` });
 
-// Validate DATABASE_URL is available
+// Validate DATABASE_URL is available before initializing the data source
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is not set');
 }

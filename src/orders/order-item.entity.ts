@@ -6,6 +6,7 @@ import { Order } from './order.entity';
 @Entity('order_items')
 @Index('IDX_order_items_order_id', ['orderId'])
 @Index('IDX_order_items_product_id', ['productId'])
+@Index('IDX_order_items_order_product', ['orderId', 'productId'])
 export class OrderItem {
   @PrimaryGeneratedColumn('uuid')
   id: string;
