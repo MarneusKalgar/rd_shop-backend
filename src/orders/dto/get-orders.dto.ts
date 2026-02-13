@@ -1,10 +1,18 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDate, IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsDate, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 import { Order, OrderStatus } from '../order.entity';
 
 export class FindOrdersFilterDto {
+  @ApiPropertyOptional({
+    description: 'Cursor for pagination (order ID to start after)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @IsOptional()
+  @IsUUID()
+  cursor?: string;
+
   @ApiProperty({
     description: 'Filter orders created before this date',
     example: '2024-12-31T23:59:59.999Z',
@@ -30,19 +38,6 @@ export class FindOrdersFilterDto {
   @Min(1)
   @Type(() => Number)
   limit?: number;
-
-  @ApiProperty({
-    default: 0,
-    description: 'Number of results to skip (for pagination)',
-    example: 0,
-    minimum: 0,
-    required: false,
-  })
-  @IsInt()
-  @IsOptional()
-  @Min(0)
-  @Type(() => Number)
-  offset?: number;
 
   @ApiProperty({
     description: 'Search by product name (case-insensitive, partial match)',
@@ -92,20 +87,30 @@ export class GetOrdersResponseDto {
   items: Order[];
 
   @ApiProperty({
-    description: 'Current page number',
-    example: 1,
-  })
-  page: number;
-
-  @ApiProperty({
     description: 'Number of items per page',
-    example: 20,
+    example: 10,
   })
-  perPage: number;
+  @IsInt()
+  @IsOptional()
+  @Max(100)
+  @Min(1)
+  @Type(() => Number)
+  limit: number;
+
+  @ApiPropertyOptional({
+    description: 'Cursor for pagination (order ID to start after)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @IsOptional()
+  @IsUUID()
+  nextCursor?: null | string;
 
   @ApiProperty({
     description: 'Total number of orders matching the filters (ignoring pagination)',
     example: 100,
   })
+  @IsInt()
+  @IsOptional()
+  @Type(() => Number)
   total: number;
 }

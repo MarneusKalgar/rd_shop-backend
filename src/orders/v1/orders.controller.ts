@@ -50,12 +50,13 @@ export class OrdersController {
   })
   @Get()
   async getOrders(@Query() filters: FindOrdersFilterDto): Promise<GetOrdersResponseDto> {
-    const { orders, total } = await this.ordersService.findOrdersWithFilters(filters);
+    const { nextCursor, orders, total } = await this.ordersService.findOrdersWithFilters(filters);
 
     return {
       items: orders,
-      page: filters.offset ? Math.floor(filters.offset / (filters.limit ?? 10)) + 1 : 1,
-      perPage: filters.limit ?? 10,
+      // page: filters.offset ? Math.floor(filters.offset / (filters.limit ?? 10)) + 1 : 1,
+      limit: filters.limit ?? 10,
+      nextCursor,
       total,
     };
   }

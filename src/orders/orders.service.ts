@@ -13,6 +13,7 @@ import { User } from '../users/user.entity';
 import { CreateOrderDto, FindOrdersFilterDto } from './dto';
 import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
+import { FindOrdersWithFiltersResponse } from './types';
 
 @Injectable()
 export class OrdersService {
@@ -195,16 +196,31 @@ export class OrdersService {
     }
   }
 
-  async findOrdersWithFilters(
-    params: FindOrdersFilterDto,
-  ): Promise<{ orders: Order[]; total: number }> {
-    const { endDate, limit = 10, offset = 0, productName, startDate, status, userEmail } = params;
+  async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
+    const { cursor, endDate, limit = 10, productName, startDate, status, userEmail } = params;
 
     const queryBuilder = this.orderRepository
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.user', 'user')
       .leftJoinAndSelect('order.items', 'orderItem')
       .leftJoinAndSelect('orderItem.product', 'product');
+
+    if (cursor) {
+      const cursorOrder = await this.orderRepository.findOne({
+        select: ['createdAt', 'id'],
+        where: { id: cursor },
+      });
+
+      if (cursorOrder) {
+        queryBuilder.andWhere(
+          '(order.createdAt < :cursorDate OR (order.createdAt = :cursorDate AND order.id < :cursorId))',
+          {
+            cursorDate: cursorOrder.createdAt,
+            cursorId: cursor,
+          },
+        );
+      }
+    }
 
     if (status) {
       queryBuilder.andWhere('order.status = :status', { status });
@@ -229,12 +245,15 @@ export class OrdersService {
       });
     }
 
-    queryBuilder.orderBy('order.createdAt', 'DESC');
-
-    queryBuilder.skip(offset).take(limit);
+    queryBuilder
+      .orderBy('order.createdAt', 'DESC')
+      .addOrderBy('order.id', 'DESC') // Secondary sort for deterministic ordering
+      .take(limit);
 
     const [orders, total] = await queryBuilder.getManyAndCount();
 
-    return { orders, total };
+    const nextCursor = orders.length === limit ? orders[orders.length - 1].id : null;
+
+    return { nextCursor, orders, total };
   }
 }
