@@ -32,21 +32,113 @@ Added targeted composite B-tree indexes to optimize common query patterns.
 
 ## Indexes Added
 
-### Composite B-tree Indexes
+### Composite B-tree Indexes (Optimization Focus)
+
+These are the **new indexes** added specifically for query optimization:
 
 ```sql
--- Index for user-specific order queries
+-- Index for user-specific order queries (NEW)
 CREATE INDEX "IDX_orders_user_created"
 ON "orders" ("user_id", "created_at" DESC);
 
--- Index for status-filtered order queries
+-- Index for status-filtered order queries (NEW)
 CREATE INDEX "IDX_orders_status_created"
 ON "orders" ("status", "created_at" DESC);
 
--- Index for order items JOIN optimization
+-- Index for order items JOIN optimization (NEW)
 CREATE INDEX "IDX_order_items_order_product"
 ON "order_items" ("order_id", "product_id");
 ```
+
+### Existing Indexes (Already Present)
+
+These indexes were created during initial schema setup and support the optimized queries:
+
+```sql
+-- Orders table (support fallback queries and basic operations)
+CREATE INDEX "IDX_orders_user_id" ON "orders" ("user_id");
+CREATE INDEX "IDX_orders_created_at" ON "orders" ("created_at");
+
+-- Order items table (support CASCADE deletes and JOINs)
+CREATE INDEX "IDX_order_items_order_id" ON "order_items" ("order_id");
+CREATE INDEX "IDX_order_items_product_id" ON "order_items" ("product_id");
+
+-- Users table (critical for email lookups)
+CREATE UNIQUE INDEX "IDX_users_email_unique" ON "users" ("email");
+
+-- Products table (business constraint + lookups)
+CREATE UNIQUE INDEX "IDX_products_title_unique" ON "products" ("title");
+```
+
+### Complete Index Inventory
+
+**Orders Table (5 indexes):**
+
+- `id` - Primary key (automatic)
+- `IDX_orders_user_id` - Single column index on `user_id`
+- `IDX_orders_created_at` - Single column index on `created_at`
+- `IDX_orders_user_created` - Composite: `(user_id, created_at DESC)`
+- `IDX_orders_status_created` - Composite: `(status, created_at DESC)`
+
+**Order Items Table (4 indexes):**
+
+- `id` - Primary key (automatic)
+- `IDX_order_items_order_id` - Foreign key index
+- `IDX_order_items_product_id` - Foreign key index
+- `IDX_order_items_order_product` - Composite: `(order_id, product_id)`
+
+**Users Table (2 indexes):**
+
+- `id` - Primary key (automatic)
+- `IDX_users_email_unique` - Unique constraint on `email`
+
+**Products Table (2 indexes):**
+
+- `id` - Primary key (automatic)
+- `IDX_products_title_unique` - Unique constraint on `title`
+
+### Index Selection Strategy
+
+PostgreSQL's query planner automatically selects the most appropriate index based on:
+
+1. **Filter selectivity**: How many rows match the filter
+2. **Index coverage**: Does the index cover all filter columns?
+3. **Sort order**: Does the index match ORDER BY direction?
+4. **Statistics**: Table size, data distribution, correlation
+
+**Query Pattern Examples:**
+
+| Query Pattern                          | Selected Index              | Reason                        |
+| -------------------------------------- | --------------------------- | ----------------------------- |
+| `WHERE user_id = ? AND created_at > ?` | `IDX_orders_user_created`   | Composite covers both filters |
+| `WHERE user_id = ?` (no date)          | `IDX_orders_user_id`        | Single-column sufficient      |
+| `WHERE status = ? AND created_at > ?`  | `IDX_orders_status_created` | Composite covers both filters |
+| `ORDER BY created_at DESC` (no filter) | `IDX_orders_created_at`     | Matches sort order            |
+| `WHERE email = ?`                      | `IDX_users_email_unique`    | Unique index = instant lookup |
+| JOIN on `order_items.order_id`         | `IDX_order_items_order_id`  | Foreign key index             |
+
+**Why Single-Column Indexes Matter:**
+
+Even though composite indexes exist, PostgreSQL may prefer single-column indexes when:
+
+- Only one column is filtered (composite index has overhead)
+- The single-column index has better statistics
+- The query doesn't benefit from the composite structure
+
+### Migration History
+
+**Phase 1: Initial Schema** ([`1770582315473-init.ts`](../src/db/migrations/1770582315473-init.ts)):
+
+- Created all tables with primary keys
+- Added foreign key indexes for referential integrity
+- Added unique constraints on `users.email` and `products.title`
+- Single-column indexes on `orders.user_id` and `orders.created_at`
+
+**Phase 2: Query Optimization** ([`1770927715288-AddOrdersQueryIndexes.ts`](../src/db/migrations/1770927715288-AddOrdersQueryIndexes.ts)):
+
+- Added composite indexes for common query patterns
+- Resulted in **90-95% query performance improvement**
+- Targeted filtering + sorting patterns used in production
 
 ---
 
@@ -238,10 +330,7 @@ LIMIT 20;
 4. **Schedule maintenance** - Weekly VACUUM to keep indexes healthy
 5. **Consider read replicas** - Offload read queries if write performance degrades
 
-### Future Enhancements
+## Related Documentation
 
-For text search improvements on `email` and `product.title`, consider:
-
-- PostgreSQL full-text search (tsvector/tsquery)
-- GIN trigram indexes for `ILIKE '%pattern%'` queries
-- Dedicated search service (Elasticsearch, Typesense)
+- [ORDERS_QUERYING.md](ORDERS_QUERYING.md) - Order filtering, pagination, and API usage guide
+- [ORDERS_IMPLEMENTATION.md](ORDERS_IMPLEMENTATION.md) - Order creation with idempotency and transactions

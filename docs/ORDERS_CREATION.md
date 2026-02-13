@@ -4,6 +4,8 @@
 
 This implementation provides a production-ready, idempotent order creation system with strong transaction safety and concurrency control.
 
+**Scope:** This document covers **order creation** only. For order querying, filtering, and pagination, see [ORDERS_QUERYING.md](ORDERS_QUERYING.md).
+
 ## Features Implemented
 
 ### 1. Idempotency (Double-Submit Safe)
@@ -35,6 +37,18 @@ POST /api/v1/orders
 - Unique constraint on `orders.idempotency_key`
 - Check performed BEFORE transaction to avoid unnecessary locking
 
+**Race Condition Handling:**
+
+If two requests with the same `idempotencyKey` arrive simultaneously:
+
+1. Both may pass the pre-transaction idempotency check (no order exists yet)
+2. First transaction commits successfully
+3. Second transaction fails with duplicate key constraint violation (PostgreSQL error `23505`)
+4. Error handler catches the exception and re-queries the database
+5. Second request returns the existing order with HTTP 200
+
+This ensures idempotency even under high concurrency with no additional locking overhead.
+
 ### 2. Transaction Safety
 
 **Implementation:** Using TypeORM `dataSource.transaction()` for automatic transaction management
@@ -42,8 +56,8 @@ POST /api/v1/orders
 ```typescript
 return await this.dataSource.transaction(async (manager) => {
   // Set timeouts for this transaction
-  await manager.query('SET LOCAL statement_timeout = 10000'); // 10 seconds
-  await manager.query('SET LOCAL lock_timeout = 5000'); // 5 seconds
+  await manager.query('SET LOCAL statement_timeout = 30000'); // 30 seconds
+  await manager.query('SET LOCAL lock_timeout = 10000'); // 10 seconds
 
   // All database operations here
   // Automatic commit on success, rollback on error
@@ -111,18 +125,18 @@ const products = await productRepo
 
 **Error Types & HTTP Status Codes:**
 
-| Error Scenario            | Exception Type         | Status | Reason                                     |
-| ------------------------- | ---------------------- | ------ | ------------------------------------------ |
-| Invalid quantity (≤0)     | `BadRequestException`  | 400    | Invalid input - quantity must be positive  |
-| User not found            | `NotFoundException`    | 404    | Referenced user doesn't exist              |
-| Product not found         | `NotFoundException`    | 404    | Referenced product doesn't exist           |
-| Insufficient stock        | `ConflictException`    | 409    | Request conflicts with current stock level |
-| Product inactive          | `ConflictException`    | 409    | Request conflicts with product state       |
-| Duplicate idempotency key | N/A (returns existing) | 200    | Returns existing order (idempotent)        |
-| Statement timeout         | `Error` (57014)        | 500    | Query exceeded 10s limit                   |
-| Lock timeout              | `Error` (55P03)        | 500    | Failed to acquire lock within 5s           |
-| Deadlock detected         | `Error` (40P01)        | 500    | Transaction deadlock                       |
-| DTO validation errors     | `BadRequestException`  | 400    | Invalid request format (NestJS pipes)      |
+| Error Scenario            | Exception Type              | Status | Reason                                     |
+| ------------------------- | --------------------------- | ------ | ------------------------------------------ |
+| Invalid quantity (≤0)     | `BadRequestException`       | 400    | Invalid input - quantity must be positive  |
+| User not found            | `NotFoundException`         | 404    | Referenced user doesn't exist              |
+| Product not found         | `NotFoundException`         | 404    | Referenced product doesn't exist           |
+| Insufficient stock        | `ConflictException`         | 409    | Request conflicts with current stock level |
+| Product inactive          | `ConflictException`         | 409    | Request conflicts with product state       |
+| Duplicate idempotency key | N/A (returns existing)      | 200    | Returns existing order (idempotent)        |
+| Statement timeout         | `Error` (57014)             | 500    | Query exceeded 30s limit                   |
+| Lock timeout              | `ConflictException` (55P03) | 409    | Failed to acquire lock within 10s          |
+| Deadlock detected         | `Error` (40P01)             | 500    | Transaction deadlock                       |
+| DTO validation errors     | `BadRequestException`       | 400    | Invalid request format (NestJS pipes)      |
 
 **HTTP Status Code Rationale:**
 
@@ -288,10 +302,11 @@ npm run db:seed
    - Average duration: < 50ms
 
 3. **Timeout Protection:**
-   - `statement_timeout`: 10 seconds (prevents runaway queries)
-   - `lock_timeout`: 5 seconds (prevents indefinite waiting for locks)
+   - `statement_timeout`: 30 seconds (prevents runaway queries)
+   - `lock_timeout`: 10 seconds (prevents indefinite waiting for locks)
    - Set via `SET LOCAL` within transaction scope
    - Helps prevent resource exhaustion under high load
+   - Configurable based on production performance requirements
 
 4. **Pre-validation:**
    - User and product existence checked BEFORE transaction
@@ -348,8 +363,13 @@ npm run db:seed
    - Increased insufficient stock errors
    - Slow transaction performance
 
+## Related Documentation
+
+- [ORDERS_QUERYING.md](ORDERS_QUERYING.md) - Order filtering, pagination, and query optimization
+- [QUERY_OPTIMIZATION.md](QUERY_OPTIMIZATION.md) - Detailed SQL query performance analysis
+
 ## References
 
 - [PostgreSQL Locking](https://www.postgresql.org/docs/current/explicit-locking.html)
-- [TypeORM Query Runner](https://typeorm.io/query-runner)
+- [TypeORM Transactions](https://typeorm.io/transactions)
 - [Idempotency Patterns](https://stripe.com/docs/api/idempotent_requests)
