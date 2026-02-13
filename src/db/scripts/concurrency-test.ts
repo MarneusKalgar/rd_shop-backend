@@ -17,13 +17,13 @@ if (!baseUrl || !productId || !userId) {
 const requests = Number(process.env.CONCURRENCY_TEST_REQUESTS ?? 30);
 
 async function run() {
-  const body = {
-    idempotencyKey: randomUUID(),
-    items: [{ productId, quantity: 1 }],
-    userId,
-  };
-
   const tasks = Array.from({ length: requests }, async () => {
+    const body = {
+      idempotencyKey: randomUUID(),
+      items: [{ productId, quantity: 1 }],
+      userId,
+    };
+
     const res = await fetch(`${baseUrl}/api/v1/orders`, {
       body: JSON.stringify(body),
       headers: { 'content-type': 'application/json' },
