@@ -89,7 +89,19 @@ export class GetOrdersResponseDto {
     description: 'List of orders matching the filters',
     type: [Order], // You can replace Object with a more specific OrderDto if you have one
   })
-  orders: Order[];
+  items: Order[];
+
+  @ApiProperty({
+    description: 'Current page number',
+    example: 1,
+  })
+  page: number;
+
+  @ApiProperty({
+    description: 'Number of items per page',
+    example: 20,
+  })
+  perPage: number;
 
   @ApiProperty({
     description: 'Total number of orders matching the filters (ignoring pagination)',

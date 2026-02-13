@@ -10,7 +10,7 @@ import { DataSource, In, Repository } from 'typeorm';
 
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
-import { CreateOrderDto, FindOrdersFilterDto, GetOrdersResponseDto } from './dto';
+import { CreateOrderDto, FindOrdersFilterDto } from './dto';
 import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 
@@ -84,9 +84,9 @@ export class OrdersService {
 
     try {
       return await this.dataSource.transaction(async (manager) => {
-        //  Set timeouts
-        await manager.query('SET LOCAL statement_timeout = 10000');
-        await manager.query('SET LOCAL lock_timeout = 5000');
+        //  Set timeouts (increased for better handling under load)
+        await manager.query('SET LOCAL statement_timeout = 30000'); // 30 seconds
+        await manager.query('SET LOCAL lock_timeout = 10000'); // 10 seconds
 
         const orderRepo = manager.getRepository(Order);
         const orderItemRepo = manager.getRepository(OrderItem);
@@ -157,8 +157,9 @@ export class OrdersService {
         return createdOrder;
       });
     } catch (error: unknown) {
+      const pgError = error as { code?: string; message?: string };
+
       // Handle duplicate idempotency key race condition
-      const pgError = error as { code?: string };
       if (pgError?.code === '23505' && idempotencyKey) {
         this.logger.warn(
           `Race condition detected for idempotency key "${idempotencyKey}". Returning existing order.`,
@@ -174,12 +175,29 @@ export class OrdersService {
         }
       }
 
+      // Handle timeout errors specifically
+      if (pgError?.code === '57014' || pgError?.message?.includes('statement timeout')) {
+        this.logger.error(
+          `Statement timeout during order creation for user ${userId}. Consider optimizing query or increasing timeout.`,
+        );
+        throw new Error('Order creation timed out due to high load. Please try again in a moment.');
+      }
+
+      if (pgError?.code === '55P03' || pgError?.message?.includes('lock timeout')) {
+        this.logger.error(`Lock timeout during order creation for user ${userId}.`);
+        throw new ConflictException(
+          'Unable to process order due to high concurrent activity. Please try again.',
+        );
+      }
+
       this.logger.error('Order creation failed, transaction rolled back', error);
       throw error;
     }
   }
 
-  async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<GetOrdersResponseDto> {
+  async findOrdersWithFilters(
+    params: FindOrdersFilterDto,
+  ): Promise<{ orders: Order[]; total: number }> {
     const { endDate, limit = 10, offset = 0, productName, startDate, status, userEmail } = params;
 
     const queryBuilder = this.orderRepository

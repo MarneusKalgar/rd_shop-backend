@@ -27,7 +27,8 @@
     "db:revert:dev": "npm run typeorm -- migration:revert -d src/data-source.ts",
     "db:revert:prod": "cross-env NODE_ENV=production node ./node_modules/typeorm/cli.js migration:revert -d dist/data-source.js",
     "db:seed": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register src/db/seed/index.ts",
-    "sql:run": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register src/db/scripts/run-sql-file.ts"
+    "sql:run": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register src/db/scripts/run-sql-file.ts",
+    "concurrency:test": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register src/db/scripts/concurrency-test.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

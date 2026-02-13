@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { CreateOrderDto, FindOrdersFilterDto } from '../dto';
+import { CreateOrderDto, FindOrdersFilterDto, GetOrdersResponseDto } from '../dto';
 import { Order } from '../order.entity';
 import { OrdersService } from '../orders.service';
 
@@ -49,18 +49,13 @@ export class OrdersController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Get()
-  async getOrders(@Query() filters: FindOrdersFilterDto): Promise<{
-    data: Order[];
-    limit: number;
-    offset: number;
-    total: number;
-  }> {
+  async getOrders(@Query() filters: FindOrdersFilterDto): Promise<GetOrdersResponseDto> {
     const { orders, total } = await this.ordersService.findOrdersWithFilters(filters);
 
     return {
-      data: orders,
-      limit: filters.limit ?? 10,
-      offset: filters.offset ?? 0,
+      items: orders,
+      page: filters.offset ? Math.floor(filters.offset / (filters.limit ?? 10)) + 1 : 1,
+      perPage: filters.limit ?? 10,
       total,
     };
   }
