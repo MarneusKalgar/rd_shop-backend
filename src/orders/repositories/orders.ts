@@ -40,7 +40,7 @@ export class OrdersRepository {
     });
   }
 
-  async findByIdWithRelations(manager: EntityManager, orderId: string): Promise<null | Order> {
+  async findByIdWithRelations(orderId: string, manager?: EntityManager): Promise<null | Order> {
     const repo = this.getRepository(manager);
     return repo.findOne({
       relations: ['items', 'items.product', 'user'],

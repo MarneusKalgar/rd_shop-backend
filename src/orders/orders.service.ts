@@ -263,7 +263,7 @@ export class OrdersService {
 
       await this.orderItemsRepository.createOrderItems(manager, orderItemsData);
 
-      const createdOrder = await this.ordersRepository.findByIdWithRelations(manager, order.id);
+      const createdOrder = await this.ordersRepository.findByIdWithRelations(order.id, manager);
 
       if (!createdOrder) {
         throw new Error('Order creation failed');

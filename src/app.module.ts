@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { RequestIdMiddleware } from './common/middlewares';
 import { getGracefulShutdownConfig, getTypeOrmModuleOptions } from './config';
 import { getEnvFile, validate } from './core/environment';
+import { GraphqlModule } from './graphql/graphql.module';
 import { OrdersModule } from './orders/orders.module';
 import { ProductsModule } from './products/products.module';
 import { UsersModule } from './users/users.module';
@@ -29,6 +30,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     OrdersModule,
     ProductsModule,
+    GraphqlModule,
   ],
   providers: [AppService],
 })

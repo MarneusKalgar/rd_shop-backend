@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsDate, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
+import { MAX_ORDERS_LIMIT } from '../constants';
 import { Order, OrderStatus } from '../order.entity';
 
 export class FindOrdersFilterDto {
@@ -28,7 +29,7 @@ export class FindOrdersFilterDto {
     default: 10,
     description: 'Number of results to return',
     example: 10,
-    maximum: 100,
+    maximum: MAX_ORDERS_LIMIT,
     minimum: 1,
     required: false,
   })
