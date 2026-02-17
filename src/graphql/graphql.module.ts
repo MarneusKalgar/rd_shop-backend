@@ -3,8 +3,10 @@ import { Module } from '@nestjs/common';
 import { GraphQLModule } from '@nestjs/graphql';
 
 import { OrdersModule } from '@/orders/orders.module';
+import { ProductsModule } from '@/products/products.module';
 import { UsersModule } from '@/users/users.module';
 
+import { OrderItemLoader, OrderLoader, ProductLoader, UserLoader } from './loaders';
 import { OrdersResolver, UsersResolver } from './resolvers';
 import { OrderItemResolver } from './resolvers/order-item';
 
@@ -24,7 +26,16 @@ import { OrderItemResolver } from './resolvers/order-item';
     }),
     UsersModule,
     OrdersModule,
+    ProductsModule,
   ],
-  providers: [UsersResolver, OrdersResolver, OrderItemResolver],
+  providers: [
+    UsersResolver,
+    OrdersResolver,
+    OrderItemResolver,
+    OrderLoader,
+    OrderItemLoader,
+    ProductLoader,
+    UserLoader,
+  ],
 })
 export class GraphqlModule {}

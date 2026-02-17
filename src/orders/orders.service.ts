@@ -12,7 +12,7 @@ import { ProductsRepository } from '@/products/product.repository';
 
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
-import { MAX_ORDER_QUANTITY } from './constants';
+import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY } from './constants';
 import { CreateOrderDto, FindOrdersFilterDto } from './dto';
 import { Order } from './order.entity';
 import {
@@ -134,7 +134,7 @@ export class OrdersService {
   }
 
   async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
-    const { cursor, limit = 10 } = params;
+    const { cursor, limit = DEFAULT_ORDERS_LIMIT } = params;
 
     const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(params);
 

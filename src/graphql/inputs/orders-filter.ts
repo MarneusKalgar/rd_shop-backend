@@ -2,7 +2,7 @@ import { Field, InputType, Int } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
 import { IsDate, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
-import { MAX_ORDERS_LIMIT } from '@/orders/constants';
+import { DEFAULT_ORDERS_LIMIT, MAX_ORDERS_LIMIT } from '@/orders/constants';
 import { OrderStatus } from '@/orders/order.entity';
 
 @InputType()
@@ -52,7 +52,7 @@ export class OrdersPaginationInput {
   cursor?: string;
 
   @Field(() => Int, {
-    defaultValue: 10,
+    defaultValue: DEFAULT_ORDERS_LIMIT,
     description: 'Number of results to return',
     nullable: true,
   })

@@ -5,7 +5,7 @@ import { GracefulShutdownModule } from '@tygra/nestjs-graceful-shutdown';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { RequestIdMiddleware } from './common/middlewares';
+import { QueryLoggerMiddleware, RequestIdMiddleware } from './common/middlewares';
 import { getGracefulShutdownConfig, getTypeOrmModuleOptions } from './config';
 import { getEnvFile, validate } from './core/environment';
 import { GraphqlModule } from './graphql/graphql.module';
@@ -37,5 +37,6 @@ import { UsersModule } from './users/users.module';
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(RequestIdMiddleware).forRoutes('*');
+    consumer.apply(QueryLoggerMiddleware).forRoutes('*');
   }
 }
