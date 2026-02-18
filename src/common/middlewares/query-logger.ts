@@ -19,7 +19,6 @@ export class QueryLoggerMiddleware implements NestMiddleware {
 
         const msg = `SQL Queries: ${store.queryCount}`;
         this.logger.log(msg);
-        console.log(msg);
       });
 
       next();

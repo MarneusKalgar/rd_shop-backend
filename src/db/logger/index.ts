@@ -64,7 +64,7 @@ export class CustomTypeOrmLogger implements TypeOrmLogger {
    * Formats query with parameters for better readability
    */
   private formatQuery(query: string, parameters?: unknown[]): string {
-    if (!parameters || parameters.length === 0) {
+    if (!parameters?.length) {
       return query;
     }
 

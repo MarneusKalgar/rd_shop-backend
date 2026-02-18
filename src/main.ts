@@ -57,6 +57,7 @@ async function bootstrap() {
 
     if (!isProd) {
       Logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`);
+      Logger.log(`GraphQL Playground available at: http://localhost:${port}/graphql`);
     }
   } catch (error) {
     Logger.error('Error during application bootstrap', (error as Error).stack);

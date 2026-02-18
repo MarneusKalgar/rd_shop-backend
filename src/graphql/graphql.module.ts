@@ -5,6 +5,7 @@ import { GraphQLModule } from '@nestjs/graphql';
 import { OrdersModule } from '@/orders/orders.module';
 import { ProductsModule } from '@/products/products.module';
 import { UsersModule } from '@/users/users.module';
+import { isProduction } from '@/utils';
 
 import { OrderItemLoader, OrderLoader, ProductLoader, UserLoader } from './loaders';
 import { OrdersResolver, UsersResolver } from './resolvers';
@@ -14,15 +15,19 @@ import { OrderItemResolver } from './resolvers/order-item';
   imports: [
     GraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      useFactory: () => ({
-        autoSchemaFile: true,
-        driver: ApolloDriver,
-        graphiql: true,
-        introspection: true,
-        path: '/graphql',
-        sortSchema: true,
-        stopOnTerminationSignals: false,
-      }),
+      useFactory: () => {
+        const isProd = isProduction();
+
+        return {
+          autoSchemaFile: true,
+          driver: ApolloDriver,
+          graphiql: !isProd,
+          introspection: !isProd,
+          path: '/graphql',
+          sortSchema: true,
+          stopOnTerminationSignals: false,
+        };
+      },
     }),
     UsersModule,
     OrdersModule,

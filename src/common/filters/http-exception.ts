@@ -60,7 +60,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const errorResponse = normalizeGQLError(exception);
 
-    this.logGraphQLError(errorResponse, exception, 'GraphQL');
+    this.logGraphQLError(errorResponse, exception, requestId);
 
     throw new GraphQLError(errorResponse.message, {
       extensions: {

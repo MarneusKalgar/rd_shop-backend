@@ -6,7 +6,7 @@ This document describes the GraphQL implementation for the RD Shop backend, incl
 
 ### Connection & Configuration
 
-The GraphQL module uses **@nestjs/graphql** with **@nestjs/apollo** driver (Apollo Server v4):
+The GraphQL module uses **@nestjs/graphql** with **@nestjs/apollo** driver (Apollo Server v5):
 
 ```typescript
 // src/graphql/graphql.module.ts
@@ -86,20 +86,22 @@ export class OrderType {
 // src/graphql/inputs/orders-filter.ts
 @InputType()
 export class OrdersFilterInput {
-  @Field(() => OrderStatus, { nullable: true })
+  @Field(() => String, { nullable: true })
   @IsEnum(OrderStatus)
   @IsOptional()
   status?: OrderStatus;
 
-  @Field(() => String, { nullable: true })
-  @IsString()
+  @Field(() => Date, { nullable: true })
+  @IsDate()
   @IsOptional()
-  userEmail?: string;
+  @Type(() => Date)
+  endDate?: Date;
 
-  @Field(() => String, { nullable: true })
-  @IsString()
+  @Field(() => Date, { nullable: true })
+  @IsDate()
   @IsOptional()
-  productName?: string;
+  @Type(() => Date)
+  startDate?: Date;
 }
 
 @InputType()
@@ -112,7 +114,7 @@ export class OrdersPaginationInput {
   @Field(() => Int, { defaultValue: 10, nullable: true })
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(50)
   @IsOptional()
   limit?: number;
 }
@@ -493,7 +495,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private handleGraphQLException(exception: unknown, host: ArgumentsHost) {
     const errorResponse = normalizeGQLError(exception);
 
-    this.logGraphQLError(errorResponse, exception, 'GraphQL');
+    this.logGraphQLError(errorResponse, exception, requestId);
 
     throw new GraphQLError(errorResponse.message, {
       extensions: {

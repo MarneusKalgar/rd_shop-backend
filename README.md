@@ -424,7 +424,7 @@ http://localhost:4000/api/v1
 http://localhost:4000/graphql
 ```
 
-**GraphQL Playground:** Available at `http://localhost:4000/graphql` when `NODE_ENV=development`
+**GraphQL Playground:** Available at `http://localhost:4000/graphql`
 
 **Example Query:**
 
