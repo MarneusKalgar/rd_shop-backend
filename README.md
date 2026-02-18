@@ -17,6 +17,8 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **Request Tracing** - X-Request-ID header for distributed tracing
 - **Configurable Logging** - Environment-based log levels
 - **Cross-Platform Support** - Works on Windows, macOS, and Linux
+- **GraphQL API** - Code-first GraphQL implementation with Apollo Server (see [homework07.md](homework07.md))
+- **DataLoader Integration** - N+1 query prevention with request-scoped DataLoaders (90% query reduction)
 
 ## 🛠️ Technology Stack
 
@@ -26,6 +28,13 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **[TypeScript](https://www.typescriptlang.org/)** ^5.7.3 - Type-safe JavaScript
 - **[Node.js](https://nodejs.org/)** - Runtime environment
 - **[Express](https://expressjs.com/)** - HTTP server
+
+### GraphQL
+
+- **[@nestjs/graphql](https://docs.nestjs.com/graphql/quick-start)** - NestJS GraphQL integration
+- **[@nestjs/apollo](https://www.apollographql.com/)** - Apollo Server v4 driver
+- **[graphql](https://graphql.org/)** - GraphQL.js implementation
+- **[dataloader](https://github.com/graphql/dataloader)** - Batching and caching layer for N+1 prevention
 
 ### Database
 
@@ -403,11 +412,49 @@ Helper functions and utilities used across the application.
 
 ## 🔌 API Endpoints
 
-### Base URL
+### REST API Base URL
 
 ```
 http://localhost:4000/api/v1
 ```
+
+### GraphQL Endpoint
+
+```
+http://localhost:4000/graphql
+```
+
+**GraphQL Playground:** Available at `http://localhost:4000/graphql` when `NODE_ENV=development`
+
+**Example Query:**
+
+```graphql
+query GetOrders {
+  orders(filter: { status: PAID }, pagination: { limit: 10 }) {
+    nodes {
+      id
+      status
+      createdAt
+      user {
+        email
+      }
+      items {
+        quantity
+        product {
+          title
+          price
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      nextCursor
+    }
+  }
+}
+```
+
+For comprehensive GraphQL documentation, see [homework07.md](homework07.md).
 
 ### Users Module
 
@@ -558,6 +605,7 @@ See [TODO.md](TODO.md) for planned features:
 
 - [x] Database integration (TypeORM + PostgreSQL)
 - [x] Database migrations and seeding
+- [x] GraphQL API with DataLoader (see [homework07.md](homework07.md))
 - [ ] Complete service layer implementation (CRUD operations)
 - [ ] Authentication & Authorization (JWT)
 - [ ] Health check endpoint

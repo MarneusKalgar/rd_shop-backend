@@ -1,4 +1,5 @@
 import { Parent, ResolveField, Resolver } from '@nestjs/graphql';
+import { GraphQLError } from 'graphql';
 
 import { OrderItem } from '@/orders/order-item.entity';
 
@@ -24,7 +25,9 @@ export class OrderItemResolver {
     const order = await this.orderLoader.byId.load(orderItem.orderId);
 
     if (!order) {
-      throw new Error(`Order with ID "${orderItem.orderId}" not found`);
+      throw new GraphQLError(`Order with ID "${orderItem.orderId}" not found`, {
+        extensions: { code: 'ORDER_NOT_FOUND', orderId: orderItem.orderId },
+      });
     }
 
     return order;
@@ -39,7 +42,9 @@ export class OrderItemResolver {
     const product = await this.productLoader.byId.load(orderItem.productId);
 
     if (!product) {
-      throw new Error(`Product with ID "${orderItem.productId}" not found`);
+      throw new GraphQLError(`Product with ID "${orderItem.productId}" not found`, {
+        extensions: { code: 'PRODUCT_NOT_FOUND', productId: orderItem.productId },
+      });
     }
 
     return product;

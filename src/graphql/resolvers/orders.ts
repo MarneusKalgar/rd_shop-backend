@@ -1,4 +1,5 @@
 import { Args, Parent, Query, ResolveField, Resolver } from '@nestjs/graphql';
+import { GraphQLError } from 'graphql';
 
 import { Order } from '@/orders/order.entity';
 import { OrdersService } from '@/orders/orders.service';
@@ -52,7 +53,9 @@ export class OrdersResolver {
     const user = await this.userLoader.byId.load(order.userId);
 
     if (!user) {
-      throw new Error(`User with ID "${order.userId}" not found`);
+      throw new GraphQLError(`User with ID "${order.userId}" not found`, {
+        extensions: { code: 'USER_NOT_FOUND', userId: order.userId },
+      });
     }
 
     return user;
