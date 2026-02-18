@@ -1,6 +1,6 @@
 import { INestApplication, Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
+// import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
 
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
@@ -19,7 +19,8 @@ async function bootstrap() {
       logger: getLogLevels(),
     });
 
-    setupGracefulShutdown({ app });
+    // TODO: Uncomment when resolve problem with graphql module
+    // setupGracefulShutdown({ app });
 
     app.enableVersioning({
       defaultVersion: '1',
