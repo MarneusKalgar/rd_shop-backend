@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 
 import { User } from '@/users/user.entity';
 
@@ -40,11 +40,27 @@ export class OrdersRepository {
     });
   }
 
-  async findByIdWithRelations(manager: EntityManager, orderId: string): Promise<null | Order> {
+  async findByIdWithRelations(orderId: string, manager?: EntityManager): Promise<null | Order> {
     const repo = this.getRepository(manager);
     return repo.findOne({
       relations: ['items', 'items.product', 'user'],
       where: { id: orderId },
+    });
+  }
+
+  async findByOrderIdsWithRelations(orderIds: string[], manager?: EntityManager): Promise<Order[]> {
+    const repo = this.getRepository(manager);
+    return repo.find({
+      relations: ['items', 'items.product', 'user'],
+      where: { id: In(orderIds) },
+    });
+  }
+
+  async findByUserIdsWithRelations(userIds: string[], manager?: EntityManager): Promise<Order[]> {
+    const repo = this.getRepository(manager);
+    return repo.find({
+      relations: ['items', 'items.product', 'user'],
+      where: { userId: In(userIds) },
     });
   }
 

@@ -53,7 +53,8 @@ export class OrdersQueryBuilder {
     const subquery = this.orderRepository
       .createQueryBuilder('order')
       .select('order.id', 'id')
-      .addSelect('order.createdAt', 'createdAt');
+      .addSelect('order.createdAt', 'createdAt')
+      .distinct(true);
 
     // Apply filters (same as before, but no joins yet)
     if (status) {
@@ -83,6 +84,10 @@ export class OrdersQueryBuilder {
         .andWhere('product.title ILIKE :productName', {
           productName: `%${productName}%`,
         });
+    }
+
+    if (userEmail || productName) {
+      subquery.groupBy('order.id').addGroupBy('order.createdAt');
     }
 
     return subquery;

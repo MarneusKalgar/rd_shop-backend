@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 
 import { Product } from '../../products/product.entity';
 import { OrderItem } from '../order-item.entity';
@@ -29,6 +29,28 @@ export class OrderItemsRepository {
     const repo = this.getRepository(manager);
     const orderItems = orderItemsData.map((data) => repo.create(data));
     return repo.save(orderItems);
+  }
+
+  async findByOrderIdsWithRelations(
+    orderIds: string[],
+    manager?: EntityManager,
+  ): Promise<OrderItem[]> {
+    const repo = this.getRepository(manager);
+    return repo.find({
+      relations: ['product', 'order'],
+      where: { orderId: In(orderIds) },
+    });
+  }
+
+  async findByProductIdsWithRelations(
+    productIds: string[],
+    manager?: EntityManager,
+  ): Promise<OrderItem[]> {
+    const repo = this.getRepository(manager);
+    return repo.find({
+      relations: ['product', 'order'],
+      where: { productId: In(productIds) },
+    });
   }
 
   /**

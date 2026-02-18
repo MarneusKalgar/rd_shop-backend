@@ -1,47 +1,50 @@
 import { Injectable } from '@nestjs/common';
 
 import { CreateUserDto, UpdateUserDto } from './dto';
-import { IUser } from './interfaces';
+import { User } from './user.entity';
+
+const mockUser = {
+  createdAt: new Date(),
+  email: 'john@example.com',
+  firstName: 'John',
+  id: '1',
+  lastName: 'Doe',
+  orders: [],
+  updatedAt: new Date(),
+};
 
 @Injectable()
 export class UsersService {
-  create(createUserDto: CreateUserDto): IUser {
+  async create(createUserDto: CreateUserDto): Promise<User> {
     // TODO: Implement user creation logic
-    return {
-      id: '1',
+    return await Promise.resolve({
+      ...mockUser,
       ...createUserDto,
-      createdAt: new Date(),
-    };
+    });
   }
 
-  findAll(): IUser[] {
+  async findAll(): Promise<User[]> {
     // TODO: Implement fetching all users
-    return [];
+    return await Promise.resolve([mockUser]);
   }
 
-  findOne(id: string): IUser {
+  async findOne(id: string): Promise<User> {
     // TODO: Implement fetching user by id
-    return {
-      email: 'john@example.com',
-      firstName: 'John',
-      id,
-      lastName: 'Doe',
-    };
+    console.log(id);
+    return await Promise.resolve(mockUser);
   }
 
-  remove(id: string) {
+  async remove(id: string): Promise<{ id: string }> {
     // TODO: Implement user deletion logic
-    return {
-      id,
-    };
+    return await Promise.resolve({ id });
   }
 
-  update(id: string, updateUserDto: UpdateUserDto): IUser {
+  async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
     // TODO: Implement user update logic
-    return {
-      id,
+    return await Promise.resolve({
+      ...mockUser,
       ...updateUserDto,
-      updatedAt: new Date(),
-    } as IUser;
+      id,
+    });
   }
 }

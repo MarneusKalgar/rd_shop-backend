@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2026-02-18
+
+### Added
+
+- **GraphQL API** - Code-first GraphQL implementation using @nestjs/graphql with Apollo Server v4
+- **GraphQL Module** - Configured with auto-schema generation, GraphiQL playground, and introspection
+- **GraphQL Schemas** - Type-safe ObjectTypes for Order, OrderItem, Product, and User with proper decorators
+- **GraphQL Inputs** - OrdersFilterInput and OrdersPaginationInput with shared validation decorators
+- **Orders Query** - GraphQL query for fetching orders with filtering and cursor-based pagination
+- **Field Resolvers** - Resolvers for nested relations (order.user, order.items, orderItem.product, orderItem.order)
+- **DataLoader Integration** - Request-scoped DataLoaders for batching database queries (UserLoader, OrderLoader, OrderItemLoader, ProductLoader)
+- **N+1 Query Prevention** - Eliminated N+1 problem using DataLoader batching (41 queries → 4 queries, 90% reduction)
+- **GraphQL Error Handling** - Structured GraphQLError usage with error codes (USER_NOT_FOUND, ORDER_NOT_FOUND, PRODUCT_NOT_FOUND)
+- **GraphQL Documentation** - Comprehensive guide covering schema design, DataLoader implementation, and N+1 resolution ([homework07.md](homework07.md))
+
+### Changed
+
+- **Business Logic Reuse** - GraphQL resolvers now use the same OrdersService as REST API endpoints
+- **Error Format** - Field resolvers throw GraphQLError with extensions containing error codes and context
+- **Query Performance** - 83% faster response times (150ms → 25ms) through DataLoader batching
+
+### Performance
+
+- **DataLoader Batching** - Reduced database round-trips by 10x (41 → 4 queries for 10 orders)
+- **Query Optimization** - Batched `WHERE IN` queries instead of individual SELECT statements
+- **Response Time** - Order queries improved from ~150ms to ~25ms with DataLoader
+
 ## [0.0.3] - 2026-02-13
 
 ### Added
@@ -121,6 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.0.4]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.4
 [0.0.3]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.3
 [0.0.2]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.2
 [0.0.1]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.1

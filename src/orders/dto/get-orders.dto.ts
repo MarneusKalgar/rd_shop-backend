@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsDate, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
+import { DEFAULT_ORDERS_LIMIT, MAX_ORDERS_LIMIT, MIN_ORDERS_LIMIT } from '../constants';
 import { Order, OrderStatus } from '../order.entity';
 
 export class FindOrdersFilterDto {
@@ -25,17 +26,17 @@ export class FindOrdersFilterDto {
   endDate?: Date;
 
   @ApiProperty({
-    default: 10,
+    default: DEFAULT_ORDERS_LIMIT,
     description: 'Number of results to return',
-    example: 10,
-    maximum: 100,
-    minimum: 1,
+    example: DEFAULT_ORDERS_LIMIT,
+    maximum: MAX_ORDERS_LIMIT,
+    minimum: MIN_ORDERS_LIMIT,
     required: false,
   })
   @IsInt()
   @IsOptional()
-  @Max(100)
-  @Min(1)
+  @Max(MAX_ORDERS_LIMIT)
+  @Min(MIN_ORDERS_LIMIT)
   @Type(() => Number)
   limit?: number;
 
@@ -88,12 +89,12 @@ export class GetOrdersResponseDto {
 
   @ApiProperty({
     description: 'Number of items per page',
-    example: 10,
+    example: DEFAULT_ORDERS_LIMIT,
   })
   @IsInt()
   @IsOptional()
-  @Max(100)
-  @Min(1)
+  @Max(MAX_ORDERS_LIMIT)
+  @Min(MIN_ORDERS_LIMIT)
   @Type(() => Number)
   limit: number;
 

@@ -13,6 +13,7 @@ import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
 
 @Module({
   controllers: [OrdersControllerV1],
+  exports: [OrdersService, OrdersRepository, OrderItemsRepository],
   imports: [TypeOrmModule.forFeature([Order, OrderItem, Product, User])],
   providers: [
     OrdersService,
