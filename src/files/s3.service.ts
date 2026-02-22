@@ -1,23 +1,15 @@
-import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger } from '@nestjs/common';
 
 import { InjectConfig, TypedConfigService } from '@/core/environment';
 
-export interface CheckFileError {
-  $metadata?: {
-    httpStatusCode: number;
-  };
-  message?: string;
-  name?: string;
-}
-
-export interface PresignedUrlOptions {
-  contentType: string;
-  expiresIn?: number;
-  key: string;
-  size: number;
-}
+import { CheckFileError, PresignedUrlOptions } from './types';
 
 @Injectable()
 export class S3Service {
@@ -26,20 +18,24 @@ export class S3Service {
   }
   private readonly bucket: string;
   private readonly client: S3Client;
-  private readonly endpoint: string;
+  private readonly cloudfrontBaseUrl?: string;
+  private readonly downloadExpiresInSeconds: number;
+  private readonly endpoint?: string;
   private readonly expiresInSeconds: number;
-  private readonly forcePathStyle: string;
+  private readonly forcePathStyle: boolean;
   private readonly logger = new Logger(S3Service.name);
-
   private readonly region: string;
 
   constructor(@InjectConfig() private readonly config: TypedConfigService) {
     this.bucket = this.config.get('AWS_S3_BUCKET', { infer: true });
     this.region = this.config.get('AWS_REGION', { infer: true });
     this.endpoint = this.config.get('AWS_S3_ENDPOINT', { infer: true });
-    this.forcePathStyle = this.config.get('AWS_S3_FORCE_PATH_STYLE', { infer: true });
+    this.forcePathStyle = this.config.get('AWS_S3_FORCE_PATH_STYLE', { infer: true }) === 'true';
     this.expiresInSeconds =
       this.config.get('AWS_S3_PRESIGNED_URL_EXPIRATION', { infer: true }) ?? 900; // Default to 15 minutes if not set
+    this.downloadExpiresInSeconds =
+      this.config.get('AWS_S3_PRESIGNED_URL_DOWNLOAD_EXPIRATION', { infer: true }) ?? 3600; // Default to 1 hour if not set
+    this.cloudfrontBaseUrl = this.config.get('AWS_CLOUDFRONT_URL', { infer: true });
 
     this.client = new S3Client({
       credentials: {
@@ -47,7 +43,7 @@ export class S3Service {
         secretAccessKey: this.config.get('AWS_SECRET_ACCESS_KEY', { infer: true }),
       },
       endpoint: this.endpoint,
-      forcePathStyle: this.forcePathStyle === 'true',
+      forcePathStyle: this.forcePathStyle,
       region: this.region,
     });
 
@@ -81,12 +77,33 @@ export class S3Service {
   }
 
   /**
+   * Generate presigned download URL
+   */
+  async getPresignedDownloadUrl(
+    key: string,
+  ): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucketName,
+      Key: key,
+    });
+
+    const downloadUrl = await getSignedUrl(this.client, command, {
+      expiresIn: this.downloadExpiresInSeconds,
+    });
+
+    return {
+      downloadUrl,
+      expiresInSeconds: this.downloadExpiresInSeconds,
+    };
+  }
+
+  /**
    * Generate a presigned URL for uploading a file to S3
    */
   async getPresignedUploadUrl(
     options: PresignedUrlOptions,
   ): Promise<{ expiresInSeconds: number; uploadUrl: string }> {
-    const { contentType, expiresIn, key, size } = options;
+    const { contentType, key, size } = options;
 
     const command = new PutObjectCommand({
       Bucket: this.bucket,
@@ -95,14 +112,29 @@ export class S3Service {
       Key: key,
     });
 
-    const expiresInSeconds = expiresIn ?? this.expiresInSeconds;
-
     const url = await getSignedUrl(this.client, command, {
-      expiresIn: expiresInSeconds,
+      expiresIn: this.expiresInSeconds,
     });
 
     this.logger.debug(`Generated presigned upload URL for key: ${key}`);
 
-    return { expiresInSeconds, uploadUrl: url };
+    return { expiresInSeconds: this.expiresInSeconds, uploadUrl: url };
+  }
+
+  /**
+   * Get permanent public URL for a file
+   * NOTE: This URL will only work if the file is publicly accessible (e.g. via CloudFront or if the S3 bucket/object ACL allows public read access).
+   * For private files, use getPresignedDownloadUrl instead.
+   */
+  getPublicUrl(key: string): string {
+    if (this.cloudfrontBaseUrl) {
+      return `${this.cloudfrontBaseUrl}/${key}`;
+    }
+
+    if (this.forcePathStyle && this.endpoint) {
+      return `${this.endpoint}/${this.bucketName}/${key}`;
+    }
+
+    return `https://${this.bucketName}.s3.${this.region}.amazonaws.com/${key}`;
   }
 }

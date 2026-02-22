@@ -28,6 +28,10 @@ export class EnvironmentVariables {
 
   @IsNumber()
   @IsOptional()
+  AWS_S3_PRESIGNED_URL_DOWNLOAD_EXPIRATION?: number;
+
+  @IsNumber()
+  @IsOptional()
   AWS_S3_PRESIGNED_URL_EXPIRATION?: number;
 
   @IsString()

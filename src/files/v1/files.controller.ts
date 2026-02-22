@@ -1,10 +1,12 @@
-import { Body, Controller, HttpStatus, Post /*, Req*/ } from '@nestjs/common';
+import { Body, Controller, HttpStatus, Param, Post /*, Req*/ } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import {
   CompleteUploadDto,
   CompleteUploadResponseDto,
   CreatePresignedUploadDto,
+  GetFileDto,
+  GetFileUrlResponseDto,
   PresignedUploadResponseDto,
 } from '../dto';
 import { FilesService } from '../files.service';
@@ -59,5 +61,52 @@ export class FilesController {
     @Body() body: CreatePresignedUploadDto,
   ): Promise<PresignedUploadResponseDto> {
     return this.filesService.createPresignedUpload(body);
+  }
+
+  @ApiOperation({
+    description: 'Get file record by ID',
+    summary: 'Get file by ID',
+  })
+  @ApiResponse({
+    description: 'File record retrieved successfully',
+    status: HttpStatus.OK,
+    type: CompleteUploadResponseDto,
+  })
+  @ApiResponse({
+    description: 'File record not found',
+    status: HttpStatus.NOT_FOUND,
+  })
+  @Post(':fileId')
+  async getFileById(
+    @Param('fileId') fileId: string,
+    @Body() body: GetFileDto,
+  ): Promise<CompleteUploadResponseDto> {
+    return this.filesService.getFileById(fileId, body.userId);
+  }
+
+  @ApiOperation({
+    description:
+      'Get a presigned URL to view/download the file from S3. The URL is valid for 1 hour.',
+    summary: 'Get file URL',
+  })
+  @ApiResponse({
+    description: 'Presigned URL generated successfully',
+    status: HttpStatus.OK,
+    type: GetFileUrlResponseDto,
+  })
+  @ApiResponse({
+    description: 'File record not found',
+    status: HttpStatus.NOT_FOUND,
+  })
+  @ApiResponse({
+    description: 'File is not ready for download',
+    status: HttpStatus.BAD_REQUEST,
+  })
+  @Post(':fileId/url')
+  async getFileUrl(
+    @Param('fileId') fileId: string,
+    @Body() body: GetFileDto,
+  ): Promise<GetFileUrlResponseDto> {
+    return this.filesService.getFileUrl(fileId, body.userId);
   }
 }

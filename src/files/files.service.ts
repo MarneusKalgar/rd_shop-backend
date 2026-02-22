@@ -1,48 +1,14 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 
 import { ProductsService } from '@/products/products.service';
 
+import { CreatePresignedUploadDto } from './dto';
 import { FileRecord, FileStatus, FileVisibility } from './file-record.entity';
 import { S3Service } from './s3.service';
-
-export interface CompleteUploadResponse {
-  bucket: string;
-  completedAt: Date | null;
-  contentType: string;
-  createdAt: Date;
-  fileId: string;
-  id: string;
-  key: string;
-  ownerId: string;
-  size: number;
-  status: FileStatus;
-  updatedAt: Date;
-  // publicUrl?: string;
-}
-
-export interface CreateFileRecordDto {
-  contentType: string;
-  entityId?: string;
-  entityType: EntityFileAssociation;
-  ownerId: string;
-  size: number;
-  visibility?: FileVisibility;
-}
-
-export type EntityFileAssociation = 'product' | 'user';
-
-export interface FileUploadResponse {
-  contentType: string;
-  expiresInSeconds: number;
-  fileId: string;
-  key: string;
-  status: FileRecord['status'];
-  uploadMethod: string;
-  uploadUrl: string;
-}
+import { CompleteUploadResponse, EntityFileAssociation, FileUploadResponse } from './types';
+import { getObjectKey } from './utils';
 
 // TODO add public URL generation logic
 @Injectable()
@@ -73,7 +39,7 @@ export class FilesService {
 
     if (fileRecord.status === FileStatus.READY) {
       this.logger.warn(`File record ${fileId} is already marked as ready`);
-      return this.getFileRecordData(fileRecord);
+      return await this.getFileRecordData(fileRecord);
     }
 
     const fileExistsInS3 = await this.s3Service.checkFileExists(fileRecord.key);
@@ -95,14 +61,14 @@ export class FilesService {
 
     this.logger.log(`File upload completed for record: ${fileRecord.id}`);
 
-    return this.getFileRecordData(fileRecord);
+    return await this.getFileRecordData(fileRecord);
   }
 
   /**
    * Create a presigned upload URL and file record
    */
-  async createPresignedUpload(dto: CreateFileRecordDto): Promise<FileUploadResponse> {
-    const key = this.buildObjectKey(dto);
+  async createPresignedUpload(dto: CreatePresignedUploadDto): Promise<FileUploadResponse> {
+    const key = getObjectKey(dto);
 
     // Create file record in database
     const fileRecord = this.fileRecordRepository.create({
@@ -119,13 +85,8 @@ export class FilesService {
 
     await this.fileRecordRepository.save(fileRecord);
 
-    if (!fileRecord) {
-      throw new Error('Failed to create file record');
-    }
-
     this.logger.log(`Created file record: ${fileRecord.id} for key: ${key}`);
 
-    // Generate presigned upload URL
     const { expiresInSeconds, uploadUrl } = await this.s3Service.getPresignedUploadUrl({
       contentType: dto.contentType,
       key,
@@ -140,10 +101,39 @@ export class FilesService {
       status: fileRecord.status,
       uploadMethod: 'PUT',
       uploadUrl,
-      // publicUrl: this.s3Service.getPublicUrl(fileRecord.key)
     };
   }
-  getFileRecordData(fileRecord: FileRecord) {
+
+  /**
+   * Get file record by ID
+   */
+  // eslint-disable-next-line
+  async getFileById(fileId: string, userId: string): Promise<CompleteUploadResponse> {
+    const fileRecord = await this.fileRecordRepository.findOne({
+      where: { id: fileId },
+    });
+
+    if (!fileRecord) {
+      throw new NotFoundException(`File record with ID ${fileId} not found`);
+    }
+
+    // TODO: Add ownership check when auth is implemented
+    // if (fileRecord.ownerId !== userId) {
+    //   throw new ForbiddenException('You do not have access to this file');
+    // }
+
+    const fileRecordData = await this.getFileRecordData(fileRecord);
+
+    if (!fileRecordData) {
+      throw new Error('Failed to retrieve file record data');
+    }
+
+    return fileRecordData;
+  }
+
+  async getFileRecordData(fileRecord: FileRecord) {
+    const { url: publicUrl } = await this.getFileUrl(fileRecord.id, fileRecord.ownerId);
+
     return {
       bucket: fileRecord.bucket,
       completedAt: fileRecord.completedAt,
@@ -153,11 +143,38 @@ export class FilesService {
       id: fileRecord.id,
       key: fileRecord.key,
       ownerId: fileRecord.ownerId,
+      publicUrl,
       size: fileRecord.size,
       status: fileRecord.status,
       updatedAt: fileRecord.updatedAt,
-      // publicUrl: this.s3Service.getPublicUrl(fileRecord.key)
     };
+  }
+
+  /**
+   * Get presigned download URL for a file
+   */
+  // eslint-disable-next-line
+  async getFileUrl(fileId: string, userId: string): Promise<{ url: string }> {
+    const fileRecord = await this.fileRecordRepository.findOne({
+      where: { id: fileId },
+    });
+
+    if (!fileRecord) {
+      throw new NotFoundException(`File record with ID ${fileId} not found`);
+    }
+
+    if (fileRecord.status !== FileStatus.READY) {
+      throw new BadRequestException('File is not ready for download');
+    }
+
+    // TODO: Add ownership check when auth is implemented
+    // if (fileRecord.ownerId !== userId) {
+    //   throw new ForbiddenException('You do not have access to this file');
+    // }
+
+    const { downloadUrl: url } = await this.s3Service.getPresignedDownloadUrl(fileRecord.key);
+
+    return { url };
   }
 
   /**
@@ -178,36 +195,5 @@ export class FilesService {
       default:
         this.logger.warn(`Unknown entity type: ${entityType as string}`);
     }
-  }
-
-  /**
-   * Build S3 object key based on entity type
-   */
-  private buildObjectKey(dto: CreateFileRecordDto): string {
-    const fileId = randomUUID();
-    const extension = this.getFileExtension(dto.contentType);
-
-    switch (dto.entityType) {
-      case 'product':
-        return `products/${dto.entityId}/images/${fileId}${extension}`;
-      case 'user':
-        return `users/${dto.ownerId}/avatars/${fileId}${extension}`;
-      default:
-        return `misc/${dto.ownerId}/${fileId}${extension}`;
-    }
-  }
-
-  /**
-   * Get file extension from content type
-   */
-  private getFileExtension(contentType: string): string {
-    const mimeToExt: Record<string, string> = {
-      'image/jpeg': '.jpeg',
-      'image/jpg': '.jpg',
-      'image/png': '.png',
-      'image/webp': '.webp',
-    };
-
-    return mimeToExt[contentType] || '';
   }
 }
