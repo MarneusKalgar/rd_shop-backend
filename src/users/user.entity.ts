@@ -25,6 +25,9 @@ export class User {
   @OneToMany(() => Order, (order) => order.user)
   orders: Order[];
 
+  @Column({ length: 255, name: 'password', nullable: true, select: false, type: 'varchar' })
+  password: string;
+
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

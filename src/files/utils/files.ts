@@ -19,7 +19,7 @@ export const getFileExtension = (contentType: string): string => {
 /**
  * Build S3 object key based on entity type
  */
-export const getObjectKey = (dto: CreatePresignedUploadDto): string => {
+export const getObjectKey = (ownerId: string, dto: CreatePresignedUploadDto): string => {
   const fileId = randomUUID();
   const extension = getFileExtension(dto.contentType);
 
@@ -27,8 +27,8 @@ export const getObjectKey = (dto: CreatePresignedUploadDto): string => {
     case 'product':
       return `products/${dto.entityId}/images/${fileId}${extension}`;
     case 'user':
-      return `users/${dto.ownerId}/avatars/${fileId}${extension}`;
+      return `users/${ownerId}/avatars/${fileId}${extension}`;
     default:
-      return `misc/${dto.ownerId}/${fileId}${extension}`;
+      return `misc/${ownerId}/${fileId}${extension}`;
   }
 };

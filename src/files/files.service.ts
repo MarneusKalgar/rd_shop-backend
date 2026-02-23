@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -22,20 +28,25 @@ export class FilesService {
     private readonly productsService: ProductsService,
   ) {}
 
+  checkIsOwner(fileRecord: FileRecord, userId: string) {
+    const isOwner = fileRecord.ownerId === userId;
+
+    if (!isOwner) {
+      throw new ForbiddenException('You do not have access to this file');
+    }
+  }
+
   /**
    * Complete file upload - verify file exists in S3 and update record status
    */
   async completeUpload(
+    userId: string,
     fileId: string,
     entityType: EntityFileAssociation,
   ): Promise<CompleteUploadResponse> {
-    const fileRecord = await this.fileRecordRepository.findOne({
-      where: { id: fileId },
-    });
+    const fileRecord = await this.findFileRecordOrFail(fileId);
 
-    if (!fileRecord) {
-      throw new NotFoundException(`File record with ID ${fileId} not found`);
-    }
+    this.checkIsOwner(fileRecord, userId);
 
     if (fileRecord.status === FileStatus.READY) {
       this.logger.warn(`File record ${fileId} is already marked as ready`);
@@ -50,7 +61,6 @@ export class FilesService {
       );
     }
 
-    // Update file record status to ready
     fileRecord.status = FileStatus.READY;
     fileRecord.completedAt = new Date();
     await this.fileRecordRepository.save(fileRecord);
@@ -67,17 +77,20 @@ export class FilesService {
   /**
    * Create a presigned upload URL and file record
    */
-  async createPresignedUpload(dto: CreatePresignedUploadDto): Promise<FileUploadResponse> {
-    const key = getObjectKey(dto);
+  async createPresignedUpload(
+    userId: string,
+    dto: CreatePresignedUploadDto,
+  ): Promise<FileUploadResponse> {
+    const key = getObjectKey(userId, dto);
 
-    // Create file record in database
+    console.log('createPresignedUpload', { userId });
+
     const fileRecord = this.fileRecordRepository.create({
       bucket: this.s3Service.bucketName,
       contentType: dto.contentType,
       entityId: dto.entityId,
       key,
-      // TODO change to actual ownerId from auth context
-      ownerId: dto.ownerId,
+      ownerId: userId,
       size: dto.size,
       status: FileStatus.PENDING,
       visibility: FileVisibility.PRIVATE,
@@ -107,20 +120,11 @@ export class FilesService {
   /**
    * Get file record by ID
    */
-  // eslint-disable-next-line
+
   async getFileById(fileId: string, userId: string): Promise<CompleteUploadResponse> {
-    const fileRecord = await this.fileRecordRepository.findOne({
-      where: { id: fileId },
-    });
+    const fileRecord = await this.findFileRecordOrFail(fileId);
 
-    if (!fileRecord) {
-      throw new NotFoundException(`File record with ID ${fileId} not found`);
-    }
-
-    // TODO: Add ownership check when auth is implemented
-    // if (fileRecord.ownerId !== userId) {
-    //   throw new ForbiddenException('You do not have access to this file');
-    // }
+    this.checkIsOwner(fileRecord, userId);
 
     const fileRecordData = await this.getFileRecordData(fileRecord);
 
@@ -153,24 +157,14 @@ export class FilesService {
   /**
    * Get presigned download URL for a file
    */
-  // eslint-disable-next-line
   async getFileUrl(fileId: string, userId: string): Promise<{ url: string }> {
-    const fileRecord = await this.fileRecordRepository.findOne({
-      where: { id: fileId },
-    });
+    const fileRecord = await this.findFileRecordOrFail(fileId);
 
-    if (!fileRecord) {
-      throw new NotFoundException(`File record with ID ${fileId} not found`);
-    }
+    this.checkIsOwner(fileRecord, userId);
 
     if (fileRecord.status !== FileStatus.READY) {
       throw new BadRequestException('File is not ready for download');
     }
-
-    // TODO: Add ownership check when auth is implemented
-    // if (fileRecord.ownerId !== userId) {
-    //   throw new ForbiddenException('You do not have access to this file');
-    // }
 
     const { downloadUrl: url } = await this.s3Service.getPresignedDownloadUrl(fileRecord.key);
 
@@ -195,5 +189,20 @@ export class FilesService {
       default:
         this.logger.warn(`Unknown entity type: ${entityType as string}`);
     }
+  }
+
+  /**
+   * Find file record by ID or throw NotFoundException
+   */
+  private async findFileRecordOrFail(fileId: string): Promise<FileRecord> {
+    const fileRecord = await this.fileRecordRepository.findOne({
+      where: { id: fileId },
+    });
+
+    if (!fileRecord) {
+      throw new NotFoundException(`File record with ID ${fileId} not found`);
+    }
+
+    return fileRecord;
   }
 }

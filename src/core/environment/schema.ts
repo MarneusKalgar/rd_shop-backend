@@ -37,11 +37,22 @@ export class EnvironmentVariables {
   @IsString()
   AWS_SECRET_ACCESS_KEY: string;
 
+  @IsNumber()
+  @IsOptional()
+  BCRYPT_SALT_ROUNDS?: number;
+
   @IsString()
   DATABASE_PROVIDER: string;
 
   @IsString()
   DATABASE_URL: string;
+
+  @IsOptional()
+  @IsString()
+  JWT_ACCESS_EXPIRES_IN?: string;
+
+  @IsString()
+  JWT_ACCESS_SECRET: string;
 
   @IsString()
   NODE_ENV: string;

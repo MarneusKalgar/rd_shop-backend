@@ -1,5 +1,9 @@
-import { Body, Controller, HttpStatus, Param, Post /*, Req*/ } from '@nestjs/common';
+import { Body, Controller, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+
+import { CurrentUser } from '@/auth/decorators/current-user';
+import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
+import { AuthUser } from '@/auth/types';
 
 import {
   CompleteUploadDto,
@@ -13,6 +17,7 @@ import { FilesService } from '../files.service';
 
 @ApiTags('files')
 @Controller({ path: 'files', version: '1' })
+@UseGuards(JwtAuthGuard)
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
@@ -35,9 +40,12 @@ export class FilesController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Post('complete-upload')
-  async completeUpload(@Body() body: CompleteUploadDto): Promise<CompleteUploadResponseDto> {
+  async completeUpload(
+    @CurrentUser() user: AuthUser,
+    @Body() body: CompleteUploadDto,
+  ): Promise<CompleteUploadResponseDto> {
     const { entityType, fileId } = body;
-    return this.filesService.completeUpload(fileId, entityType);
+    return this.filesService.completeUpload(user.sub, fileId, entityType);
   }
 
   @ApiOperation({
@@ -56,11 +64,10 @@ export class FilesController {
   })
   @Post('presigned-upload')
   async createPresignedUpload(
-    // TODO: uncomment to accept user id
-    // @Req() req,
+    @CurrentUser() user: AuthUser,
     @Body() body: CreatePresignedUploadDto,
   ): Promise<PresignedUploadResponseDto> {
-    return this.filesService.createPresignedUpload(body);
+    return this.filesService.createPresignedUpload(user.sub, body);
   }
 
   @ApiOperation({
@@ -78,6 +85,7 @@ export class FilesController {
   })
   @Post(':fileId')
   async getFileById(
+    @CurrentUser() user: AuthUser,
     @Param('fileId') fileId: string,
     @Body() body: GetFileDto,
   ): Promise<CompleteUploadResponseDto> {
@@ -104,6 +112,7 @@ export class FilesController {
   })
   @Post(':fileId/url')
   async getFileUrl(
+    @CurrentUser() user: AuthUser,
     @Param('fileId') fileId: string,
     @Body() body: GetFileDto,
   ): Promise<GetFileUrlResponseDto> {

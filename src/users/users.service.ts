@@ -10,6 +10,7 @@ const mockUser = {
   id: '1',
   lastName: 'Doe',
   orders: [],
+  password: 'hashedpassword123',
   updatedAt: new Date(),
 };
 
