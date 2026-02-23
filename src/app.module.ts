@@ -5,9 +5,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { QueryLoggerMiddleware, RequestIdMiddleware } from './common/middlewares';
 import { /*getGracefulShutdownConfig,*/ getTypeOrmModuleOptions } from './config';
 import { getEnvFile, validate } from './core/environment';
+import { FilesModule } from './files/files.module';
 import { GraphqlModule } from './graphql/graphql.module';
 import { OrdersModule } from './orders/orders.module';
 import { ProductsModule } from './products/products.module';
@@ -28,9 +30,11 @@ import { UsersModule } from './users/users.module';
     }),
     // TODO: Uncomment when resolve problem with graphql module
     // GracefulShutdownModule.forRoot(getGracefulShutdownConfig()),
+    AuthModule,
     UsersModule,
     OrdersModule,
     ProductsModule,
+    FilesModule,
     GraphqlModule,
   ],
   providers: [AppService],

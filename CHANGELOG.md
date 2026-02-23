@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.5] - 2026-02-23
+
+### Added
+
+- **File Upload System** - Presigned S3 URL-based file upload with two-phase workflow (presign → upload → complete)
+- **FileRecord Entity** - Database entity for tracking uploaded files with status (PENDING, READY, FAILED)
+- **Files Module** - Complete file management module with FilesService, S3Service, and REST API endpoints
+- **Product Images** - Integration with Products module for main image association (Product.mainImageId)
+- **Presigned URL Generation** - Secure 15-minute presigned PUT URLs for direct client-to-S3 uploads
+- **File Verification** - Server-side S3 HEAD request verification before marking uploads as complete
+- **AWS S3 Integration** - AWS SDK v3 with @aws-sdk/client-s3 and @aws-sdk/s3-request-presigner
+- **File Upload Documentation** - Comprehensive guide covering architecture, workflow, and S3 configuration ([homework09.md](homework09.md))
+- **Upload Endpoints** - POST /v1/files/presigned-upload and POST /v1/files/complete-upload REST endpoints
+- **File Status Tracking** - Lifecycle management (PENDING → READY) with automatic status transitions
+- **Entity Association** - Generic file association pattern supporting products (and future user avatars)
+- **S3 Key Management** - Structured key naming: `{entityType}/{entityId}/{fileType}/{uuid}.{ext}`
+
+### Changed
+
+- **Product Entity** - Added `mainImageId` nullable foreign key to FileRecord
+- **Database Schema** - Added file_records table with foreign key relationship to products
+
+### Security
+
+- **Presigned URL Expiry** - 15-minute time-limited upload URLs to prevent unauthorized access
+- **File Size Validation** - DTO validation for file size limits before presigned URL generation
+- **Content-Type Enforcement** - Presigned URLs enforce specific content types during upload
+- **S3 Bucket Permissions** - Server-only access to S3 credentials, clients never see AWS keys
+
+### Performance
+
+- **Direct S3 Upload** - Zero server load during file transfer, client uploads directly to S3
+- **Minimal Server Processing** - Server only generates URLs and verifies, no file handling
+- **Efficient Verification** - HEAD requests to S3 instead of downloading full files for verification
+
 ## [0.0.4] - 2026-02-18
 
 ### Added
@@ -148,6 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.0.5]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.5
 [0.0.4]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.4
 [0.0.3]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.3
 [0.0.2]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.2

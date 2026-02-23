@@ -10,6 +10,9 @@ const mockUser = {
   id: '1',
   lastName: 'Doe',
   orders: [],
+  password: 'hashedpassword123',
+  roles: ['user'],
+  scopes: ['read:products'],
   updatedAt: new Date(),
 };
 

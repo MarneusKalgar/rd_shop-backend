@@ -19,6 +19,8 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **Cross-Platform Support** - Works on Windows, macOS, and Linux
 - **GraphQL API** - Code-first GraphQL implementation with Apollo Server (see [homework07.md](homework07.md))
 - **DataLoader Integration** - N+1 query prevention with request-scoped DataLoaders (90% query reduction)
+- **File Upload System** - Presigned S3 URLs for secure file uploads with two-phase workflow (see [homework09.md](homework09.md))
+- **Product Images** - Support for product main image association with AWS S3 storage
 
 ## 🛠️ Technology Stack
 
@@ -41,6 +43,11 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **[TypeORM](https://typeorm.io/)** ^0.3.21 - ORM for TypeScript and JavaScript
 - **[PostgreSQL](https://www.postgresql.org/)** - Relational database
 - **[pg](https://node-postgres.com/)** - PostgreSQL client for Node.js
+
+### File Storage
+
+- **[@aws-sdk/client-s3](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/)** - AWS SDK v3 for S3 operations
+- **[@aws-sdk/s3-request-presigner](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/)** - Presigned URL generation for secure uploads
 
 ### Validation & Configuration
 

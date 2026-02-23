@@ -3,15 +3,19 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
+import { FileRecord } from '../files/file-record.entity';
 import { OrderItem } from '../orders/order-item.entity';
 
 @Entity('products')
 @Index('IDX_products_title_unique', ['title'], { unique: true })
+@Index('IDX_products_main_image_id', ['mainImageId'])
 export class Product {
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
@@ -21,6 +25,13 @@ export class Product {
 
   @Column({ default: true, name: 'is_active', type: 'boolean' })
   isActive: boolean;
+
+  @JoinColumn({ name: 'main_image_id' })
+  @ManyToOne(() => FileRecord, { nullable: true, onDelete: 'SET NULL' })
+  mainImage: FileRecord | null;
+
+  @Column({ name: 'main_image_id', nullable: true, type: 'uuid' })
+  mainImageId: null | string;
 
   @OneToMany(() => OrderItem, (item) => item.product)
   orderItems: OrderItem[];

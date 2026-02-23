@@ -5,6 +5,7 @@ import { DatabaseAdapterFactory } from '@/db/adapters';
 import { CustomTypeOrmLogger } from '@/db/logger';
 import { isProduction } from '@/utils/env';
 
+import { FileRecord } from '../files/file-record.entity';
 import { OrderItem } from '../orders/order-item.entity';
 import { Order } from '../orders/order.entity';
 import { Product } from '../products/product.entity';
@@ -39,7 +40,7 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
 
   return {
     ...baseConfig,
-    entities: [User, Order, OrderItem, Product],
+    entities: [User, Order, OrderItem, Product, FileRecord],
     logger: new CustomTypeOrmLogger(),
   } as TypeOrmModuleOptions;
 };
