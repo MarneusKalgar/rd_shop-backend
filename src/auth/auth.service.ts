@@ -73,8 +73,6 @@ export class AuthService {
     const user = this.userRepository.create({
       email,
       password: hashedPassword,
-      roles: signupDto.roles,
-      scopes: signupDto.scopes,
     });
 
     await this.userRepository.save(user);
@@ -85,8 +83,6 @@ export class AuthService {
       email: user.email,
       id: user.id,
       message: 'User successfully registered. Please sign in to continue.',
-      roles: user.roles,
-      scopes: user.scopes,
     };
   }
 

@@ -34,8 +34,14 @@ export class PresignedUploadResponseDto {
   status: FileRecord['status'];
 
   @ApiProperty({
+    description: 'HTTP method to use for uploading the file',
+    example: 'PUT',
+  })
+  uploadMethod: string;
+
+  @ApiProperty({
     description: 'Presigned upload URL (valid for limited time)',
     example: 'https://s3.amazonaws.com/...',
   })
-  uploadMethod: string;
+  uploadUrl: string;
 }

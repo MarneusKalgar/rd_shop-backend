@@ -36,16 +36,4 @@ export class SignupResponseDto {
     example: 'User registered successfully',
   })
   message: string;
-
-  @ApiProperty({
-    description: 'User roles',
-    example: ['user', 'admin'],
-  })
-  roles: string[];
-
-  @ApiProperty({
-    description: 'User scopes',
-    example: ['read:products', 'write:orders'],
-  })
-  scopes: string[];
 }

@@ -1,15 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsEnum,
-  IsIn,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsEnum, IsIn, IsNotEmpty, IsNumber, IsString, IsUUID, Max, Min } from 'class-validator';
 
 import { ALLOWED_IMAGE_MIME_TYPES, FILE_SIZE_LIMITS } from '../constants';
 
@@ -31,7 +21,6 @@ export class CreatePresignedUploadDto {
     example: '650e8400-e29b-41d4-a716-446655440001',
     required: false,
   })
-  @IsOptional()
   @IsUUID()
   entityId: string;
 

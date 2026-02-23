@@ -71,6 +71,12 @@ export class CompleteUploadResponseDto {
   ownerId: string;
 
   @ApiProperty({
+    description: 'Public URL to access the file (if applicable)',
+    example: 'https://cdn.example.com/products/123/images/456.jpeg',
+  })
+  publicUrl: string;
+
+  @ApiProperty({
     description: 'File size in bytes',
     example: 1024000,
   })
@@ -78,8 +84,14 @@ export class CompleteUploadResponseDto {
 
   @ApiProperty({
     description: 'File status',
-    enum: ['ready'],
-    example: 'ready',
+    enum: ['PENDING', 'READY'],
+    example: 'READY',
   })
   status: FileRecord['status'];
+
+  @ApiProperty({
+    description: 'Timestamp when the file record was last updated',
+    example: '2024-06-01T12:30:00Z',
+  })
+  updatedAt: Date;
 }

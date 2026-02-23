@@ -9,7 +9,7 @@ export interface CompleteUploadResponse {
   id: string;
   key: string;
   ownerId: string;
-  publicUrl?: string;
+  publicUrl: string;
   size: number;
   status: FileStatus;
   updatedAt: Date;

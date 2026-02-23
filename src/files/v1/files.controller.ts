@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Roles, Scopes } from '@/auth/decorators';
@@ -93,7 +102,7 @@ export class FilesController {
   @Scopes('products:images:read')
   async getFileById(
     @CurrentUser() user: AuthUser,
-    @Param('fileId') fileId: string,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
   ): Promise<CompleteUploadResponseDto> {
     return this.filesService.getFileById(user.sub, fileId);
   }
@@ -121,7 +130,7 @@ export class FilesController {
   @Scopes('products:images:read')
   async getFileUrl(
     @CurrentUser() user: AuthUser,
-    @Param('fileId') fileId: string,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
   ): Promise<GetFileUrlResponseDto> {
     return this.filesService.getFileUrl(user.sub, fileId);
   }

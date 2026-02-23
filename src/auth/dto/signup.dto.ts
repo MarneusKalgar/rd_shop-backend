@@ -19,16 +19,4 @@ export class SignupDto {
   @IsString()
   @MinLength(8)
   password: string;
-
-  @ApiProperty({
-    description: 'User roles (optional)',
-    example: ['user', 'admin'],
-  })
-  roles?: string[];
-
-  @ApiProperty({
-    description: 'User scopes (optional)',
-    example: ['read:products', 'write:orders'],
-  })
-  scopes?: string[];
 }
