@@ -83,8 +83,6 @@ export class FilesService {
   ): Promise<FileUploadResponse> {
     const key = getObjectKey(userId, dto);
 
-    console.log('createPresignedUpload', { userId });
-
     const fileRecord = this.fileRecordRepository.create({
       bucket: this.s3Service.bucketName,
       contentType: dto.contentType,
@@ -120,8 +118,7 @@ export class FilesService {
   /**
    * Get file record by ID
    */
-
-  async getFileById(fileId: string, userId: string): Promise<CompleteUploadResponse> {
+  async getFileById(userId: string, fileId: string): Promise<CompleteUploadResponse> {
     const fileRecord = await this.findFileRecordOrFail(fileId);
 
     this.checkIsOwner(fileRecord, userId);
@@ -136,7 +133,7 @@ export class FilesService {
   }
 
   async getFileRecordData(fileRecord: FileRecord) {
-    const { url: publicUrl } = await this.getFileUrl(fileRecord.id, fileRecord.ownerId);
+    const { url: publicUrl } = await this.getPresignedDownloadUrl(fileRecord);
 
     return {
       bucket: fileRecord.bucket,
@@ -157,7 +154,7 @@ export class FilesService {
   /**
    * Get presigned download URL for a file
    */
-  async getFileUrl(fileId: string, userId: string): Promise<{ url: string }> {
+  async getFileUrl(userId: string, fileId: string): Promise<{ url: string }> {
     const fileRecord = await this.findFileRecordOrFail(fileId);
 
     this.checkIsOwner(fileRecord, userId);
@@ -166,8 +163,13 @@ export class FilesService {
       throw new BadRequestException('File is not ready for download');
     }
 
-    const { downloadUrl: url } = await this.s3Service.getPresignedDownloadUrl(fileRecord.key);
+    const { url } = await this.getPresignedDownloadUrl(fileRecord);
 
+    return { url };
+  }
+
+  async getPresignedDownloadUrl(fileRecord: FileRecord): Promise<{ url: string }> {
+    const { downloadUrl: url } = await this.s3Service.getPresignedDownloadUrl(fileRecord.key);
     return { url };
   }
 

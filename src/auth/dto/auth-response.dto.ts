@@ -13,6 +13,8 @@ export class SigninResponseDto {
   user: {
     email: string;
     id: string;
+    roles: string[];
+    scopes: string[];
   };
 }
 
@@ -34,4 +36,16 @@ export class SignupResponseDto {
     example: 'User registered successfully',
   })
   message: string;
+
+  @ApiProperty({
+    description: 'User roles',
+    example: ['user', 'admin'],
+  })
+  roles: string[];
+
+  @ApiProperty({
+    description: 'User scopes',
+    example: ['read:products', 'write:orders'],
+  })
+  scopes: string[];
 }

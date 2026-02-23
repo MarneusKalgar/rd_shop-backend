@@ -1,15 +1,16 @@
-import { Body, Controller, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
+import { Roles, Scopes } from '@/auth/decorators';
 import { CurrentUser } from '@/auth/decorators/current-user';
-import { JwtAuthGuard } from '@/auth/jwt-auth.guard';
+import { JwtAuthGuard, RolesGuard, ScopesGuard } from '@/auth/guards';
 import { AuthUser } from '@/auth/types';
 
 import {
   CompleteUploadDto,
   CompleteUploadResponseDto,
   CreatePresignedUploadDto,
-  GetFileDto,
+  // GetFileDto,
   GetFileUrlResponseDto,
   PresignedUploadResponseDto,
 } from '../dto';
@@ -17,7 +18,7 @@ import { FilesService } from '../files.service';
 
 @ApiTags('files')
 @Controller({ path: 'files', version: '1' })
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, ScopesGuard)
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
@@ -40,6 +41,8 @@ export class FilesController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Post('complete-upload')
+  @Roles('admin', 'support')
+  @Scopes('products:images:write')
   async completeUpload(
     @CurrentUser() user: AuthUser,
     @Body() body: CompleteUploadDto,
@@ -63,6 +66,8 @@ export class FilesController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Post('presigned-upload')
+  @Roles('admin', 'support')
+  @Scopes('products:images:write')
   async createPresignedUpload(
     @CurrentUser() user: AuthUser,
     @Body() body: CreatePresignedUploadDto,
@@ -83,13 +88,14 @@ export class FilesController {
     description: 'File record not found',
     status: HttpStatus.NOT_FOUND,
   })
-  @Post(':fileId')
+  @Get(':fileId')
+  @Roles('admin', 'support')
+  @Scopes('products:images:read')
   async getFileById(
     @CurrentUser() user: AuthUser,
     @Param('fileId') fileId: string,
-    @Body() body: GetFileDto,
   ): Promise<CompleteUploadResponseDto> {
-    return this.filesService.getFileById(fileId, body.userId);
+    return this.filesService.getFileById(user.sub, fileId);
   }
 
   @ApiOperation({
@@ -110,12 +116,13 @@ export class FilesController {
     description: 'File is not ready for download',
     status: HttpStatus.BAD_REQUEST,
   })
-  @Post(':fileId/url')
+  @Get(':fileId/url')
+  @Roles('admin', 'support')
+  @Scopes('products:images:read')
   async getFileUrl(
     @CurrentUser() user: AuthUser,
     @Param('fileId') fileId: string,
-    @Body() body: GetFileDto,
   ): Promise<GetFileUrlResponseDto> {
-    return this.filesService.getFileUrl(fileId, body.userId);
+    return this.filesService.getFileUrl(user.sub, fileId);
   }
 }

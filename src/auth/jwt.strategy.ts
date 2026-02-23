@@ -26,9 +26,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   async validate(payload: JwtPayload): Promise<AuthUser> {
     const { sub: userId } = payload;
 
-    console.log('Validating JWT payload:', payload);
-
     const user = await this.userRepository.findOne({
+      select: ['id', 'email', 'roles', 'scopes'],
       where: { id: userId },
     });
 
@@ -38,6 +37,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     return {
       email: user.email,
+      roles: user.roles,
+      scopes: user.scopes,
       sub: user.id,
     };
   }

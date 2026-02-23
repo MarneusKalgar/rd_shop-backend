@@ -28,14 +28,6 @@ export class CreatePresignedUploadDto {
   @IsNotEmpty()
   entityType: 'product' | 'user';
 
-  // @ApiProperty({
-  //   description: 'ID of the user uploading the file (owner)',
-  //   example: '550e8400-e29b-41d4-a716-446655440001',
-  // })
-  // @IsNotEmpty()
-  // @IsUUID()
-  // ownerId: string;
-
   @ApiProperty({
     description: 'File size in bytes',
     example: 1024000,

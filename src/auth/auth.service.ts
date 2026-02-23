@@ -41,8 +41,6 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    console.log('Comparing passwords:', { provided: password, storedHash: user.password });
-
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
@@ -75,6 +73,8 @@ export class AuthService {
     const user = this.userRepository.create({
       email,
       password: hashedPassword,
+      roles: signupDto.roles,
+      scopes: signupDto.scopes,
     });
 
     await this.userRepository.save(user);
@@ -85,17 +85,10 @@ export class AuthService {
       email: user.email,
       id: user.id,
       message: 'User successfully registered. Please sign in to continue.',
+      roles: user.roles,
+      scopes: user.scopes,
     };
   }
-
-  /**
-   * Validate user by ID (used by JWT strategy)
-   */
-  // async validateUser(userId: string): Promise<null | User> {
-  //   return this.userRepository.findOne({
-  //     where: { id: userId },
-  //   });
-  // }
 
   /**
    * Generate JWT token and auth response
@@ -103,9 +96,9 @@ export class AuthService {
   private async generateAuthResponse(user: User): Promise<SigninResponseDto> {
     const payload: JwtPayload = {
       email: user.email,
+      roles: user.roles,
+      scopes: user.scopes,
       sub: user.id,
-      // roles
-      // scopes
     };
 
     const accessToken = await this.jwtService.signAsync(payload);
@@ -115,6 +108,8 @@ export class AuthService {
       user: {
         email: user.email,
         id: user.id,
+        roles: user.roles,
+        scopes: user.scopes,
       },
     };
   }

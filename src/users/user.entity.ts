@@ -28,6 +28,12 @@ export class User {
   @Column({ length: 255, name: 'password', nullable: true, select: false, type: 'varchar' })
   password: string;
 
+  @Column({ array: true, default: [], name: 'roles', type: 'text' })
+  roles: string[];
+
+  @Column({ array: true, default: [], name: 'scopes', type: 'text' })
+  scopes: string[];
+
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

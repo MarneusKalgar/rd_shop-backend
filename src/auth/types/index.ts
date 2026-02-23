@@ -1,13 +1,17 @@
+import { Request } from 'express';
+
 export interface AuthUser {
   email: string;
+  roles: string[];
+  scopes: string[];
   sub: string;
-  // roles: string[];
-  // scopes: string[];
 }
 
 export interface JwtPayload {
   email: string;
-  sub: string; // user id
-  // roles: string[];
-  // scopes: string[];
+  roles: string[];
+  scopes: string[];
+  sub: string;
 }
+
+export type RequestWithUser = Request & { user?: AuthUser };
