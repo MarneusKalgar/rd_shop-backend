@@ -1,10 +1,26 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
+
+import { ALLOWED_IMAGE_MIME_TYPES, FILE_SIZE_LIMITS } from '../constants';
 
 export class CreatePresignedUploadDto {
   @ApiProperty({
     description: 'MIME type of the file',
+    enum: ALLOWED_IMAGE_MIME_TYPES,
     example: 'image/jpeg',
+  })
+  @IsIn(ALLOWED_IMAGE_MIME_TYPES, {
+    message: `Content type must be one of: ${ALLOWED_IMAGE_MIME_TYPES.join(', ')}`,
   })
   @IsNotEmpty()
   @IsString()
@@ -29,10 +45,15 @@ export class CreatePresignedUploadDto {
   entityType: 'product' | 'user';
 
   @ApiProperty({
-    description: 'File size in bytes',
-    example: 1024000,
+    description: `File size in bytes (max ${FILE_SIZE_LIMITS.MAX_MB}MB)`,
+    example: 5242880, // 5MB in bytes
+    maximum: FILE_SIZE_LIMITS.MAX,
+    minimum: FILE_SIZE_LIMITS.MIN,
   })
   @IsNumber()
-  @Min(1)
+  @Max(FILE_SIZE_LIMITS.MAX, {
+    message: `File size cannot exceed ${FILE_SIZE_LIMITS.MAX_MB}MB (${FILE_SIZE_LIMITS.MAX} bytes)`,
+  })
+  @Min(FILE_SIZE_LIMITS.MIN, { message: 'File size must be at least 1 byte' })
   size: number;
 }
