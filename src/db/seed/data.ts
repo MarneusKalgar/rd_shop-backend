@@ -6,18 +6,35 @@ import { SeedOrder, SeedProduct, SeedUser } from './types';
 export const seedUsers: SeedUser[] = [
   {
     email: 'john.doe@example.com',
+    roles: ['admin'],
+    scopes: [
+      'read:orders',
+      'write:orders',
+      'read:products',
+      'write:products',
+      'products:images:write',
+      'products:images:read',
+    ],
   },
   {
     email: 'jane.smith@example.com',
+    roles: ['support'],
+    scopes: ['orders:read', 'payments:read', 'payments:write', 'products:images:write'],
   },
   {
     email: 'bob.wilson@example.com',
+    roles: ['user'],
+    scopes: ['orders:read', 'orders:write', 'files:write', 'products:images:read'],
   },
   {
     email: 'alice.brown@example.com',
+    roles: ['support'],
+    scopes: ['orders:read', 'payments:read', 'payments:write'],
   },
   {
     email: 'charlie.davis@example.com',
+    roles: ['user'],
+    scopes: ['orders:read', 'orders:write', 'files:write', 'products:images:read'],
   },
 ];
 

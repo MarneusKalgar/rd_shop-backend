@@ -1,0 +1,47 @@
+# Development overrides
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    user: '1001:1001'
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./src:/app/src
+      - /app/node_modules
+    env_file:
+      - .env.development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - rd-shop-network
+    restart: unless-stopped
+
+  # postgres:
+  #   ports:
+  #     - "5432:5432"
+
+  minio:
+    container_name: rd_shop-minio-dev
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+
+  minio-init:
+    container_name: rd_shop-minio-init-dev
+
+  # Development migration service
+  migrate:
+    env_file:
+      - .env.development
+    command: npm run db:migrate:dev
+
+  # Development seed service
+  seed:
+    env_file:
+      - .env.development
+    command: npm run db:seed

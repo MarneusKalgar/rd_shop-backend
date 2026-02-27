@@ -21,4 +21,6 @@ export interface SeedProduct {
 export interface SeedUser {
   email: string;
   id?: string;
+  roles?: string[];
+  scopes?: string[];
 }

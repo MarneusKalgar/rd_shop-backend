@@ -4,8 +4,8 @@ export class AddOrdersQueryIndexes1770927715288 implements MigrationInterface {
   name = 'AddOrdersQueryIndexes1770927715288';
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "public"."IDX_order_items_order_product"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_orders_status_created"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "public"."IDX_order_items_order_product"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "public"."IDX_orders_status_created"`);
     await queryRunner.query(
       `CREATE TYPE "public"."orders_status_enum_old" AS ENUM('CANCELLED', 'CREATED', 'PAID')`,
     );
@@ -24,7 +24,7 @@ export class AddOrdersQueryIndexes1770927715288 implements MigrationInterface {
   }
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "public"."IDX_orders_status_created"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "public"."IDX_orders_status_created"`);
     await queryRunner.query(
       `ALTER TYPE "public"."orders_status_enum" RENAME TO "orders_status_enum_old"`,
     );
