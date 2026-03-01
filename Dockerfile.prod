@@ -36,7 +36,7 @@ COPY src ./src
 RUN npm run build
 
 # ============================================
-# Stage: prod - Production runtime
+# Stage: prune - Remove devDependencies
 # ============================================
 FROM node:24-alpine AS prune
 
@@ -45,7 +45,6 @@ WORKDIR /app
 COPY package*.json ./
 
 # Copy all node_modules from build
-COPY --from=build --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 
 # Remove devDependencies
@@ -66,7 +65,7 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-# Copy production dependencies from deps stage
+# Copy production dependencies from prune stage
 COPY --from=prune --chown=nestjs:nodejs /app/node_modules ./node_modules
 
 # Copy built application from build stage
@@ -97,7 +96,7 @@ COPY --from=prune --chown=nonroot:nonroot /app/node_modules ./node_modules
 
 # Copy built application from build stage
 COPY --from=build --chown=nonroot:nonroot /app/dist ./dist
-COPY --from=build --chown=nestjs:nodejs /app/package.json ./
+COPY --from=build --chown=nonroot:nonroot /app/package.json ./
 
 # Distroless already uses nonroot user (UID 65532)
 USER nonroot

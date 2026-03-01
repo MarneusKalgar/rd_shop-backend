@@ -21,19 +21,20 @@ export class PostgresAdapter extends BasePostgresAdapter {
       return false;
     }
 
-    // Check if URL contains localhost or local postgres patterns
-    return (
+    const isLocalHostPattern =
       url.includes('localhost') ||
       url.includes('127.0.0.1') ||
       url.includes('@postgres:') ||
-      url.includes('@db:') ||
-      // Check for standard postgres:// scheme without cloud providers
-      (url.startsWith('postgres://') &&
-        !url.includes('neon.tech') &&
-        !url.includes('.aws.') &&
-        !url.includes('.supabase.') &&
-        !url.includes('.railway.'))
-    );
+      url.includes('@postgresql:') ||
+      url.includes('@db:');
+
+    const isNotCloudProviderHost =
+      !url.includes('neon.tech') &&
+      !url.includes('.aws.') &&
+      !url.includes('.supabase.') &&
+      !url.includes('.railway.');
+
+    return isLocalHostPattern && isNotCloudProviderHost;
   }
 
   getConnectionUrl(): string {

@@ -148,16 +148,16 @@ npm run start:dev
 # Debug mode
 npm run start:debug
 
-# Production mode
+# Production modes
 npm run start:prod
 
 # Build the project
 npm run build
 ```
 
-The API will be available at `http://localhost:8080` (or your configured PORT).
+The API will be available at `http://localhost` using your configured `PORT`.
 
-## � Docker Support
+## Docker Support
 
 The application includes production-ready Docker setup with multi-stage builds, environment-specific configurations, and security best practices.
 
