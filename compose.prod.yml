@@ -1,0 +1,78 @@
+# Production overrides
+services:
+  app:
+    container_name: rd_shop_prod-app
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      target: prod-distroless
+    init: true
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - rd_shop_prod-network
+    restart: always
+
+  # Alternative app - Alpine with shell (for debugging)
+  app-debug:
+    container_name: rd_shop_prod-app-debug
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      target: prod
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - rd_shop_prod-network
+    restart: always
+    profiles:
+      - debug
+
+  postgres:
+    env_file:
+      - .env.production
+    networks:
+      rd_shop_prod-network:
+        aliases:
+          - postgres
+
+  minio:
+    container_name: rd_shop-minio-prod
+    networks:
+      - rd_shop_prod-network
+    restart: always
+
+  minio-init:
+    container_name: rd_shop-minio-init-prod
+    networks:
+      - rd_shop_prod-network
+
+  migrate:
+    container_name: rd_shop_prod-migrate
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      target: prod-distroless
+    env_file:
+      - .env.production
+    command: npm run db:migrate:prod
+    networks:
+      - rd_shop_prod-network
+
+networks:
+  rd_shop_prod-network:
+    driver: bridge
