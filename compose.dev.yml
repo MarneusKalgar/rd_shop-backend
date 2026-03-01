@@ -21,13 +21,14 @@ services:
     restart: unless-stopped
     networks:
       - rd_shop_dev-network
+      - rd_shop_dev-network-internal
 
   postgres:
     container_name: rd_shop_dev-postgres
     env_file:
       - .env.development
     networks:
-      rd_shop_dev-network:
+      rd_shop_dev-network-internal:
         aliases:
           - postgres
 
@@ -46,14 +47,13 @@ services:
     networks:
       - rd_shop_dev-network
 
-  # Development migration service
   migrate:
     container_name: rd_shop_dev-migrate
     env_file:
       - .env.development
     command: npm run db:migrate:dev
     networks:
-      - rd_shop_dev-network
+      - rd_shop_dev-network-internal
 
   seed:
     container_name: rd_shop_dev-seed
@@ -77,8 +77,12 @@ services:
     profiles:
       - tools
     networks:
-      - rd_shop_dev-network
+      - rd_shop_dev-network-internal
 
 networks:
   rd_shop_dev-network:
     driver: bridge
+
+  rd_shop_dev-network-internal:
+    driver: bridge
+    internal: true

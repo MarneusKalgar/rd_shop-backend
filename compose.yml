@@ -15,9 +15,6 @@ services:
 
   minio:
     image: minio/minio:latest
-    # environment:
-    #   MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minioadmin}
-    #   MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -67,27 +64,6 @@ services:
     restart: 'no'
     profiles:
       - tools
-
-  # # Seed service - runs database seeding and exits
-  # seed:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.dev
-  #   user: '1001:1001'
-  #   working_dir: /app
-  #   volumes:
-  #     - ./src:/app/src
-  #     - /app/node_modules
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   networks:
-  #     - rd-shop-network
-  #   restart: 'no'
-  #   profiles:
-  #     - tools
 
 networks:
   rd-shop-network:

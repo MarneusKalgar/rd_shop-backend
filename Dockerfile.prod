@@ -71,7 +71,7 @@ COPY --from=prune --chown=nestjs:nodejs /app/node_modules ./node_modules
 
 # Copy built application from build stage
 COPY --from=build --chown=nestjs:nodejs /app/dist ./dist
-COPY --from=build --chown=nestjs:nodejs /app/package*.json ./
+COPY --from=build --chown=nestjs:nodejs /app/package.json ./
 
 # Switch to non-root user
 USER nestjs
@@ -97,7 +97,7 @@ COPY --from=prune --chown=nonroot:nonroot /app/node_modules ./node_modules
 
 # Copy built application from build stage
 COPY --from=build --chown=nonroot:nonroot /app/dist ./dist
-COPY --from=build --chown=nonroot:nonroot /app/package*.json ./
+COPY --from=build --chown=nestjs:nodejs /app/package.json ./
 
 # Distroless already uses nonroot user (UID 65532)
 USER nonroot

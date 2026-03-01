@@ -21,6 +21,9 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **DataLoader Integration** - N+1 query prevention with request-scoped DataLoaders (90% query reduction)
 - **File Upload System** - Presigned S3 URLs for secure file uploads with two-phase workflow (see [homework09.md](homework09.md))
 - **Product Images** - Support for product main image association with AWS S3 storage
+- **Docker Support** - Production-ready multi-stage builds with distroless images (see [homework10.md](homework10.md))
+- **Container Security** - Non-root users, minimal base images, and network isolation
+- **Hot Reload in Docker** - Development environment with source code bind mounts
 
 ## 🛠️ Technology Stack
 
@@ -67,11 +70,25 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **[Jest](https://jestjs.io/)** - Testing framework
 - **[Supertest](https://github.com/visionmedia/supertest)** - HTTP assertions
 
+### Infrastructure
+
+- **[Docker](https://www.docker.com/)** - Containerization platform
+- **[Docker Compose](https://docs.docker.com/compose/)** - Multi-container orchestration
+- **[Distroless Images](https://github.com/GoogleContainerTools/distroless)** - Minimal base images from Google
+- **[MinIO](https://min.io/)** - S3-compatible object storage for local development
+
 ## 📋 Prerequisites
+
+### Required
 
 - Node.js (v18+ recommended)
 - npm or yarn
 - Git
+
+### Optional (for Docker setup)
+
+- Docker Desktop or Docker Engine (v20.10+)
+- Docker Compose (v2.0+)
 
 ## Description
 
@@ -138,9 +155,47 @@ npm run start:prod
 npm run build
 ```
 
-The API will be available at `http://localhost:4000` (or your configured PORT).
+The API will be available at `http://localhost:8080` (or your configured PORT).
 
-## 🗄️ Database Management
+## � Docker Support
+
+The application includes production-ready Docker setup with multi-stage builds, environment-specific configurations, and security best practices.
+
+### Quick Start with Docker
+
+```bash
+# Development environment (with hot reload)
+docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up --build
+
+# Run migrations
+docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml run --rm migrate
+
+# Seed database
+docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml run --rm seed
+
+# Production environment (distroless)
+docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml up --build
+```
+
+### Docker Features
+
+- **Multi-stage builds** - Optimized image sizes (67% reduction: 1.2 GB → 384 MB)
+- **Distroless images** - Minimal attack surface with no shell or package manager
+- **Non-root users** - All containers run as non-root (UID 1001 or 65532)
+- **Hot reload** - Development environment with source code bind mounts
+- **Service isolation** - PostgreSQL on internal-only network
+- **Health checks** - Automatic dependency management with health checks
+- **MinIO integration** - S3-compatible object storage for local development
+
+### Available Endpoints
+
+- **REST API**: `http://localhost:8080` (Swagger docs at `/api-docs`)
+- **GraphQL**: `http://localhost:8080/graphql` (with Playground)
+- **Health Check**: `http://localhost:8080/health`
+
+For comprehensive Docker documentation, see [homework10.md](homework10.md).
+
+## �🗄️ Database Management
 
 ### Database Schema
 
@@ -422,16 +477,16 @@ Helper functions and utilities used across the application.
 ### REST API Base URL
 
 ```
-http://localhost:4000/api/v1
+http://localhost:8080/api/v1
 ```
 
 ### GraphQL Endpoint
 
 ```
-http://localhost:4000/graphql
+http://localhost:8080/graphql
 ```
 
-**GraphQL Playground:** Available at `http://localhost:4000/graphql`
+**GraphQL Playground:** Available at `http://localhost:8080/graphql`
 
 **Example Query:**
 
@@ -613,13 +668,13 @@ See [TODO.md](TODO.md) for planned features:
 - [x] Database integration (TypeORM + PostgreSQL)
 - [x] Database migrations and seeding
 - [x] GraphQL API with DataLoader (see [homework07.md](homework07.md))
+- [x] Docker support with multi-stage builds (see [homework10.md](homework10.md))
 - [ ] Complete service layer implementation (CRUD operations)
 - [ ] Authentication & Authorization (JWT)
 - [ ] Health check endpoint
 - [ ] Rate limiting
 - [ ] Redis caching
 - [ ] API documentation (Swagger)
-- [ ] Docker support
 
 ## 🤝 Contributing
 

@@ -38,7 +38,8 @@
     "docker:start:prod": "docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml up",
     "docker:start:prod:debug": "docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml --profile debug up app-debug",
     "docker:migrate:prod": "docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml run --rm migrate",
-    "docker:down:prod": "docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml down"
+    "docker:down:prod": "docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml down",
+    "docker:down:prod:debug": "docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml --profile debug down"
   },
   "dependencies": {
     "@apollo/server": "^5.4.0",

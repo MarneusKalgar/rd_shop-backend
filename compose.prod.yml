@@ -18,6 +18,7 @@ services:
         condition: service_started
     networks:
       - rd_shop_prod-network
+      - rd_shop_prod-network-internal
     restart: always
 
   # Alternative app - Alpine with shell (for debugging)
@@ -38,6 +39,7 @@ services:
         condition: service_started
     networks:
       - rd_shop_prod-network
+      - rd_shop_prod-network-internal
     restart: always
     profiles:
       - debug
@@ -46,7 +48,7 @@ services:
     env_file:
       - .env.production
     networks:
-      rd_shop_prod-network:
+      rd_shop_prod-network-internal:
         aliases:
           - postgres
 
@@ -66,13 +68,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.prod
-      target: prod-distroless
+      target: prod
     env_file:
       - .env.production
     command: npm run db:migrate:prod
     networks:
-      - rd_shop_prod-network
+      - rd_shop_prod-network-internal
 
 networks:
   rd_shop_prod-network:
     driver: bridge
+
+  rd_shop_prod-network-internal:
+    driver: bridge
+    internal: true
