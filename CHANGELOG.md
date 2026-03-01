@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.6] - 2026-03-01
+
+### Added
+
+- **Docker Multi-Stage Builds** - Development, production Alpine, and production distroless variants (5 build stages)
+- **Distroless Production Images** - Google distroless base images with no shell or package manager for minimal attack surface
+- **Docker Compose Orchestration** - Base compose.yml with environment-specific overrides (dev/prod)
+- **Hot Reload in Docker** - Development environment with source code bind mounts and automatic restart
+- **Containerized Migrations & Seeding** - One-off containers with health check dependencies
+- **MinIO Integration** - S3-compatible object storage for local development
+- **Docker Documentation** - Comprehensive guide covering architecture, security, and optimization ([homework10.md](homework10.md))
+
+### Changed
+
+- **Image Size Optimization** - 67% reduction: 1.2 GB (dev) → 384 MB (prod distroless)
+- **API Port** - Standardized to 8080 for both development and production
+- **PostgreSQL Isolation** - Database accessible only within internal Docker network (not exposed to host)
+
+### Security
+
+- **Non-Root Users** - All containers run as UID 1001 (nestjs) or UID 65532 (nonroot)
+- **Distroless Runtime** - Zero shell access in production prevents container exploitation
+- **Network Isolation** - Separate public and internal networks for service isolation
+
+### Performance
+
+- **Layer Caching** - Multi-stage builds optimize Docker layer caching for faster rebuilds
+- **Dependency Pruning** - Production images contain only runtime dependencies (no devDependencies or build tools)
+
 ## [0.0.5] - 2026-02-23
 
 ### Added
@@ -183,6 +212,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.0.6]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.6
 [0.0.5]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.5
 [0.0.4]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.4
 [0.0.3]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.3

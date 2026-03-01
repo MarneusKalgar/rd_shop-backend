@@ -1,0 +1,77 @@
+# Base configuration shared between dev and prod
+services:
+  postgres:
+    image: postgres:16-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rd-shop-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - rd-shop-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${AWS_ACCESS_KEY_ID:-minioadmin} ${AWS_SECRET_ACCESS_KEY:-minioadmin}; do
+        echo 'waiting for minio...';
+        sleep 2;
+      done;
+      mc mb --ignore-existing local/${AWS_S3_BUCKET:-rd-shop-files-private};
+      mc anonymous set none local/${AWS_S3_BUCKET:-rd-shop-files-private};
+      echo 'minio bucket is ready';
+      "
+    networks:
+      - rd-shop-network
+
+  # Migration service - runs TypeORM migrations and exits
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    user: '1001:1001'
+    working_dir: /app
+    volumes:
+      - ./src:/app/src
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - rd-shop-network
+    restart: 'no'
+    profiles:
+      - tools
+
+networks:
+  rd-shop-network:
+    name: ${COMPOSE_PROJECT_NAME:-rd_shop}-network
+    driver: bridge
+
+volumes:
+  minio_data:
+    name: ${COMPOSE_PROJECT_NAME:-rd_shop}-minio_data
+  postgres_data:
+    name: ${COMPOSE_PROJECT_NAME:-rd_shop}-postgres_data

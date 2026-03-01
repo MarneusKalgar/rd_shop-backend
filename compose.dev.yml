@@ -1,0 +1,88 @@
+# Development overrides
+services:
+  app:
+    container_name: rd_shop_dev-app
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    user: '1001:1001'
+    ports:
+      - '${PORT:-3000}:3000'
+    volumes:
+      - ./src:/app/src
+      - /app/node_modules
+    env_file:
+      - .env.development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - rd_shop_dev-network
+      - rd_shop_dev-network-internal
+
+  postgres:
+    container_name: rd_shop_dev-postgres
+    env_file:
+      - .env.development
+    networks:
+      rd_shop_dev-network-internal:
+        aliases:
+          - postgres
+
+  minio:
+    container_name: rd_shop-minio-dev
+    env_file:
+      - .env.development
+    ports:
+      - '${MINIO_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    networks:
+      - rd_shop_dev-network
+
+  minio-init:
+    container_name: rd_shop-minio-init-dev
+    networks:
+      - rd_shop_dev-network
+
+  migrate:
+    container_name: rd_shop_dev-migrate
+    env_file:
+      - .env.development
+    command: npm run db:migrate:dev
+    networks:
+      - rd_shop_dev-network-internal
+
+  seed:
+    container_name: rd_shop_dev-seed
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    user: '1001:1001'
+    working_dir: /app
+    volumes:
+      - ./src:/app/src
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env.development
+    command: npm run db:seed
+    restart: 'no'
+    profiles:
+      - tools
+    networks:
+      - rd_shop_dev-network-internal
+
+networks:
+  rd_shop_dev-network:
+    driver: bridge
+
+  rd_shop_dev-network-internal:
+    driver: bridge
+    internal: true

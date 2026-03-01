@@ -54,6 +54,14 @@ export class EnvironmentVariables {
   @IsString()
   JWT_ACCESS_SECRET: string;
 
+  @IsNumber()
+  @IsOptional()
+  MINIO_CONSOLE_PORT?: number;
+
+  @IsNumber()
+  @IsOptional()
+  MINIO_PORT?: number;
+
   @IsString()
   NODE_ENV: string;
 
@@ -63,4 +71,16 @@ export class EnvironmentVariables {
 
   @IsNumber()
   PORT: number;
+
+  @IsOptional()
+  @IsString()
+  POSTGRES_DB?: string;
+
+  @IsOptional()
+  @IsString()
+  POSTGRES_PASSWORD?: string;
+
+  @IsOptional()
+  @IsString()
+  POSTGRES_USER?: string;
 }

@@ -1,0 +1,38 @@
+FROM node:24-alpine
+
+# Install system dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
+# Create non-root user for development
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001
+
+WORKDIR /app
+
+# Change ownership of the working directory to nestjs user
+RUN chown -R nestjs:nodejs /app
+
+# Switch to non-root user
+USER nestjs
+
+# Copy package files
+COPY --chown=nestjs:nodejs package*.json ./
+
+# Install all dependencies (including devDependencies)
+RUN npm ci
+
+# Copy NestJS and TypeScript configuration files
+COPY --chown=nestjs:nodejs nest-cli.json ./
+COPY --chown=nestjs:nodejs tsconfig.json ./
+
+# Copy source code
+# COPY src ./src
+
+# Pre-create dist directory with correct permissions
+# RUN mkdir -p /app/dist
+
+# Expose port
+EXPOSE 3000
+
+# Start in development mode with hot reload
+CMD ["npm", "run", "start:dev"]
