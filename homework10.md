@@ -190,6 +190,53 @@ services:
 
 ---
 
+### 1.4 Environment Configuration
+
+#### 1.4.1 PostgreSQL Environment Variables
+
+**CRITICAL:** Local PostgreSQL requires specific environment variables to initialize properly. Without these, the database container will fail to start.
+
+**Required Variables:**
+
+| Variable            | Description                        | Development Default | Production      |
+| ------------------- | ---------------------------------- | ------------------- | --------------- |
+| `POSTGRES_USER`     | Database superuser username        | `postgres`          | Set securely    |
+| `POSTGRES_PASSWORD` | Database superuser password        | `postgres`          | Strong password |
+| `POSTGRES_DB`       | Initial database name              | `rd_shop_dev`       | `rd_shop_prod`  |
+| `DATABASE_HOST`     | Database host (service name)       | `postgres`          | `postgres`      |
+| `DATABASE_PROVIDER` | Database provider type             | `postgres`          | `postgres`      |
+| `DATABASE_URL`      | Full connection string for TypeORM |                     |                 |
+
+---
+
+#### 1.4.2 Environment File Setup
+
+**.env.development** - Local development configuration
+
+**.env.production** - Production configuration
+
+**.env.example** - Template for new developers:
+
+#### 1.4.3 Common PostgreSQL Errors
+
+**Error: Database is uninitialized and superuser password is not specified**
+
+```bash
+Error: Database is uninitialized and superuser password is not specified.
+       You must specify POSTGRES_PASSWORD to a non-empty value for the
+       superuser. For example, "-e POSTGRES_PASSWORD=password" on "docker run".
+```
+
+**Cause:** Missing `POSTGRES_PASSWORD` environment variable in env file.
+
+**Solution:**
+
+1. Ensure `.env.development` or `.env.production` has `POSTGRES_PASSWORD` set
+2. Verify Docker Compose file passes the environment variable to the postgres service
+3. Restart the containers: `npm run docker:stop:dev && npm run docker:start:dev`
+
+---
+
 ## 2. Image Size Optimization
 
 ### 2.1 Build Strategy
