@@ -3,7 +3,13 @@ import { ConsumeMessage } from 'amqplib';
 
 import { OrderProcessMessageDto } from '@/orders/dto';
 import { OrdersService } from '@/orders/orders.service';
-import { ORDER_PROCESS_QUEUE, RabbitMQService } from '@/rabbitmq/rabbitmq.service';
+import {
+  MAX_RETRY_ATTEMPTS,
+  ORDER_DLQ,
+  ORDER_PROCESS_QUEUE,
+  RabbitMQService,
+  RETRY_DELAY_MS,
+} from '@/rabbitmq/rabbitmq.service';
 
 @Injectable()
 export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
@@ -32,9 +38,9 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     try {
       payload = JSON.parse(msg.content.toString('utf-8')) as OrderProcessMessageDto;
     } catch {
-      // TODO implement DLQ later
-      this.logger.error('Failed to parse message, sending to dead-letter / nacking permanently');
-      channel.nack(msg, false, false); // discard unparseable messages
+      this.logger.error('Failed to parse message, sending to dead-letter');
+      this.publishToDlq({ attempt: 0, raw: msg.content.toString('base64') });
+      channel.ack(msg); // ack to remove from queue, but log for manual inspection
       return;
     }
 
@@ -47,11 +53,49 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
       await this.ordersService.processOrderMessage(payload);
       channel.ack(msg); // ack only after successful commit
       this.logger.log(`Acked message [messageId: ${messageId}]`);
+      return;
     } catch (error) {
-      this.logger.error(`Failed to process message [messageId: ${messageId}]`, error);
-      // requeue: false → goes to dead-letter queue if configured, or discarded
-      channel.nack(msg, false, false);
+      this.logger.error(
+        `Failed to process message [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}]`,
+        error,
+      );
     }
+
+    if (payload.attempt < MAX_RETRY_ATTEMPTS) {
+      await this.retryMessage(payload);
+      channel.ack(msg);
+      this.logger.warn(
+        `Scheduled retry [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}, nextAttempt: ${payload.attempt + 1}]`,
+      );
+      return;
+    }
+
+    this.publishToDlq(payload);
+    channel.ack(msg);
+    this.logger.error(
+      `Max retry attempts (${MAX_RETRY_ATTEMPTS}) reached for [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}]. Moved to DLQ.`,
+    );
+  }
+
+  private publishToDlq(payload: OrderProcessMessageDto): void {
+    this.rabbitmqService.publish(ORDER_DLQ, payload as unknown as Record<string, unknown>, {
+      messageId: payload.messageId,
+    });
+  }
+
+  private async retryMessage(payload: OrderProcessMessageDto): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+
+    const retryPayload: OrderProcessMessageDto = {
+      ...payload,
+      attempt: payload.attempt + 1,
+    };
+
+    this.rabbitmqService.publish(
+      ORDER_PROCESS_QUEUE,
+      retryPayload as unknown as Record<string, unknown>,
+      { messageId: retryPayload.messageId },
+    );
   }
 
   private async startConsuming(): Promise<void> {

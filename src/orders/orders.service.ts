@@ -203,14 +203,22 @@ export class OrdersService {
         return;
       }
 
-      // TODO: add try catch to extend idempotency check to cover the case when message is processed
-      // but ProcessedMessage record is not inserted due to DB error.
-      // In that case we can end up with duplicated processing of the same message.
-      await manager.insert(ProcessedMessage, {
-        idempotencyKey: correlationId ?? null,
-        messageId,
-        scope: ORDER_WORKER_SCOPE,
-      });
+      try {
+        await manager.insert(ProcessedMessage, {
+          idempotencyKey: correlationId ?? null,
+          messageId,
+          orderId: orderId ?? null,
+          processedAt: new Date(),
+          scope: ORDER_WORKER_SCOPE,
+        });
+      } catch (error) {
+        const pgError = error as { code?: string };
+        if (String(pgError?.code) === '23505') {
+          return;
+        }
+        this.logger.error(`Failed to insert ProcessedMessage for [messageId: ${messageId}]`, error);
+        throw new Error('Failed to acquire idempotency lock');
+      }
 
       const orderRepository = manager.getRepository(Order);
 

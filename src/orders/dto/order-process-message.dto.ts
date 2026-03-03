@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto';
 
 export class OrderProcessMessageDto {
   attempt: number;
-  correlationId: string;
-  createdAt: string;
-  eventName: string;
-  messageId: string;
-  orderId: string;
-  producer: string;
+  correlationId?: string;
+  createdAt?: string;
+  eventName?: string;
+  messageId?: string;
+  orderId?: string;
+  producer?: string;
+  raw?: unknown;
 
   constructor(orderId: string, correlationId?: string) {
     this.messageId = randomUUID();

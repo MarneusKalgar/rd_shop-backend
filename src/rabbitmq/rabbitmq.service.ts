@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { Channel, ChannelModel, connect, Options } from 'amqplib';
 
 export const ORDER_PROCESS_QUEUE = 'order.process';
+export const ORDER_DLQ = 'orders.dlq';
+export const MAX_RETRY_ATTEMPTS = 3;
+export const RETRY_DELAY_MS = 2000;
 
 @Injectable()
 export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
@@ -123,11 +126,11 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
     }
 
     try {
-      await this._channel.assertQueue(ORDER_PROCESS_QUEUE, {
-        durable: true,
-      });
+      await this._channel.assertQueue(ORDER_PROCESS_QUEUE, { durable: true });
+      await this._channel.assertQueue(ORDER_DLQ, { durable: true });
 
       this.logger.log(`Queue "${ORDER_PROCESS_QUEUE}" setup completed`);
+      this.logger.log(`Queue "${ORDER_DLQ}" setup completed`);
     } catch (error) {
       this.logger.error('Error setting up queues:', error);
       throw error;

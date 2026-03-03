@@ -19,6 +19,12 @@ export class ProcessedMessage {
   @Column({ length: 200, name: 'message_id', type: 'varchar' })
   messageId: string;
 
+  @Column({ length: 255, name: 'order_id', nullable: true, type: 'varchar' })
+  orderId: null | string;
+
+  @Column({ name: 'processed_at', nullable: true, type: 'timestamptz' })
+  processedAt: Date | null;
+
   @Column({ length: 100, name: 'scope', type: 'varchar' })
   scope: string;
 }
