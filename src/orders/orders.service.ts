@@ -9,12 +9,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { ProductsRepository } from '@/products/product.repository';
+import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
+import { ORDER_PROCESS_QUEUE, RabbitMQService } from '@/rabbitmq/rabbitmq.service';
 
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY } from './constants';
-import { CreateOrderDto, FindOrdersFilterDto } from './dto';
-import { Order } from './order.entity';
+import { CreateOrderDto, FindOrdersFilterDto, OrderProcessMessageDto } from './dto';
+import { Order, OrderStatus } from './order.entity';
 import {
   OrderItemData,
   OrderItemsRepository,
@@ -22,6 +24,8 @@ import {
   OrdersRepository,
 } from './repositories';
 import { FindOrdersWithFiltersResponse } from './types';
+
+const ORDER_WORKER_SCOPE = 'order-worker';
 
 /**
  * Service responsible for order creation and querying with transaction safety.
@@ -59,6 +63,7 @@ export class OrdersService {
     private readonly ordersRepository: OrdersRepository,
     private readonly productsRepository: ProductsRepository,
     private readonly orderItemsRepository: OrderItemsRepository,
+    private readonly rabbitmqService: RabbitMQService,
 
     private readonly ordersQueryBuilder: OrdersQueryBuilder,
     private readonly dataSource: DataSource,
@@ -166,6 +171,69 @@ export class OrdersService {
     return { nextCursor, orders };
   }
 
+  /**
+   * Processes an order within a transaction after receiving a RabbitMQ message.
+   *
+   * **Transaction Steps:**
+   * 1. Idempotency check — skip if message already processed
+   * 2. Fetch order by ID
+   * 3. Simulate external service call (300–500ms)
+   * 4. Update order status to PROCESSED and set processedAt
+   * 5. Insert ProcessedMessage record (idempotency guard)
+   * 6. Commit
+   *
+   * Caller (worker) must ack the message only after this method resolves successfully.
+   *
+   * @param messageId - Unique RabbitMQ message ID
+   * @param orderId - Order UUID to process
+   * @param correlationId - Optional correlation ID (idempotencyKey from producer)
+   * @throws {Error} If order not found or DB error occurs — worker should nack
+   */
+  async processOrderMessage(payload: OrderProcessMessageDto): Promise<void> {
+    const { correlationId, messageId, orderId } = payload;
+    await this.dataSource.transaction(async (manager) => {
+      const processedMessageRepository = manager.getRepository(ProcessedMessage);
+
+      const alreadyProcessed = await processedMessageRepository.findOne({
+        where: { messageId },
+      });
+
+      if (alreadyProcessed) {
+        this.logger.warn(`Message [messageId: ${messageId}] already processed, skipping`);
+        return;
+      }
+
+      // TODO: add try catch to extend idempotency check to cover the case when message is processed
+      // but ProcessedMessage record is not inserted due to DB error.
+      // In that case we can end up with duplicated processing of the same message.
+      await manager.insert(ProcessedMessage, {
+        idempotencyKey: correlationId ?? null,
+        messageId,
+        scope: ORDER_WORKER_SCOPE,
+      });
+
+      const orderRepository = manager.getRepository(Order);
+
+      const order = await orderRepository.findOne({ where: { id: orderId } });
+
+      if (!order) {
+        throw new NotFoundException(`Order "${orderId}" not found`);
+      }
+
+      if (order.status === OrderStatus.PROCESSED) {
+        this.logger.warn(`Order "${orderId}" already in PROCESSED state, skipping`);
+        return;
+      }
+
+      await this.simulateExternalService();
+
+      order.status = OrderStatus.PROCESSED;
+      await orderRepository.save(order);
+
+      this.logger.log(`Order "${orderId}" marked as PROCESSED`);
+    });
+  }
+
   private async checkIdempotency(idempotencyKey?: string): Promise<null | Order> {
     if (!idempotencyKey) {
       return null;
@@ -271,6 +339,8 @@ export class OrdersService {
 
       this.logger.log(`Order created successfully: ${createdOrder.id}`);
 
+      this.publishOrderProcessingMessage(order, idempotencyKey);
+
       return createdOrder;
     });
   }
@@ -312,6 +382,35 @@ export class OrdersService {
 
     this.logger.error('Order creation failed, transaction rolled back', error);
     throw error;
+  }
+
+  /**
+   * Publishes order processing message to RabbitMQ after successful order creation.
+   *
+   * Message is published with persistent delivery mode to survive broker restarts.
+   * Publishing failures are logged but don't fail the order creation to maintain
+   * service availability. Consider implementing retry logic or outbox pattern for
+   * critical messaging requirements.
+   *
+   * @param order - Created order entity
+   * @param correlationId - Optional correlation ID (uses idempotencyKey if provided)
+   * @private
+   */
+  private publishOrderProcessingMessage(order: Order, correlationId?: string) {
+    const message = new OrderProcessMessageDto(order.id, correlationId ?? undefined);
+
+    this.rabbitmqService.publish(
+      ORDER_PROCESS_QUEUE,
+      message as unknown as Record<string, unknown>,
+      { messageId: message.messageId },
+    );
+
+    this.logger.log(`Order processing message published for order: ${order.id}`);
+  }
+
+  private simulateExternalService(): Promise<void> {
+    const delay = 10000 + Math.floor(Math.random() * 200);
+    return new Promise((resolve) => setTimeout(resolve, delay));
   }
 
   private validateOrderItems(items: CreateOrderDto['items']): void {

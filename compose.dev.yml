@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile.dev
     user: '1001:1001'
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-8080}:${PORT:-8080}'
     volumes:
       - ./src:/app/src
       - /app/node_modules
@@ -18,6 +18,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - rd_shop_dev-network
@@ -46,6 +48,17 @@ services:
     container_name: rd_shop-minio-init-dev
     networks:
       - rd_shop_dev-network
+
+  rabbitmq:
+    container_name: rd_shop_dev-rabbitmq
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
+    env_file:
+      - .env.development
+    networks:
+      - rd_shop_dev-network
+      - rd_shop_dev-network-internal
 
   migrate:
     container_name: rd_shop_dev-migrate

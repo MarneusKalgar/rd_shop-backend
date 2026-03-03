@@ -3,6 +3,7 @@ import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 import { DatabaseAdapterFactory } from '@/db/adapters';
 import { CustomTypeOrmLogger } from '@/db/logger';
+import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { isProduction } from '@/utils/env';
 
 import { FileRecord } from '../files/file-record.entity';
@@ -40,7 +41,7 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
 
   return {
     ...baseConfig,
-    entities: [User, Order, OrderItem, Product, FileRecord],
+    entities: [User, Order, OrderItem, Product, FileRecord, ProcessedMessage],
     logger: new CustomTypeOrmLogger(),
   } as TypeOrmModuleOptions;
 };

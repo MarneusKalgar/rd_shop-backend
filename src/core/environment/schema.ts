@@ -83,4 +83,27 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   POSTGRES_USER?: string;
+
+  @IsString()
+  RABBITMQ_HOST: string;
+
+  @IsNumber()
+  RABBITMQ_MANAGEMENT_PORT: number;
+
+  @IsString()
+  RABBITMQ_PASSWORD: string;
+
+  @IsNumber()
+  RABBITMQ_PORT: number;
+
+  @IsNumber()
+  @IsOptional()
+  RABBITMQ_PREFETCH_COUNT?: number;
+
+  @IsString()
+  RABBITMQ_USER: string;
+
+  @IsOptional()
+  @IsString()
+  RABBITMQ_VHOST: string;
 }

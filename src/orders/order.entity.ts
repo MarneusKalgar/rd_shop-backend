@@ -17,6 +17,8 @@ export enum OrderStatus {
   CANCELLED = 'CANCELLED',
   CREATED = 'CREATED',
   PAID = 'PAID',
+  PENDING = 'PENDING',
+  PROCESSED = 'PROCESSED',
 }
 
 @Entity('orders')
