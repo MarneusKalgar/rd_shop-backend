@@ -46,7 +46,23 @@ services:
     networks:
       - rd-shop-network
 
-  # Migration service - runs TypeORM migrations and exits
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - rd-shop-network
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   migrate:
     build:
       context: .
@@ -75,3 +91,5 @@ volumes:
     name: ${COMPOSE_PROJECT_NAME:-rd_shop}-minio_data
   postgres_data:
     name: ${COMPOSE_PROJECT_NAME:-rd_shop}-postgres_data
+  rabbitmq_data:
+    name: ${COMPOSE_PROJECT_NAME:-rd_shop}-rabbitmq_data

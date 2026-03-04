@@ -11,8 +11,10 @@ import { /*getGracefulShutdownConfig,*/ getTypeOrmModuleOptions } from './config
 import { getEnvFile, validate } from './core/environment';
 import { FilesModule } from './files/files.module';
 import { GraphqlModule } from './graphql/graphql.module';
+import { OrderWorkerModule } from './orders-worker/orders-worker.module';
 import { OrdersModule } from './orders/orders.module';
 import { ProductsModule } from './products/products.module';
+import { RabbitMQModule } from './rabbitmq/rabbitmq.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -36,6 +38,8 @@ import { UsersModule } from './users/users.module';
     ProductsModule,
     FilesModule,
     GraphqlModule,
+    RabbitMQModule,
+    OrderWorkerModule,
   ],
   providers: [AppService],
 })

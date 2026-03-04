@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ProductsRepository } from '@/products/product.repository';
+import { RabbitMQModule } from '@/rabbitmq/rabbitmq.module';
 
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
@@ -14,7 +15,7 @@ import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
 @Module({
   controllers: [OrdersControllerV1],
   exports: [OrdersService, OrdersRepository, OrderItemsRepository],
-  imports: [TypeOrmModule.forFeature([Order, OrderItem, Product, User])],
+  imports: [TypeOrmModule.forFeature([Order, OrderItem, Product, User]), RabbitMQModule],
   providers: [
     OrdersService,
     OrdersRepository,

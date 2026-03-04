@@ -17,6 +17,8 @@ export enum OrderStatus {
   CANCELLED = 'CANCELLED',
   CREATED = 'CREATED',
   PAID = 'PAID',
+  PENDING = 'PENDING',
+  PROCESSED = 'PROCESSED',
 }
 
 @Entity('orders')
@@ -38,7 +40,7 @@ export class Order {
   items: OrderItem[];
 
   @Column({
-    default: OrderStatus.CREATED,
+    default: OrderStatus.PENDING,
     enum: OrderStatus,
     enumName: 'orders_status_enum',
     type: 'enum',

@@ -5,16 +5,21 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { ProductsRepository } from '@/products/product.repository';
+import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
+import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
+import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
+import { simulateExternalService } from '@/utils';
 
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY } from './constants';
-import { CreateOrderDto, FindOrdersFilterDto } from './dto';
-import { Order } from './order.entity';
+import { CreateOrderDto, FindOrdersFilterDto, OrderProcessMessageDto } from './dto';
+import { Order, OrderStatus } from './order.entity';
 import {
   OrderItemData,
   OrderItemsRepository,
@@ -22,6 +27,8 @@ import {
   OrdersRepository,
 } from './repositories';
 import { FindOrdersWithFiltersResponse } from './types';
+
+const ORDER_WORKER_SCOPE = 'order-worker';
 
 /**
  * Service responsible for order creation and querying with transaction safety.
@@ -59,9 +66,11 @@ export class OrdersService {
     private readonly ordersRepository: OrdersRepository,
     private readonly productsRepository: ProductsRepository,
     private readonly orderItemsRepository: OrderItemsRepository,
+    private readonly rabbitmqService: RabbitMQService,
 
     private readonly ordersQueryBuilder: OrdersQueryBuilder,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -166,6 +175,96 @@ export class OrdersService {
     return { nextCursor, orders };
   }
 
+  /**
+   * Processes an order within a transaction after receiving a RabbitMQ message.
+   *
+   * **Transaction Steps:**
+   * 1. Idempotency check — skip if message already processed
+   * 2. Fetch order by ID
+   * 3. Simulate external service call (300–500ms)
+   * 4. Update order status to PROCESSED
+   * 5. Insert ProcessedMessage record (idempotency guard)
+   * 6. Commit
+   *
+   * Caller (worker) must ack the message only after this method resolves successfully.
+   *
+   * @param messageId - Unique RabbitMQ message ID
+   * @param orderId - Order UUID to process
+   * @param correlationId - Optional correlation ID (idempotencyKey from producer)
+   * @throws {Error} If order not found or DB error occurs — worker should nack
+   */
+  async processOrderMessage(payload: OrderProcessMessageDto): Promise<void> {
+    const { correlationId, messageId, orderId } = payload;
+    const simulateFailure: boolean =
+      this.configService.get<string>('RABBITMQ_SIMULATE_FAILURE') === 'true';
+    const simulateDelay: number = this.configService.get<number>('RABBITMQ_SIMULATE_DELAY') ?? 0;
+
+    await this.dataSource.transaction(async (manager) => {
+      const processedMessageRepository = manager.getRepository(ProcessedMessage);
+
+      const alreadyProcessed = await processedMessageRepository.findOne({
+        where: { messageId },
+      });
+
+      if (alreadyProcessed) {
+        this.logger.warn(`Message [messageId: ${messageId}] already processed, skipping`);
+        return;
+      }
+
+      try {
+        await manager.insert(ProcessedMessage, {
+          idempotencyKey: correlationId ?? null,
+          messageId,
+          orderId: orderId ?? null,
+          processedAt: new Date(),
+          scope: ORDER_WORKER_SCOPE,
+        });
+      } catch (error) {
+        const pgError = error as { code?: string };
+        if (String(pgError?.code) === '23505') {
+          return;
+        }
+        this.logger.error(`Failed to insert ProcessedMessage for [messageId: ${messageId}]`, error);
+        throw new Error('Failed to acquire idempotency lock');
+      }
+
+      const orderRepository = manager.getRepository(Order);
+
+      const order = await orderRepository.findOne({ where: { id: orderId } });
+
+      if (!order) {
+        throw new NotFoundException(`Order "${orderId}" not found`);
+      }
+
+      if (order.status === OrderStatus.PROCESSED) {
+        this.logger.warn(`Order "${orderId}" already in PROCESSED state, skipping`);
+        return;
+      }
+
+      if (order.status !== OrderStatus.PENDING) {
+        this.logger.warn(`Order "${orderId}" has unexpected status "${order.status}", skipping`);
+        return;
+      }
+
+      if (simulateFailure) {
+        this.logger.warn(`Simulating processing failure for messageId: ${messageId}`);
+        throw new Error('Simulated processing failure');
+      }
+
+      if (simulateDelay) {
+        this.logger.warn(
+          `Simulating processing delay of ${simulateDelay}ms for messageId: ${messageId}`,
+        );
+        await simulateExternalService(simulateDelay);
+      }
+
+      order.status = OrderStatus.PROCESSED;
+      await orderRepository.save(order);
+
+      this.logger.log(`Order "${orderId}" marked as PROCESSED`);
+    });
+  }
+
   private async checkIdempotency(idempotencyKey?: string): Promise<null | Order> {
     if (!idempotencyKey) {
       return null;
@@ -231,7 +330,7 @@ export class OrdersService {
   ): Promise<Order> {
     const { idempotencyKey, items, userId } = createOrderDto;
 
-    return await this.dataSource.transaction(async (manager) => {
+    const createdOrder = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
       await manager.query('SET LOCAL lock_timeout = 10000');
 
@@ -273,6 +372,10 @@ export class OrdersService {
 
       return createdOrder;
     });
+
+    this.publishOrderProcessingMessage(createdOrder, idempotencyKey);
+
+    return createdOrder;
   }
 
   private async handleOrderCreationPgErrors(
@@ -312,6 +415,34 @@ export class OrdersService {
 
     this.logger.error('Order creation failed, transaction rolled back', error);
     throw error;
+  }
+
+  /**
+   * Publishes order processing message to RabbitMQ after successful order creation.
+   *
+   * Message is published with persistent delivery mode to survive broker restarts.
+   * Publishing failures are logged but don't fail the order creation to maintain
+   * service availability. Consider implementing retry logic or outbox pattern for
+   * critical messaging requirements.
+   *
+   * @param order - Created order entity
+   * @param correlationId - Optional correlation ID (uses idempotencyKey if provided)
+   * @private
+   */
+  private publishOrderProcessingMessage(order: Order, correlationId?: string) {
+    const forcedMessageId = this.configService.get<string>(
+      'RABBITMQ_SIMULATE_DUPLICATE_MESSAGE_ID',
+    );
+
+    const message = new OrderProcessMessageDto(order.id, correlationId, forcedMessageId);
+
+    this.rabbitmqService.publish(
+      ORDER_PROCESS_QUEUE,
+      message as unknown as Record<string, unknown>,
+      { messageId: message.messageId },
+    );
+
+    this.logger.log(`Order processing message published for order: ${order.id}`);
   }
 
   private validateOrderItems(items: CreateOrderDto['items']): void {

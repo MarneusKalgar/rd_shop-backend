@@ -18,3 +18,13 @@ export function omit<T extends Record<string, any>, K extends keyof T>(
 
   return result as Omit<T, K>;
 }
+
+/**
+ * Simulates an external service call with a random delay
+ * @param delay
+ * @returns A promise that resolves after the specified delay plus a random additional delay
+ */
+export function simulateExternalService(delay: number): Promise<void> {
+  const actualDelay = delay + Math.floor(Math.random() * 200);
+  return new Promise((resolve) => setTimeout(resolve, actualDelay));
+}

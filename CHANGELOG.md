@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] - 2026-03-04
+
+### Added
+
+- **RabbitMQ Integration** - Asynchronous order processing via AMQP with `amqplib`
+- **Order Worker Module** - Dedicated `OrderWorkerService` consuming the `order.process` queue with manual ack
+- **Dead-Letter Queue** - `orders.dlq` queue for messages exceeding the retry limit
+- **Retry Mechanism** - Fixed-delay retry policy (up to 3 attempts, 2s delay) with attempt counter tracked in message payload
+- **Idempotent Processing** - `ProcessedMessage` entity with unique index on `message_id`; two-layer duplicate guard (pre-insert SELECT + unique constraint catching `23505`)
+- **Non-Blocking Order Creation** - `POST /api/v1/orders` returns 201 immediately after publishing; processing runs entirely in the worker
+- **Simulation Env Vars** - `RABBITMQ_SIMULATE_FAILURE` and `RABBITMQ_SIMULATE_DELAY` for reproducing retry/DLQ scenarios without modifying code
+- **Order Status Migration** - Changed default order status from `CREATED` to `PENDING` (migration `1772641502231-UpdateOrderStatusDefault`)
+- **RabbitMQ Documentation** - Full setup, topology, retry policy, and scenario reproduction guide ([homework12.md](homework12.md))
+
+### Changed
+
+- **Order Entity** - Default `status` updated to `OrderStatus.PENDING`
+- **Worker Guard** - Added `status !== PENDING` guard in `processOrderMessage` to skip orders in unexpected states
+
+### Security
+
+- **Manual Ack Only** - `noAck: false` enforced; ack is performed strictly after DB transaction commit to prevent message loss
+
+### Reliability
+
+- **Predictable Retry** - Hard cap at `MAX_RETRY_ATTEMPTS = 3`; no infinite loops possible
+- **DLQ Stability** - DLQ declared durable; full payload including `attempt` and `orderId` preserved for debugging
+- **No Duplication** - Idempotency guard prevents order re-processing on retry or network replay
+
 ## [0.0.6] - 2026-03-01
 
 ### Added
@@ -212,6 +241,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.0.7]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.7
 [0.0.6]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.6
 [0.0.5]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.5
 [0.0.4]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.4

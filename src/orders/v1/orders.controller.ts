@@ -10,6 +10,7 @@ import {
 import { Order } from '../order.entity';
 import { OrdersService } from '../orders.service';
 
+// TODO: add roles/scopes
 @ApiTags('orders')
 @Controller({ path: 'orders', version: '1' })
 export class OrdersController {
