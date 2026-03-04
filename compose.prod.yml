@@ -8,7 +8,7 @@ services:
       target: prod-distroless
     init: true
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-8080}:${PORT:-8080}'
     env_file:
       - .env.production
     depends_on:
@@ -16,6 +16,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - rd_shop_prod-network
       - rd_shop_prod-network-internal
@@ -29,7 +31,7 @@ services:
       dockerfile: Dockerfile.prod
       target: prod
     ports:
-      - '${PORT:-3000}:3000'
+      - '${PORT:-8080}:${PORT:-8080}'
     env_file:
       - .env.production
     depends_on:
@@ -37,6 +39,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - rd_shop_prod-network
       - rd_shop_prod-network-internal
@@ -62,6 +66,17 @@ services:
     container_name: rd_shop-minio-init-prod
     networks:
       - rd_shop_prod-network
+
+  rabbitmq:
+    container_name: rd_shop_prod-rabbitmq
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
+    env_file:
+      - .env.production
+    networks:
+      - rd_shop_prod-network
+      - rd_shop_prod-network-internal
 
   migrate:
     container_name: rd_shop_prod-migrate

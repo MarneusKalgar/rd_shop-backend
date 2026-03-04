@@ -40,7 +40,7 @@ export class Order {
   items: OrderItem[];
 
   @Column({
-    default: OrderStatus.CREATED,
+    default: OrderStatus.PENDING,
     enum: OrderStatus,
     enumName: 'orders_status_enum',
     type: 'enum',

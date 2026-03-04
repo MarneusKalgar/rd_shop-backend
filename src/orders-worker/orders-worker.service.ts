@@ -11,6 +11,22 @@ import {
 } from '@/rabbitmq/constants';
 import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
 
+/**
+ * Worker service responsible for consuming and processing order messages from RabbitMQ.
+ *
+ * **Responsibilities:**
+ * - Subscribes to the `order.process` queue on startup
+ * - Delegates processing to {@link OrdersService.processOrderMessage}
+ * - Performs manual ack/nack — ack only after successful DB commit
+ * - Retries failed messages up to {@link MAX_RETRY_ATTEMPTS} times with a fixed delay
+ * - Routes exhausted messages to the dead-letter queue (`orders.dlq`)
+ * - Gracefully stops consuming on module teardown
+ *
+ * **Retry Policy:**
+ * - Max attempts: `MAX_RETRY_ATTEMPTS` (re-published with incremented `attempt` counter)
+ * - Delay between retries: `RETRY_DELAY_MS`
+ * - After limit: message is published to `ORDER_DLQ` and acked
+ */
 @Injectable()
 export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
   private consumerTag: null | string = null;
@@ -21,14 +37,31 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     private readonly ordersService: OrdersService,
   ) {}
 
+  /** Cancels the active consumer when the module is torn down. */
   async onModuleDestroy() {
     await this.stopConsuming();
   }
 
+  /** Starts consuming from `order.process` queue when the module is initialized. */
   async onModuleInit() {
     await this.startConsuming();
   }
 
+  /**
+   * Core message handler for the `order.process` queue.
+   *
+   * **Processing flow:**
+   * 1. Parse the raw message buffer into {@link OrderProcessMessageDto}
+   * 2. Delegate to {@link OrdersService.processOrderMessage} (runs in a DB transaction)
+   * 3. On success — `channel.ack(msg)`
+   * 4. On failure — retry if `attempt < MAX_RETRY_ATTEMPTS`, otherwise publish to DLQ
+   * 5. Unparseable messages are immediately routed to DLQ
+   *
+   * Ack is always performed **after** the DB transaction commit or after scheduling a retry/DLQ.
+   *
+   * @param msg - Raw RabbitMQ message
+   * @param channel - AMQP channel used for acking
+   */
   private async handleMessage(msg: ConsumeMessage, channel: Channel): Promise<void> {
     let payload: OrderProcessMessageDto;
 
@@ -78,12 +111,24 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     );
   }
 
+  /**
+   * Publishes a failed message payload to the dead-letter queue (`orders.dlq`).
+   * Preserves the original `messageId` for traceability.
+   *
+   * @param payload - The message payload to forward (may include a `raw` base64 field for unparseable messages)
+   */
   private publishToDlq(payload: OrderProcessMessageDto): void {
     this.rabbitmqService.publish(ORDER_DLQ, payload, {
       messageId: payload.messageId,
     });
   }
 
+  /**
+   * Schedules a retry by re-publishing the message to `order.process` with an incremented `attempt` counter.
+   * Waits `RETRY_DELAY_MS` before publishing to avoid tight retry loops.
+   *
+   * @param payload - Original message payload with current `attempt` value
+   */
   private async retryMessage(payload: OrderProcessMessageDto): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
 
@@ -97,6 +142,12 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     });
   }
 
+  /**
+   * Registers a consumer on the `order.process` queue and stores the consumer tag
+   * for later cancellation.
+   *
+   * @throws {Error} If the RabbitMQ channel is not initialized
+   */
   private async startConsuming(): Promise<void> {
     const { consumerTag } = await this.rabbitmqService.consume(
       ORDER_PROCESS_QUEUE,
@@ -109,6 +160,10 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     this.logger.log(`Started consuming queue "${ORDER_PROCESS_QUEUE}" [tag: ${consumerTag}]`);
   }
 
+  /**
+   * Cancels the active consumer if one exists, preventing new messages from being delivered.
+   * Called automatically during module teardown.
+   */
   private async stopConsuming(): Promise<void> {
     if (this.consumerTag) {
       await this.rabbitmqService.cancelConsumer(this.consumerTag);

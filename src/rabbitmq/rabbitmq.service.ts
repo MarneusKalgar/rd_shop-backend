@@ -4,6 +4,23 @@ import { Channel, ChannelModel, connect, ConsumeMessage, Options } from 'amqplib
 
 import { ORDER_DLQ, ORDER_PROCESS_QUEUE } from './constants';
 
+/**
+ * Low-level RabbitMQ client service that manages the AMQP connection lifecycle,
+ * queue declarations, message publishing, and consumer registration.
+ *
+ * **Lifecycle:**
+ * - `onModuleInit` — connects to RabbitMQ, configures prefetch, asserts queues
+ * - `onModuleDestroy` — gracefully closes channel and connection
+ *
+ * **Queue topology:**
+ * - `order.process` — main processing queue (durable)
+ * - `orders.dlq` — dead-letter queue for exhausted messages (durable)
+ *
+ * **Reliability:**
+ * - Messages published with `persistent: true` by default
+ * - `noAck: false` enforced on all consumers (manual ack required)
+ * - Prefetch count controlled via `RABBITMQ_PREFETCH_COUNT` env variable
+ */
 @Injectable()
 export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
   get channel(): Channel | null {
@@ -21,6 +38,12 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
 
   constructor(private readonly configService: ConfigService) {}
 
+  /**
+   * Cancels an active consumer by its tag, stopping message delivery.
+   * No-op if the channel is not initialized.
+   *
+   * @param consumerTag - The consumer tag returned by {@link consume}
+   */
   async cancelConsumer(consumerTag: string): Promise<void> {
     if (!this._channel) return;
     await this._channel.cancel(consumerTag);
@@ -59,10 +82,12 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
     return { consumerTag };
   }
 
+  /** Closes the AMQP channel and connection when the module is torn down. */
   async onModuleDestroy() {
     await this.disconnect();
   }
 
+  /** Establishes the AMQP connection and sets up queues when the module is initialized. */
   async onModuleInit() {
     await this.connect();
   }
@@ -97,6 +122,13 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
+  /**
+   * Establishes the AMQP connection and channel.
+   * Configures prefetch count and calls {@link setupQueues}.
+   * Attaches error/close event listeners for observability.
+   *
+   * @throws {Error} If connection or channel creation fails
+   */
   private async connect(): Promise<void> {
     try {
       const host = this.configService.get<string>('RABBITMQ_HOST');
@@ -129,6 +161,12 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
+  /**
+   * Gracefully closes the AMQP channel and connection.
+   * Nullifies internal references to prevent reuse after teardown.
+   *
+   * @throws {Error} If closing the channel or connection fails
+   */
   private async disconnect(): Promise<void> {
     try {
       if (this._channel) {
@@ -148,6 +186,11 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
+  /**
+   * Returns the active AMQP channel.
+   *
+   * @throws {Error} If the channel has not been initialized yet
+   */
   private resolveChannel(): Channel {
     if (!this._channel) {
       throw new Error('RabbitMQ channel is not initialized');
@@ -156,8 +199,14 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
   }
 
   /**
-   * Sets up required queues during module initialization.
-   * Declares queues with durable option enabled for persistence.
+   * Asserts all required queues during module initialization.
+   * Queues are declared as `durable: true` so they survive broker restarts.
+   *
+   * Queues declared:
+   * - `order.process` — primary order processing queue
+   * - `orders.dlq` — dead-letter queue for unprocessable messages
+   *
+   * @throws {Error} If queue assertion fails
    */
   private async setupQueues(): Promise<void> {
     const channel = this.resolveChannel();

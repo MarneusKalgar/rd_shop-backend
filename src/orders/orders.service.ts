@@ -241,6 +241,11 @@ export class OrdersService {
         return;
       }
 
+      if (order.status !== OrderStatus.PENDING) {
+        this.logger.warn(`Order "${orderId}" has unexpected status "${order.status}", skipping`);
+        return;
+      }
+
       if (simulateFailure) {
         this.logger.warn(`Simulating processing failure for messageId: ${messageId}`);
         throw new Error('Simulated processing failure');

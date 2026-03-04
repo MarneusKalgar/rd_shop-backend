@@ -24,6 +24,9 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **Docker Support** - Production-ready multi-stage builds with distroless images (see [homework10.md](homework10.md))
 - **Container Security** - Non-root users, minimal base images, and network isolation
 - **Hot Reload in Docker** - Development environment with source code bind mounts
+- **RabbitMQ Integration** - Asynchronous order processing with manual ack, retry policy, and dead-letter queue (see [homework12.md](homework12.md))
+- **Idempotent Message Processing** - Duplicate message prevention via `ProcessedMessage` table and unique `messageId` constraint
+- **Order Worker** - Dedicated NestJS module consuming `order.process` queue, updating order status to `PROCESSED` after DB commit
 
 ## 🛠️ Technology Stack
 
@@ -69,6 +72,11 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 
 - **[Jest](https://jestjs.io/)** - Testing framework
 - **[Supertest](https://github.com/visionmedia/supertest)** - HTTP assertions
+
+### Messaging
+
+- **[RabbitMQ](https://www.rabbitmq.com/)** - Message broker for async order processing
+- **[amqplib](https://github.com/amqp-node/amqplib)** - AMQP 0-9-1 client for Node.js
 
 ### Infrastructure
 
@@ -194,6 +202,37 @@ docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml up --build
 - **Health Check**: `http://localhost:8080/health`
 
 For comprehensive Docker documentation, see [homework10.md](homework10.md).
+
+## 🐇 Asynchronous Order Processing (RabbitMQ)
+
+After a successful order creation the HTTP response is returned immediately while processing continues asynchronously:
+
+```
+POST /api/v1/orders
+       │
+       ├─ DB transaction: reserve stock, create order (status: PENDING)
+       ├─ Publish → order.process queue
+       └─ Return 201 (non-blocking)
+
+order.process queue
+       │
+       └─ OrderWorkerService.handleMessage()
+              ├─ processOrderMessage() inside DB transaction
+              ├─ ack only after commit
+              ├─ on failure: retry up to 3×  (2s delay)
+              └─ on exhaustion: publish → orders.dlq
+```
+
+**Queue topology:**
+
+| Queue           | Purpose                                            |
+| --------------- | -------------------------------------------------- |
+| `order.process` | Main processing queue (durable)                    |
+| `orders.dlq`    | Dead-letter queue for exhausted messages (durable) |
+
+**Idempotency:** each message carries a unique `messageId`; the `ProcessedMessage` table with a unique index on `message_id` prevents duplicate processing even under retries or network replays.
+
+For full details, reproduction steps, and log evidence see [homework12.md](homework12.md).
 
 ## �🗄️ Database Management
 
@@ -669,6 +708,7 @@ See [TODO.md](TODO.md) for planned features:
 - [x] Database migrations and seeding
 - [x] GraphQL API with DataLoader (see [homework07.md](homework07.md))
 - [x] Docker support with multi-stage builds (see [homework10.md](homework10.md))
+- [x] RabbitMQ async order processing with retry and DLQ (see [homework12.md](homework12.md))
 - [ ] Complete service layer implementation (CRUD operations)
 - [ ] Authentication & Authorization (JWT)
 - [ ] Health check endpoint
