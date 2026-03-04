@@ -182,7 +182,7 @@ export class OrdersService {
    * 1. Idempotency check — skip if message already processed
    * 2. Fetch order by ID
    * 3. Simulate external service call (300–500ms)
-   * 4. Update order status to PROCESSED and set processedAt
+   * 4. Update order status to PROCESSED
    * 5. Insert ProcessedMessage record (idempotency guard)
    * 6. Commit
    *
@@ -330,7 +330,7 @@ export class OrdersService {
   ): Promise<Order> {
     const { idempotencyKey, items, userId } = createOrderDto;
 
-    return await this.dataSource.transaction(async (manager) => {
+    const createdOrder = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
       await manager.query('SET LOCAL lock_timeout = 10000');
 
@@ -370,10 +370,12 @@ export class OrdersService {
 
       this.logger.log(`Order created successfully: ${createdOrder.id}`);
 
-      this.publishOrderProcessingMessage(order, idempotencyKey);
-
       return createdOrder;
     });
+
+    this.publishOrderProcessingMessage(createdOrder, idempotencyKey);
+
+    return createdOrder;
   }
 
   private async handleOrderCreationPgErrors(

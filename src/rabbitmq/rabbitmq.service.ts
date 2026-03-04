@@ -55,16 +55,17 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
    *
    * @param queue - Queue name to consume from
    * @param handler - Async message handler callback
-   * @param options - Optional consume options (defaults to { noAck: false })
+   * @param options - Optional consume options
    * @returns Promise resolving to consumerTag
    * @throws {Error} If channel is not initialized
    */
   async consume(
     queue: string,
     handler: (msg: ConsumeMessage, channel: Channel) => Promise<void>,
-    options: Options.Consume = { noAck: false },
+    options: Options.Consume = {},
   ): Promise<{ consumerTag: string }> {
     const channel = this.resolveChannel();
+    const safeOptions: Options.Consume = { ...options, noAck: false };
 
     const { consumerTag } = await channel.consume(
       queue,
@@ -74,7 +75,7 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
           this.logger.error(`Unhandled error in message handler for queue "${queue}":`, error);
         });
       },
-      options,
+      safeOptions,
     );
 
     this.logger.log(`Started consuming queue "${queue}" [tag: ${consumerTag}]`);
@@ -136,10 +137,16 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
       const user = this.configService.get<string>('RABBITMQ_USER');
       const password = this.configService.get<string>('RABBITMQ_PASSWORD');
       const prefetchCount = this.configService.get<number>('RABBITMQ_PREFETCH_COUNT', 10);
+      const vhost = this.configService.get<string>('RABBITMQ_VHOST') ?? '/';
 
-      const url = `amqp://${user}:${password}@${host}:${port}`;
+      this._connection = await connect({
+        hostname: host,
+        password,
+        port,
+        username: user,
+        vhost,
+      });
 
-      this._connection = await connect(url);
       this._channel = await this._connection.createChannel();
 
       await this._channel.prefetch(prefetchCount);

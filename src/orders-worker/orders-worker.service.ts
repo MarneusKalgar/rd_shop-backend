@@ -76,6 +76,22 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
       return;
     }
 
+    if (!payload.messageId || !payload.orderId) {
+      this.logger.error(
+        `[result: dlq] Invalid payload — missing required fields (messageId: ${payload.messageId}, orderId: ${payload.orderId}), routing to DLQ`,
+      );
+      this.publishToDlq({ ...payload, attempt: 0 });
+      channel.ack(msg);
+      return;
+    }
+
+    if (typeof payload.attempt !== 'number' || !Number.isFinite(payload.attempt)) {
+      this.logger.warn(
+        `[result: warn] Invalid attempt value "${payload.attempt}" for [messageId: ${payload.messageId}], defaulting to 1`,
+      );
+      payload = { ...payload, attempt: 1 };
+    }
+
     const { messageId, orderId } = payload;
     this.logger.log(
       `Received order.process message [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}]`,

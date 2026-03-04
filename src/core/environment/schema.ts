@@ -88,7 +88,8 @@ export class EnvironmentVariables {
   RABBITMQ_HOST: string;
 
   @IsNumber()
-  RABBITMQ_MANAGEMENT_PORT: number;
+  @IsOptional()
+  RABBITMQ_MANAGEMENT_PORT?: number;
 
   @IsString()
   RABBITMQ_PASSWORD: string;
@@ -117,5 +118,5 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
-  RABBITMQ_VHOST: string;
+  RABBITMQ_VHOST?: string;
 }
