@@ -1,11 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Channel, ChannelModel, connect, Options } from 'amqplib';
+import { Channel, ChannelModel, connect, ConsumeMessage, Options } from 'amqplib';
 
-export const ORDER_PROCESS_QUEUE = 'order.process';
-export const ORDER_DLQ = 'orders.dlq';
-export const MAX_RETRY_ATTEMPTS = 3;
-export const RETRY_DELAY_MS = 2000;
+import { ORDER_DLQ, ORDER_PROCESS_QUEUE } from './constants';
 
 @Injectable()
 export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
@@ -24,6 +21,44 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
 
   constructor(private readonly configService: ConfigService) {}
 
+  async cancelConsumer(consumerTag: string): Promise<void> {
+    if (!this._channel) return;
+    await this._channel.cancel(consumerTag);
+    this.logger.log(`Cancelled consumer [tag: ${consumerTag}]`);
+  }
+
+  /**
+   * Starts consuming messages from a specific queue.
+   *
+   * @param queue - Queue name to consume from
+   * @param handler - Async message handler callback
+   * @param options - Optional consume options (defaults to { noAck: false })
+   * @returns Promise resolving to consumerTag
+   * @throws {Error} If channel is not initialized
+   */
+  async consume(
+    queue: string,
+    handler: (msg: ConsumeMessage, channel: Channel) => Promise<void>,
+    options: Options.Consume = { noAck: false },
+  ): Promise<{ consumerTag: string }> {
+    const channel = this.resolveChannel();
+
+    const { consumerTag } = await channel.consume(
+      queue,
+      (msg) => {
+        if (!msg) return;
+        handler(msg, channel).catch((error) => {
+          this.logger.error(`Unhandled error in message handler for queue "${queue}":`, error);
+        });
+      },
+      options,
+    );
+
+    this.logger.log(`Started consuming queue "${queue}" [tag: ${consumerTag}]`);
+
+    return { consumerTag };
+  }
+
   async onModuleDestroy() {
     await this.disconnect();
   }
@@ -40,14 +75,12 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
    * @param options - Optional message options (persistent, priority, etc.)
    * @throws {Error} If channel is not initialized or publishing fails
    */
-  publish(queue: string, message: Record<string, unknown>, options?: Options.Publish) {
-    if (!this._channel) {
-      throw new Error('RabbitMQ channel is not initialized');
-    }
+  publish(queue: string, message: object, options?: Options.Publish) {
+    const channel = this.resolveChannel();
 
     try {
       const messageBuffer = Buffer.from(JSON.stringify(message));
-      const published = this._channel.sendToQueue(queue, messageBuffer, {
+      const published = channel.sendToQueue(queue, messageBuffer, {
         contentType: 'application/json',
         persistent: options?.persistent ?? true,
         ...options,
@@ -71,7 +104,6 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
       const user = this.configService.get<string>('RABBITMQ_USER');
       const password = this.configService.get<string>('RABBITMQ_PASSWORD');
       const prefetchCount = this.configService.get<number>('RABBITMQ_PREFETCH_COUNT', 10);
-      // const vhost = this.configService.get<string>('RABBITMQ_VHOST');
 
       const url = `amqp://${user}:${password}@${host}:${port}`;
 
@@ -116,18 +148,23 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
+  private resolveChannel(): Channel {
+    if (!this._channel) {
+      throw new Error('RabbitMQ channel is not initialized');
+    }
+    return this._channel;
+  }
+
   /**
    * Sets up required queues during module initialization.
    * Declares queues with durable option enabled for persistence.
    */
   private async setupQueues(): Promise<void> {
-    if (!this._channel) {
-      throw new Error('RabbitMQ channel is not initialized');
-    }
+    const channel = this.resolveChannel();
 
     try {
-      await this._channel.assertQueue(ORDER_PROCESS_QUEUE, { durable: true });
-      await this._channel.assertQueue(ORDER_DLQ, { durable: true });
+      await channel.assertQueue(ORDER_PROCESS_QUEUE, { durable: true });
+      await channel.assertQueue(ORDER_DLQ, { durable: true });
 
       this.logger.log(`Queue "${ORDER_PROCESS_QUEUE}" setup completed`);
       this.logger.log(`Queue "${ORDER_DLQ}" setup completed`);

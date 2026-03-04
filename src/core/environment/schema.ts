@@ -100,6 +100,18 @@ export class EnvironmentVariables {
   @IsOptional()
   RABBITMQ_PREFETCH_COUNT?: number;
 
+  @IsNumber()
+  @IsOptional()
+  RABBITMQ_SIMULATE_DELAY?: number;
+
+  @IsOptional()
+  @IsString()
+  RABBITMQ_SIMULATE_DUPLICATE_MESSAGE_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  RABBITMQ_SIMULATE_FAILURE?: string;
+
   @IsString()
   RABBITMQ_USER: string;
 

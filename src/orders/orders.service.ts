@@ -5,12 +5,15 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { ProductsRepository } from '@/products/product.repository';
+import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
-import { ORDER_PROCESS_QUEUE, RabbitMQService } from '@/rabbitmq/rabbitmq.service';
+import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
+import { simulateExternalService } from '@/utils';
 
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
@@ -67,6 +70,7 @@ export class OrdersService {
 
     private readonly ordersQueryBuilder: OrdersQueryBuilder,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -191,6 +195,10 @@ export class OrdersService {
    */
   async processOrderMessage(payload: OrderProcessMessageDto): Promise<void> {
     const { correlationId, messageId, orderId } = payload;
+    const simulateFailure: boolean =
+      this.configService.get<string>('RABBITMQ_SIMULATE_FAILURE') === 'true';
+    const simulateDelay: number = this.configService.get<number>('RABBITMQ_SIMULATE_DELAY') ?? 0;
+
     await this.dataSource.transaction(async (manager) => {
       const processedMessageRepository = manager.getRepository(ProcessedMessage);
 
@@ -233,7 +241,17 @@ export class OrdersService {
         return;
       }
 
-      await this.simulateExternalService();
+      if (simulateFailure) {
+        this.logger.warn(`Simulating processing failure for messageId: ${messageId}`);
+        throw new Error('Simulated processing failure');
+      }
+
+      if (simulateDelay) {
+        this.logger.warn(
+          `Simulating processing delay of ${simulateDelay}ms for messageId: ${messageId}`,
+        );
+        await simulateExternalService(simulateDelay);
+      }
 
       order.status = OrderStatus.PROCESSED;
       await orderRepository.save(order);
@@ -405,7 +423,11 @@ export class OrdersService {
    * @private
    */
   private publishOrderProcessingMessage(order: Order, correlationId?: string) {
-    const message = new OrderProcessMessageDto(order.id, correlationId ?? undefined);
+    const forcedMessageId = this.configService.get<string>(
+      'RABBITMQ_SIMULATE_DUPLICATE_MESSAGE_ID',
+    );
+
+    const message = new OrderProcessMessageDto(order.id, correlationId, forcedMessageId);
 
     this.rabbitmqService.publish(
       ORDER_PROCESS_QUEUE,
@@ -414,11 +436,6 @@ export class OrdersService {
     );
 
     this.logger.log(`Order processing message published for order: ${order.id}`);
-  }
-
-  private simulateExternalService(): Promise<void> {
-    const delay = 10000 + Math.floor(Math.random() * 200);
-    return new Promise((resolve) => setTimeout(resolve, delay));
   }
 
   private validateOrderItems(items: CreateOrderDto['items']): void {
