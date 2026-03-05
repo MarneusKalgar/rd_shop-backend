@@ -19,7 +19,7 @@ export class OrdersFilterInput {
   @Type(() => Date)
   startDate?: Date;
 
-  @Field(() => String, { description: 'Filter by order status', nullable: true })
+  @Field(() => OrderStatus, { description: 'Filter by order status', nullable: true })
   @IsEnum(OrderStatus)
   @IsOptional()
   status?: OrderStatus;

@@ -1,5 +1,7 @@
-import { Body, Controller, Get, HttpStatus, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+
+import { JwtAuthGuard } from '@/auth/guards';
 
 import {
   CreateOrderDto,
@@ -13,6 +15,7 @@ import { OrdersService } from '../orders.service';
 // TODO: add roles/scopes
 @ApiTags('orders')
 @Controller({ path: 'orders', version: '1' })
+@UseGuards(JwtAuthGuard)
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
