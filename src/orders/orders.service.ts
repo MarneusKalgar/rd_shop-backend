@@ -156,9 +156,10 @@ export class OrdersService {
       this.ordersQueryBuilder.applyCursorPagination(subquery, cursorOrder);
     }
 
-    this.ordersQueryBuilder.applyOrderingAndLimit(subquery, limit);
+    // Apply ordering and limit to the subquery to get the correct slice of orders for pagination
+    this.ordersQueryBuilder.applyOrderingAndLimit(subquery, limit + 1);
 
-    // Using getMany() here to match cursor pagination logic
+    // Using getRawMany() here to match cursor pagination logic
     // and avoid performance issues with getManyAndCount() on complex queries.
     // Total count can be added in the future if needed.
     const paginatedOrders: { createdAt: Date; id: string }[] = await subquery.getRawMany();
@@ -166,11 +167,14 @@ export class OrdersService {
       return { nextCursor: null, orders: [] };
     }
 
-    const orderIds = paginatedOrders.map((row) => row.id);
+    const hasNextPage = paginatedOrders.length > limit;
+    const pageSlice = hasNextPage ? paginatedOrders.slice(0, limit) : paginatedOrders;
+
+    const orderIds = pageSlice.map((row) => row.id);
     const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds);
     const orders = await mainQuery.getMany();
 
-    const nextCursor = orders.length === limit ? orders[orders.length - 1].id : null;
+    const nextCursor = hasNextPage ? orders[orders.length - 1].id : null;
 
     return { nextCursor, orders };
   }
