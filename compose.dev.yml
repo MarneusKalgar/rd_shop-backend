@@ -1,11 +1,16 @@
 # Development overrides
+# Usage: docker compose -f compose-new.yml -f compose-new.dev.yml up
 services:
   app:
-    container_name: rd_shop_dev-app
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-app
     build:
       context: .
       dockerfile: Dockerfile.dev
+      target: ''
+    init: false
     user: '1001:1001'
+    environment:
+      PORT: ${PORT:-8080}
     ports:
       - '${PORT:-8080}:${PORT:-8080}'
     volumes:
@@ -26,7 +31,7 @@ services:
       - rd_shop_dev-network-internal
 
   postgres:
-    container_name: rd_shop_dev-postgres
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-postgres
     env_file:
       - .env.development
     networks:
@@ -35,7 +40,7 @@ services:
           - postgres
 
   minio:
-    container_name: rd_shop-minio-dev
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-minio
     env_file:
       - .env.development
     ports:
@@ -45,12 +50,12 @@ services:
       - rd_shop_dev-network
 
   minio-init:
-    container_name: rd_shop-minio-init-dev
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-minio-init
     networks:
       - rd_shop_dev-network
 
   rabbitmq:
-    container_name: rd_shop_dev-rabbitmq
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-rabbitmq
     ports:
       - '${RABBITMQ_PORT:-5672}:5672'
       - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
@@ -61,7 +66,14 @@ services:
       - rd_shop_dev-network-internal
 
   migrate:
-    container_name: rd_shop_dev-migrate
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-migrate
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: ''
+    volumes:
+      - ./src:/app/src
+      - /app/node_modules
     env_file:
       - .env.development
     command: npm run db:migrate:dev
@@ -69,26 +81,17 @@ services:
       - rd_shop_dev-network-internal
 
   seed:
-    container_name: rd_shop_dev-seed
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-seed
     build:
       context: .
       dockerfile: Dockerfile.dev
-    user: '1001:1001'
-    working_dir: /app
+      target: ''
     volumes:
       - ./src:/app/src
       - /app/node_modules
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     env_file:
       - .env.development
-    command: npm run db:seed
-    restart: 'no'
-    profiles:
-      - tools
+    command: npm run db:seed:dev
     networks:
       - rd_shop_dev-network-internal
 
