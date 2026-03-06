@@ -8,7 +8,7 @@ import { User } from '../../users/user.entity';
 import { seedOrders, seedProducts, seedUsers } from './data';
 
 async function seed() {
-  if (isProduction()) {
+  if (isProduction() && process.env.ALLOW_SEED_IN_PRODUCTION !== 'true') {
     throw new Error('Seeding should not be run in production environment');
   }
 

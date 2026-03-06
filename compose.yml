@@ -1,34 +1,90 @@
-# Base configuration shared between dev and prod
+# Production configuration (all services)
 services:
+  app:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod-distroless
+    init: true
+    environment:
+      PORT: ${PORT:-8080}
+    ports:
+      - '${PORT:-8080}:${PORT:-8080}'
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    restart: always
+    networks:
+      - rd_shop_prod-network
+      - rd_shop_prod-network-internal
+
+  # Alternative app - Alpine with shell (for debugging)
+  app-debug:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-app-debug
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    ports:
+      - '${PORT:-8080}:${PORT:-8080}'
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    restart: always
+    networks:
+      - rd_shop_prod-network
+      - rd_shop_prod-network-internal
+    profiles:
+      - debug
+
   postgres:
     image: postgres:16-alpine
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - rd-shop-network
+    env_file:
+      - .env.production
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      rd_shop_prod-network-internal:
+        aliases:
+          - postgres
 
   minio:
     image: minio/minio:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-minio
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
-    networks:
-      - rd-shop-network
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
+    restart: always
+    networks:
+      - rd_shop_prod-network
 
   minio-init:
     image: minio/mc:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-minio-init
     depends_on:
       minio:
         condition: service_healthy
@@ -44,47 +100,83 @@ services:
       echo 'minio bucket is ready';
       "
     networks:
-      - rd-shop-network
+      - rd_shop_prod-network
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - rd-shop-network
+    env_file:
+      - .env.production
     healthcheck:
       test: ['CMD', 'rabbitmq-diagnostics', 'ping']
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - rd_shop_prod-network
+      - rd_shop_prod-network-internal
 
   migrate:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-migrate
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      target: prod
     user: '1001:1001'
     working_dir: /app
-    volumes:
-      - ./src:/app/src
-      - /app/node_modules
+    env_file:
+      - .env.production
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - rd-shop-network
+    command: npm run db:migrate:prod
     restart: 'no'
     profiles:
       - tools
+    networks:
+      - rd_shop_prod-network-internal
+
+  seed:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-seed
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    user: '1001:1001'
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      ALLOW_SEED_IN_PRODUCTION: ${ALLOW_SEED_IN_PRODUCTION:-false}
+    env_file:
+      - .env.production
+    command: npm run db:seed:prod
+    restart: 'no'
+    profiles:
+      - tools
+    networks:
+      - rd_shop_prod-network-internal
 
 networks:
-  rd-shop-network:
-    name: ${COMPOSE_PROJECT_NAME:-rd_shop}-network
+  rd_shop_prod-network:
     driver: bridge
+
+  rd_shop_prod-network-internal:
+    driver: bridge
+    internal: true
 
 volumes:
   minio_data:

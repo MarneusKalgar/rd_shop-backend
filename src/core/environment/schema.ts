@@ -3,6 +3,10 @@ import { IsNumber, IsOptional, IsString } from 'class-validator';
 export class EnvironmentVariables {
   @IsOptional()
   @IsString()
+  ALLOW_SEED_IN_PRODUCTION?: string;
+
+  @IsOptional()
+  @IsString()
   APP_LOG_LEVEL?: string;
 
   @IsString()
