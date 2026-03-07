@@ -1,0 +1,197 @@
+services:
+  shop:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-app
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-distroless-shop
+      args:
+        APP: shop
+    init: true
+    environment:
+      PORT: ${PORT:-8080}
+    ports:
+      - '${PORT:-8080}:${PORT:-8080}'
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    restart: always
+    networks:
+      - shop-network
+      - shop-network-internal
+
+  shop-debug:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-app-debug
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    ports:
+      - '${PORT:-8080}:${PORT:-8080}'
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    restart: always
+    networks:
+      - shop-network
+      - shop-network-internal
+    profiles:
+      - debug
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-postgres
+    volumes:
+      - shop_postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env.production
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      shop-network-internal:
+        aliases:
+          - postgres
+
+  minio:
+    image: minio/minio:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-minio
+    command: server /data --console-address ":9001"
+    volumes:
+      - shop_minio_data:/data
+    env_file:
+      - .env.production
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - shop-network
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: 'no'
+    env_file:
+      - .env.production
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${AWS_ACCESS_KEY_ID:-minioadmin} ${AWS_SECRET_ACCESS_KEY:-minioadmin}; do
+        echo 'waiting for minio...'; sleep 2;
+      done;
+      mc mb --ignore-existing local/${AWS_S3_BUCKET:-rd-shop-files-private};
+      mc anonymous set none local/${AWS_S3_BUCKET:-rd-shop-files-private};
+      echo 'minio bucket is ready';
+      "
+    networks:
+      - shop-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
+    volumes:
+      - shop_rabbitmq_data:/var/lib/rabbitmq
+    env_file:
+      - .env.production
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - shop-network
+      - shop-network-internal
+
+  migrate:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-migrate
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    user: '1001:1001'
+    # environment:
+    #   PROJECT: shop
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: npm run db:migrate:prod
+    restart: 'no'
+    profiles:
+      - tools
+    networks:
+      - shop-network-internal
+
+  seed:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-seed
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    user: '1001:1001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      ALLOW_SEED_IN_PRODUCTION: ${ALLOW_SEED_IN_PRODUCTION:-false}
+      # PROJECT: shop
+    env_file:
+      - .env.production
+    command: npm run db:seed:prod
+    restart: 'no'
+    profiles:
+      - tools
+    networks:
+      - shop-network-internal
+
+networks:
+  shop-network:
+    driver: bridge
+  shop-network-internal:
+    driver: bridge
+    internal: true
+
+volumes:
+  shop_postgres_data:
+    name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop}-postgres_data
+  shop_minio_data:
+    name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop}-minio_data
+  shop_rabbitmq_data:
+    name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop}-rabbitmq_data

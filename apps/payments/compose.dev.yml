@@ -1,0 +1,59 @@
+services:
+  payments:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}-payments
+    build:
+      context: ../..
+      dockerfile: Dockerfile.dev
+    user: '1001:1001'
+    environment:
+      GRPC_PORT: ${GRPC_PORT:-50051}
+    volumes:
+      - ../../apps:/app/apps
+      - /app/node_modules
+    env_file:
+      - ..env.development
+    command: ['npm', 'run', 'start:payments:dev']
+    networks:
+      - payments-dev-network-internal
+
+  postgres:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}-postgres
+    env_file:
+      - ..env.development
+    networks:
+      payments-dev-network-internal:
+        aliases:
+          - postgres
+
+  migrate:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}-migrate
+    build:
+      context: ../..
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ../../apps:/app/apps
+      - /app/node_modules
+    env_file:
+      - ..env.development
+    command: npm run db:migrate:dev
+    networks:
+      - payments-dev-network-internal
+
+  seed:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}-seed
+    build:
+      context: ../..
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ../../apps:/app/apps
+      - /app/node_modules
+    env_file:
+      - ..env.development
+    command: npm run db:seed:dev
+    networks:
+      - payments-dev-network-internal
+
+networks:
+  payments-dev-network-internal:
+    driver: bridge
+    internal: true

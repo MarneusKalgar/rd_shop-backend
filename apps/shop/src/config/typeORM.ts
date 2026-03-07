@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
+import { DEFAULT_VALUES } from '@/core/environment';
 import { DatabaseAdapterFactory } from '@/db/adapters';
 import { CustomTypeOrmLogger } from '@/db/logger';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
@@ -18,16 +19,18 @@ import { User } from '../users/user.entity';
 export const getTypeOrmPaths = () => {
   const isProd = isProduction();
 
+  const resolvedProject = process.env.APP?.toLowerCase()?.trim() ?? DEFAULT_VALUES.APP;
+
   if (isProd) {
     return {
-      entities: ['dist/**/*.entity.js'],
-      migrations: ['dist/db/migrations/*.js'],
+      entities: [`dist/apps/${resolvedProject}/**/*.entity.js`],
+      migrations: [`dist/apps/${resolvedProject}/db/migrations/*.js`],
     };
   }
 
   return {
-    entities: ['src/**/*.entity{.ts,.js}'],
-    migrations: ['src/db/migrations/*{.ts,.js}'],
+    entities: [`apps/${resolvedProject}/src/**/*.entity{.ts,.js}`],
+    migrations: [`apps/${resolvedProject}/src/db/migrations/*{.ts,.js}`],
   };
 };
 

@@ -1,4 +1,5 @@
 export const DEFAULT_VALUES = {
+  APP: 'shop',
   APP_LOG_LEVEL: 'log',
   BCRYPT_SALT_ROUNDS: 10,
   ENV: '.env',

@@ -1,9 +1,10 @@
 import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 
-import { DatabaseAdapterFactory } from '@/db/adapters';
+import { getEnvFile } from './core';
+import { DatabaseAdapterFactory } from './db/adapters';
 
-config({ path: `.env.${process.env.NODE_ENV}` });
+config({ path: getEnvFile() });
 
 // Validate DATABASE_URL is available before initializing the data source
 if (!process.env.DATABASE_URL) {

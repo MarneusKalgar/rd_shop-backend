@@ -1,9 +1,13 @@
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   ALLOW_SEED_IN_PRODUCTION?: string;
+
+  @IsEnum(['shop', 'payments'])
+  @IsString()
+  APP: string;
 
   @IsOptional()
   @IsString()
