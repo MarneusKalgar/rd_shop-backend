@@ -18,6 +18,12 @@ USER nestjs
 # Copy package files
 COPY --chown=nestjs:nodejs package*.json ./
 
+# Copy per-app package.json files (for npm scripts run within app dirs)
+COPY --chown=nestjs:nodejs apps/shop/package.json ./apps/shop/
+#  TODO uncomment when starting to develop payments app
+# COPY --chown=nestjs:nodejs apps/payments/package.json ./apps/payments/
+
+
 # Install all dependencies (including devDependencies)
 RUN npm ci
 

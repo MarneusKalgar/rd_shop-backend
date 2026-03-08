@@ -78,6 +78,9 @@ COPY --from=prune --chown=nestjs:nodejs /app/node_modules ./node_modules
 # Copy built application from build stage
 COPY --from=build --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=build --chown=nestjs:nodejs /app/package.json ./
+COPY --from=build --chown=nestjs:nodejs /app/apps/shop/package.json ./apps/shop/package.json
+#  TODO uncomment when starting to develop payments app
+# COPY --from=build --chown=nestjs:nodejs /app/apps/payments/package.json ./apps/payments/package.json
 
 # Switch to non-root user
 USER nestjs
