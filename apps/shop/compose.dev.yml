@@ -5,6 +5,8 @@ services:
       context: ../..
       dockerfile: Dockerfile.dev
       target: ''
+    environment:
+      APP: shop
     init: true
     user: '1001:1001'
     ports:
@@ -14,7 +16,7 @@ services:
       - /app/node_modules
     env_file:
       - .env.development
-    command: ['npm', 'run', 'start:dev']
+    command: ['sh', '-c', 'cd apps/shop && npm run start:dev']
     networks:
       - shop-dev-network
       - shop-dev-network-internal
@@ -59,8 +61,8 @@ services:
   migrate:
     container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-migrate
     environment:
-      TS_NODE_PROJECT: apps/shop/tsconfig.app.json
-      # PROJECT: shop
+      TS_NODE_PROJECT: tsconfig.app.json
+      APP: shop
     build:
       context: ../..
       dockerfile: Dockerfile.dev
@@ -70,15 +72,15 @@ services:
       - /app/node_modules
     env_file:
       - .env.development
-    command: npm run db:migrate:dev
+    command: ['sh', '-c', 'cd apps/shop && npm run db:migrate:dev']
     networks:
       - shop-dev-network-internal
 
   seed:
     container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-seed
     environment:
-      TS_NODE_PROJECT: apps/shop/tsconfig.app.json
-      # PROJECT: shop
+      TS_NODE_PROJECT: tsconfig.app.json
+      APP: shop
     build:
       context: ../..
       dockerfile: Dockerfile.dev
@@ -88,7 +90,7 @@ services:
       - /app/node_modules
     env_file:
       - .env.development
-    command: npm run db:seed:dev
+    command: ['sh', '-c', 'cd apps/shop && npm run db:seed:dev']
     networks:
       - shop-dev-network-internal
 

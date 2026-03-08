@@ -23,14 +23,14 @@ export const getTypeOrmPaths = () => {
 
   if (isProd) {
     return {
-      entities: [`dist/apps/${resolvedProject}/**/*.entity.js`],
-      migrations: [`dist/apps/${resolvedProject}/db/migrations/*.js`],
+      entities: [`../../dist/apps/${resolvedProject}/**/*.entity.js`],
+      migrations: [`../../dist/apps/${resolvedProject}/db/migrations/*.js`],
     };
   }
 
   return {
-    entities: [`apps/${resolvedProject}/src/**/*.entity{.ts,.js}`],
-    migrations: [`apps/${resolvedProject}/src/db/migrations/*{.ts,.js}`],
+    entities: [`src/**/*.entity{.ts,.js}`],
+    migrations: [`src/db/migrations/*{.ts,.js}`],
   };
 };
 

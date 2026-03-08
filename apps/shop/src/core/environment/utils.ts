@@ -14,27 +14,17 @@ import { DefaultEnvKey, EnvVariable } from './types';
  *
  * @example
  * // If NODE_ENV is 'development'
- * getEnvFile(); // Returns: './apps/shop/.env.development'
- *
- * @example
- * // If NODE_ENV is 'production'
- * getEnvFile('shop'); // Returns: './apps/shop/.env.production'
- * getEnvFile('payments'); // Returns: './apps/payments/.env.production'
- *
- * @example
- * // If NODE_ENV is not set
- * getEnvFile(); // Returns: './apps/shop/.env'
+ * getEnvFile(); // Returns: '.env.development'
  */
 export const getEnvFile = (): string => {
   const nodeEnv = process.env.NODE_ENV?.toLowerCase().trim();
-  const resolvedProject = process.env.APP?.toLowerCase().trim() ?? DEFAULT_VALUES.APP;
 
   if (!nodeEnv) {
     return DEFAULT_VALUES.ENV;
   }
 
   // Dynamically construct the environment file path
-  return `./apps/${resolvedProject}/.env.${nodeEnv}`;
+  return `.env.${nodeEnv}`;
 };
 
 // TODO this function may be an overhead. Consider removing in the future.

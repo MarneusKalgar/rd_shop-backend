@@ -41,7 +41,7 @@ export class AddOrderProcessingStatuses1772530629181 implements MigrationInterfa
       `CREATE INDEX "IDX_orders_status_created" ON "orders" ("status", "created_at") `,
     );
     await queryRunner.query(
-      `CREATE INDEX "IDX_orders_user_created" ON "orders" ("user_id", "created_at") `,
+      `CREATE INDEX IF NOT EXISTS "IDX_orders_user_created" ON "orders" ("user_id", "created_at") `,
     );
   }
 }

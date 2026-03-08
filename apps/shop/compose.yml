@@ -141,14 +141,14 @@ services:
       args:
         APP: shop
     user: '1001:1001'
-    # environment:
-    #   PROJECT: shop
+    environment:
+      APP: shop
     env_file:
       - .env.production
     depends_on:
       postgres:
         condition: service_healthy
-    command: npm run db:migrate:prod
+    command: ['sh', '-c', 'cd apps/shop && npm run db:migrate:prod']
     restart: 'no'
     profiles:
       - tools
@@ -171,10 +171,10 @@ services:
         condition: service_completed_successfully
     environment:
       ALLOW_SEED_IN_PRODUCTION: ${ALLOW_SEED_IN_PRODUCTION:-false}
-      # PROJECT: shop
+      APP: shop
     env_file:
       - .env.production
-    command: npm run db:seed:prod
+    command: ['sh', '-c', 'cd apps/shop && npm run db:seed:prod']
     restart: 'no'
     profiles:
       - tools
