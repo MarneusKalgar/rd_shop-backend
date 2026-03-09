@@ -20,6 +20,7 @@ services:
     networks:
       - shop-dev-network
       - shop-dev-network-internal
+      - rd_shop_backend_dev_shared
 
   postgres:
     container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-postgres
@@ -100,3 +101,6 @@ networks:
   shop-dev-network-internal:
     driver: bridge
     internal: true
+  rd_shop_backend_dev_shared:
+    driver: bridge
+    external: true

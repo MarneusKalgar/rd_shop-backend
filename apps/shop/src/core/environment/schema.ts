@@ -77,6 +77,16 @@ export class EnvironmentVariables {
   @IsString()
   NODE_HOSTNAME?: string;
 
+  @IsString()
+  PAYMENTS_GRPC_HOST?: string;
+
+  @IsNumber()
+  PAYMENTS_GRPC_PORT?: number;
+
+  @IsNumber()
+  @IsOptional()
+  PAYMENTS_GRPC_TIMEOUT_MS?: number;
+
   @IsNumber()
   PORT: number;
 

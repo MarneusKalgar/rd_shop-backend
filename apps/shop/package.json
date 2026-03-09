@@ -1,7 +1,7 @@
 {
   "name": "shop",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend for RD Shop application",
   "main": "index.js",
   "scripts": {
     "start:dev": "cross-env NODE_ENV=development APP=shop nest start --watch",
@@ -27,10 +27,11 @@
     "docker:start:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml up",
     "docker:start:prod:debug": "docker compose -p rd_shop_backend_shop_prod -f compose.yml --profile debug up app-debug",
     "docker:migrate:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml run --rm migrate",
+    "docker:seed:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml run --rm seed",
     "docker:down:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml down",
     "docker:down:prod:debug": "docker compose -p rd_shop_backend_shop_prod -f compose.yml --profile debug down"
   },
   "keywords": [],
-  "author": "",
+  "author": "Ihor Chernobai",
   "license": "ISC"
 }

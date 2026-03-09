@@ -7,8 +7,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import { DataSource, Repository } from 'typeorm';
 
+import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProductsRepository } from '@/products/product.repository';
 import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
@@ -17,7 +19,7 @@ import { simulateExternalService } from '@/utils';
 
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
-import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY } from './constants';
+import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY, ORDER_WORKER_SCOPE } from './constants';
 import { CreateOrderDto, FindOrdersFilterDto, OrderProcessMessageDto } from './dto';
 import { Order, OrderStatus } from './order.entity';
 import {
@@ -27,8 +29,7 @@ import {
   OrdersRepository,
 } from './repositories';
 import { FindOrdersWithFiltersResponse } from './types';
-
-const ORDER_WORKER_SCOPE = 'order-worker';
+import { getTotalSum } from './utils';
 
 /**
  * Service responsible for order creation and querying with transaction safety.
@@ -71,6 +72,8 @@ export class OrdersService {
     private readonly ordersQueryBuilder: OrdersQueryBuilder,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+
+    private readonly paymentsGrpcService: PaymentsGrpcService,
   ) {}
 
   /**
@@ -121,6 +124,7 @@ export class OrdersService {
    * @see {@link executeOrderTransaction} for transaction implementation
    * @see {@link handleOrderCreationPgErrors} for error handling
    */
+
   async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
     const { idempotencyKey, items, userId } = createOrderDto;
 
@@ -136,67 +140,14 @@ export class OrdersService {
     await this.validateProductsExist(productIds);
 
     try {
-      return await this.executeOrderTransaction(createOrderDto, user, productIds);
+      const createdOrder = await this.executeOrderTransaction(createOrderDto, user, productIds);
+      await this.authorizePayment(createdOrder);
+      return createdOrder;
     } catch (error: unknown) {
       return await this.handleOrderCreationPgErrors(error, userId, idempotencyKey);
     }
   }
 
-  async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
-    const { cursor, limit = DEFAULT_ORDERS_LIMIT } = params;
-
-    const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(params);
-
-    if (cursor) {
-      const cursorOrder = await this.ordersRepository.findByCursor(cursor);
-      if (!cursorOrder) {
-        throw new BadRequestException(`Invalid cursor: no order found for id "${cursor}"`);
-      }
-
-      this.ordersQueryBuilder.applyCursorPagination(subquery, cursorOrder);
-    }
-
-    // Apply ordering and limit to the subquery to get the correct slice of orders for pagination
-    this.ordersQueryBuilder.applyOrderingAndLimit(subquery, limit + 1);
-
-    // Using getRawMany() here to match cursor pagination logic
-    // and avoid performance issues with getManyAndCount() on complex queries.
-    // Total count can be added in the future if needed.
-    const paginatedOrders: { createdAt: Date; id: string }[] = await subquery.getRawMany();
-    if (!paginatedOrders.length) {
-      return { nextCursor: null, orders: [] };
-    }
-
-    const hasNextPage = paginatedOrders.length > limit;
-    const pageSlice = hasNextPage ? paginatedOrders.slice(0, limit) : paginatedOrders;
-
-    const orderIds = pageSlice.map((row) => row.id);
-    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds);
-    const orders = await mainQuery.getMany();
-
-    const nextCursor = hasNextPage ? orders[orders.length - 1].id : null;
-
-    return { nextCursor, orders };
-  }
-
-  /**
-   * Processes an order within a transaction after receiving a RabbitMQ message.
-   *
-   * **Transaction Steps:**
-   * 1. Idempotency check — skip if message already processed
-   * 2. Fetch order by ID
-   * 3. Simulate external service call (300–500ms)
-   * 4. Update order status to PROCESSED
-   * 5. Insert ProcessedMessage record (idempotency guard)
-   * 6. Commit
-   *
-   * Caller (worker) must ack the message only after this method resolves successfully.
-   *
-   * @param messageId - Unique RabbitMQ message ID
-   * @param orderId - Order UUID to process
-   * @param correlationId - Optional correlation ID (idempotencyKey from producer)
-   * @throws {Error} If order not found or DB error occurs — worker should nack
-   */
   async processOrderMessage(payload: OrderProcessMessageDto): Promise<void> {
     const { correlationId, messageId, orderId } = payload;
     const simulateFailure: boolean =
@@ -267,6 +218,75 @@ export class OrdersService {
 
       this.logger.log(`Order "${orderId}" marked as PROCESSED`);
     });
+  }
+
+  // eslint-disable-next-line perfectionist/sort-classes
+  async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
+    const { cursor, limit = DEFAULT_ORDERS_LIMIT } = params;
+
+    const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(params);
+
+    if (cursor) {
+      const cursorOrder = await this.ordersRepository.findByCursor(cursor);
+      if (!cursorOrder) {
+        throw new BadRequestException(`Invalid cursor: no order found for id "${cursor}"`);
+      }
+
+      this.ordersQueryBuilder.applyCursorPagination(subquery, cursorOrder);
+    }
+
+    // Apply ordering and limit to the subquery to get the correct slice of orders for pagination
+    this.ordersQueryBuilder.applyOrderingAndLimit(subquery, limit + 1);
+
+    // Using getRawMany() here to match cursor pagination logic
+    // and avoid performance issues with getManyAndCount() on complex queries.
+    // Total count can be added in the future if needed.
+    const paginatedOrders: { createdAt: Date; id: string }[] = await subquery.getRawMany();
+    if (!paginatedOrders.length) {
+      return { nextCursor: null, orders: [] };
+    }
+
+    const hasNextPage = paginatedOrders.length > limit;
+    const pageSlice = hasNextPage ? paginatedOrders.slice(0, limit) : paginatedOrders;
+
+    const orderIds = pageSlice.map((row) => row.id);
+    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds);
+    const orders = await mainQuery.getMany();
+
+    const nextCursor = hasNextPage ? orders[orders.length - 1].id : null;
+
+    return { nextCursor, orders };
+  }
+
+  /**
+   * Processes an order within a transaction after receiving a RabbitMQ message.
+   *
+   * **Transaction Steps:**
+   * 1. Idempotency check — skip if message already processed
+   * 2. Fetch order by ID
+   * 3. Simulate external service call (300–500ms)
+   * 4. Update order status to PROCESSED
+   * 5. Insert ProcessedMessage record (idempotency guard)
+   * 6. Commit
+   *
+   * Caller (worker) must ack the message only after this method resolves successfully.
+   *
+   * @param messageId - Unique RabbitMQ message ID
+   * @param orderId - Order UUID to process
+   * @param correlationId - Optional correlation ID (idempotencyKey from producer)
+   * @throws {Error} If order not found or DB error occurs — worker should nack
+   */
+
+  private async authorizePayment(order: Order): Promise<void> {
+    const amount = getTotalSum(order);
+
+    const response = await this.paymentsGrpcService.authorize({
+      amount,
+      currency: 'USD',
+      idempotencyKey: randomUUID(),
+      orderId: order.id,
+    });
+    this.logger.log(`Payment authorized: ${JSON.stringify(response)} for order=${order.id}`);
   }
 
   private async checkIdempotency(idempotencyKey?: string): Promise<null | Order> {

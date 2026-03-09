@@ -76,29 +76,6 @@ services:
     networks:
       - payments-network-internal
 
-  seed:
-    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_prod}-seed
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-      target: prod-payments
-      args:
-        APP: payments
-    user: '1001:1001'
-    depends_on:
-      postgres:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    env_file:
-      - .env.production
-    command: npm run db:seed:prod
-    restart: 'no'
-    profiles:
-      - tools
-    networks:
-      - payments-network-internal
-
 networks:
   payments-network-internal:
     driver: bridge

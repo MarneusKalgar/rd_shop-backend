@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { PaymentsGrpcModule } from '@/payments/payments-grpc.module';
 import { ProductsRepository } from '@/products/product.repository';
 import { RabbitMQModule } from '@/rabbitmq/rabbitmq.module';
 
@@ -15,7 +16,11 @@ import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
 @Module({
   controllers: [OrdersControllerV1],
   exports: [OrdersService, OrdersRepository, OrderItemsRepository],
-  imports: [TypeOrmModule.forFeature([Order, OrderItem, Product, User]), RabbitMQModule],
+  imports: [
+    TypeOrmModule.forFeature([Order, OrderItem, Product, User]),
+    RabbitMQModule,
+    PaymentsGrpcModule,
+  ],
   providers: [
     OrdersService,
     OrdersRepository,
