@@ -11,10 +11,16 @@ services:
       PAYMENTS_GRPC_PORT: ${PAYMENTS_GRPC_PORT:-5000}
     volumes:
       - ../../apps:/app/apps
+      - ../../proto:/app/proto
       - /app/node_modules
     env_file:
       - .env.development
-    command: ['sh', '-c', 'cd apps/payments && npm run start:dev']
+    command:
+      [
+        'sh',
+        '-c',
+        'mkdir -p /app/apps/payments/src/proto && cp /app/proto/payments.proto /app/apps/payments/src/proto/payments.proto && echo "Proto copied:" && ls /app/apps/payments/src/proto/ && cd apps/payments && npm run start:dev',
+      ]
     networks:
       - payments-dev-network-internal
       - rd_shop_backend_dev_shared

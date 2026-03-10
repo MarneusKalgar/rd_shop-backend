@@ -15,7 +15,7 @@ async function bootstrap() {
   const grpc = app.connectMicroservice<MicroserviceOptions>({
     options: {
       package: 'payments',
-      protoPath: join(process.cwd(), 'src/proto/payments.proto'),
+      protoPath: join(__dirname, 'proto/payments.proto'),
       url: `${host}:${port}`,
     },
 

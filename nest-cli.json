@@ -17,7 +17,7 @@
       "sourceRoot": "apps/payments/src",
       "compilerOptions": {
         "tsConfigPath": "apps/payments/tsconfig.app.json",
-        "assets": [{ "include": "proto/*.proto", "watchAssets": true }]
+        "assets": [{ "include": "proto/*.proto", "watchAssets": false }]
       }
     },
     "shop": {
@@ -27,7 +27,8 @@
       "sourceRoot": "apps/shop/src",
       "compilerOptions": {
         "tsConfigPath": "apps/shop/tsconfig.app.json",
-        "assets": [{ "include": "proto/*.proto", "watchAssets": true }]
+        "deleteOutDir": true,
+        "assets": [{ "include": "proto/*.proto", "watchAssets": false }]
       }
     }
   }

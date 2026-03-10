@@ -13,10 +13,16 @@ services:
       - '${PORT:-8080}:${PORT:-8080}'
     volumes:
       - ../../apps:/app/apps
+      - ../../proto:/app/proto
       - /app/node_modules
     env_file:
       - .env.development
-    command: ['sh', '-c', 'cd apps/shop && npm run start:dev']
+    command:
+      [
+        'sh',
+        '-c',
+        'mkdir -p /app/apps/shop/src/proto && cp /app/proto/payments.proto /app/apps/shop/src/proto/payments.proto && echo "Proto copied:" && ls /app/apps/shop/src/proto/ && cd apps/shop && npm run start:dev',
+      ]
     networks:
       - shop-dev-network
       - shop-dev-network-internal

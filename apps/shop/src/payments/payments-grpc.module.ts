@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ClientProxyFactory, Transport } from '@nestjs/microservices';
-import { join } from 'path';
+import { join } from 'node:path';
 
 import { PAYMENTS_GRPC_CLIENT } from './constants';
 import { PaymentsGrpcService } from './payments-grpc.service';
@@ -17,7 +17,7 @@ import { PaymentsGrpcService } from './payments-grpc.service';
         ClientProxyFactory.create({
           options: {
             package: 'payments',
-            protoPath: join(process.cwd(), 'src/proto/payments.proto'),
+            protoPath: join(__dirname, '../proto/payments.proto'),
             url: `${config.get('PAYMENTS_GRPC_HOST') ?? 'localhost'}:${config.get('PAYMENTS_GRPC_PORT') ?? 5000}`,
           },
           transport: Transport.GRPC,
