@@ -26,6 +26,7 @@ export enum OrderStatus {
 @Index('IDX_orders_created_at', ['createdAt'])
 @Index('IDX_orders_user_created', ['userId', 'createdAt'])
 @Index('IDX_orders_status_created', ['status', 'createdAt'])
+// @Index('IDX_orders_payment_id', ['paymentId'])
 export class Order {
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
@@ -38,6 +39,15 @@ export class Order {
 
   @OneToMany(() => OrderItem, (item) => item.order)
   items: OrderItem[];
+
+  @Column({
+    length: 255,
+    name: 'payment_id',
+    nullable: true,
+    type: 'varchar',
+    unique: true,
+  })
+  paymentId: null | string;
 
   @Column({
     default: OrderStatus.PENDING,

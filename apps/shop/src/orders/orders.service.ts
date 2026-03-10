@@ -148,6 +148,24 @@ export class OrdersService {
     }
   }
 
+  /**
+   * Processes an order within a transaction after receiving a RabbitMQ message.
+   *
+   * **Transaction Steps:**
+   * 1. Idempotency check — skip if message already processed
+   * 2. Fetch order by ID
+   * 3. Simulate external service call (300–500ms)
+   * 4. Update order status to PROCESSED
+   * 5. Insert ProcessedMessage record (idempotency guard)
+   * 6. Commit
+   *
+   * Caller (worker) must ack the message only after this method resolves successfully.
+   *
+   * @param messageId - Unique RabbitMQ message ID
+   * @param orderId - Order UUID to process
+   * @param correlationId - Optional correlation ID (idempotencyKey from producer)
+   * @throws {Error} If order not found or DB error occurs — worker should nack
+   */
   async processOrderMessage(payload: OrderProcessMessageDto): Promise<void> {
     const { correlationId, messageId, orderId } = payload;
     const simulateFailure: boolean =
@@ -258,35 +276,28 @@ export class OrdersService {
     return { nextCursor, orders };
   }
 
-  /**
-   * Processes an order within a transaction after receiving a RabbitMQ message.
-   *
-   * **Transaction Steps:**
-   * 1. Idempotency check — skip if message already processed
-   * 2. Fetch order by ID
-   * 3. Simulate external service call (300–500ms)
-   * 4. Update order status to PROCESSED
-   * 5. Insert ProcessedMessage record (idempotency guard)
-   * 6. Commit
-   *
-   * Caller (worker) must ack the message only after this method resolves successfully.
-   *
-   * @param messageId - Unique RabbitMQ message ID
-   * @param orderId - Order UUID to process
-   * @param correlationId - Optional correlation ID (idempotencyKey from producer)
-   * @throws {Error} If order not found or DB error occurs — worker should nack
-   */
-
   private async authorizePayment(order: Order): Promise<void> {
     const amount = getTotalSum(order);
+    const paymentIdempotencyKey = randomUUID();
 
-    const response = await this.paymentsGrpcService.authorize({
-      amount,
-      currency: 'USD',
-      idempotencyKey: randomUUID(),
-      orderId: order.id,
-    });
-    this.logger.log(`Payment authorized: ${JSON.stringify(response)} for order=${order.id}`);
+    try {
+      const response = await this.paymentsGrpcService.authorize({
+        amount,
+        currency: 'USD',
+        idempotencyKey: paymentIdempotencyKey,
+        orderId: order.id,
+      });
+
+      if (response.paymentId) {
+        order.paymentId = response.paymentId;
+        await this.ordersRepository.getRepository().save(order);
+      }
+
+      this.logger.log(`Payment authorized: ${JSON.stringify(response)} for order=${order.id}`);
+    } catch (error) {
+      this.logger.error(`Payment authorization failed for order=${order.id}`, error);
+      throw new Error('Payment authorization failed');
+    }
   }
 
   private async checkIdempotency(idempotencyKey?: string): Promise<null | Order> {

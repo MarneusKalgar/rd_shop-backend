@@ -3,10 +3,13 @@ import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { join } from 'node:path';
 
+import { getLogLevels } from './config';
 import { PaymentsModule } from './payments.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(PaymentsModule);
+  const app = await NestFactory.create(PaymentsModule, {
+    logger: getLogLevels(),
+  });
 
   // TODO add config service
   const host = process.env.PAYMENTS_GRPC_HOST;

@@ -14,8 +14,9 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @GrpcMethod('Payments', 'Authorize')
-  authorize(data: AuthorizeRequest): AuthorizeResponse {
-    const record = this.paymentsService.authorize(data);
+  async authorize(data: AuthorizeRequest): Promise<AuthorizeResponse> {
+    console.log('Received authorize request', data);
+    const record = await this.paymentsService.authorize(data);
     return { paymentId: record.paymentId, status: record.status };
   }
 
@@ -28,8 +29,8 @@ export class PaymentsController {
   }
 
   @GrpcMethod('Payments', 'GetPaymentStatus')
-  getPaymentStatus(data: GetPaymentStatusRequest): GetPaymentStatusResponse {
-    const record = this.paymentsService.getPaymentStatus(data.paymentId);
+  async getPaymentStatus(data: GetPaymentStatusRequest): Promise<GetPaymentStatusResponse> {
+    const record = await this.paymentsService.getPaymentStatus(data.paymentId);
     return { paymentId: record.paymentId, status: record.status };
   }
 

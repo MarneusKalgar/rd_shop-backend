@@ -35,6 +35,8 @@ export class PaymentsGrpcService implements OnModuleInit {
   async authorize(request: AuthorizeRequest): Promise<AuthorizeResponse> {
     const timeoutMs = this.configService.get<number>('PAYMENTS_GRPC_TIMEOUT_MS') ?? 5000;
 
+    console.log('Authorizing payment with request', request);
+
     try {
       return await firstValueFrom(
         this.paymentsProtoService.authorize(request).pipe(timeout(timeoutMs)),

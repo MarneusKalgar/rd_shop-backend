@@ -12,8 +12,6 @@
     "db:migrate:prod": "NODE_ENV=production APP=payments node ../../node_modules/typeorm/cli.js migration:run -d ../../dist/apps/payments/data-source.js",
     "db:revert:dev": "npm run typeorm -- migration:revert -d ./src/data-source.ts",
     "db:revert:prod": "NODE_ENV=production APP=payments node ../../node_modules/typeorm/cli.js migration:revert -d ../../dist/apps/payments/data-source.js",
-    "sql:run": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register ./src/db/scripts/run-sql-file.ts",
-    "concurrency:test": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register ./src/db/scripts/concurrency-test.ts",
     "docker:build:dev": "docker compose -p rd_shop_backend_payments_dev -f compose.yml -f compose.dev.yml up --build",
     "docker:start:dev": "docker compose -p rd_shop_backend_payments_dev -f compose.yml -f compose.dev.yml up",
     "docker:migrate:dev": "docker compose -p rd_shop_backend_payments_dev -f compose.yml -f compose.dev.yml run --rm migrate",
