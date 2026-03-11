@@ -2,6 +2,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import { Injectable, Logger } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
 
 import { AuthorizeRequest } from './dto';
@@ -18,40 +19,35 @@ export class PaymentsService {
 
   async authorize(request: AuthorizeRequest): Promise<Payment> {
     // TODO add validation pipe and global exception filter to return proper gRPC error codes
-    if (!request.orderId || !request.idempotencyKey) {
-      this.logger.error(
-        'Invalid authorize request: orderId and idempotencyKey are required',
-        request,
-      );
+    if (!request.orderId) {
+      this.logger.error('Invalid authorize request: orderId is required', request);
       throw new RpcException({
         code: GrpcStatus.INVALID_ARGUMENT,
-        message: 'orderId and idempotencyKey are required',
+        message: 'orderId is required',
       });
     }
 
-    if (request.idempotencyKey) {
-      const existing = await this.paymentRepository.findOne({
-        where: { paymentId: request.idempotencyKey },
-      });
+    const existing = await this.paymentRepository.findOne({
+      where: { orderId: request.orderId },
+    });
 
-      if (existing) {
-        this.logger.log(
-          `Payment with idempotency key ${request.idempotencyKey} already exists, returning existing payment ${existing.paymentId}`,
-        );
-        return existing;
-      }
+    if (existing) {
+      this.logger.log(
+        `Payment for order ${request.orderId} already exists, returning existing payment ${existing.paymentId}`,
+      );
+      return existing;
     }
 
     const payment = this.paymentRepository.create({
       amount: request.amount.toString(),
       currency: request.currency,
       orderId: request.orderId,
-      paymentId: request.idempotencyKey,
+      paymentId: randomUUID(),
       status: PaymentStatus.AUTHORIZED,
     });
 
     await this.paymentRepository.save(payment);
-    this.logger.log(`Authorized payment ${request.idempotencyKey} for order ${request.orderId}`);
+    this.logger.log(`Authorized payment ${payment.paymentId} for order ${request.orderId}`);
 
     return payment;
   }

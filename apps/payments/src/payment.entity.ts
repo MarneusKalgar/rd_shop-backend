@@ -16,7 +16,7 @@ export enum PaymentStatus {
 }
 
 @Entity('payments')
-@Index('IDX_payments_order_id', ['orderId'])
+@Index('IDX_payments_order_id', ['orderId'], { unique: true })
 @Index('IDX_payments_status', ['status'])
 @Index('IDX_payments_created_at', ['createdAt'])
 export class Payment {

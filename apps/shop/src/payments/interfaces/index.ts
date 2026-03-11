@@ -1,7 +1,7 @@
 export interface AuthorizeRequest {
   amount: number;
   currency: string;
-  idempotencyKey?: string;
+  // idempotencyKey?: string;
   orderId: string;
 }
 

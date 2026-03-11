@@ -19,10 +19,10 @@ export class EnvironmentVariables {
   NODE_ENV: string;
 
   @IsString()
-  PAYMENTS_GRPC_HOST?: string;
+  PAYMENTS_GRPC_HOST: string;
 
   @IsNumber()
-  PAYMENTS_GRPC_PORT?: number;
+  PAYMENTS_GRPC_PORT: number;
 
   @IsOptional()
   @IsString()

@@ -26,7 +26,6 @@ export enum OrderStatus {
 @Index('IDX_orders_created_at', ['createdAt'])
 @Index('IDX_orders_user_created', ['userId', 'createdAt'])
 @Index('IDX_orders_status_created', ['status', 'createdAt'])
-// @Index('IDX_orders_payment_id', ['paymentId'])
 export class Order {
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

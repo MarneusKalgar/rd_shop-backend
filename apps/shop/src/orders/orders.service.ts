@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomUUID } from 'node:crypto';
+// import { randomUUID } from 'node:crypto';
 import { DataSource, Repository } from 'typeorm';
 
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
@@ -336,13 +336,13 @@ export class OrdersService {
     }
 
     const amount = getTotalSum(orderWithItems);
-    const paymentIdempotencyKey = randomUUID();
+    // const paymentIdempotencyKey = randomUUID();
 
     try {
       const response = await this.paymentsGrpcService.authorize({
         amount,
         currency: 'USD',
-        idempotencyKey: paymentIdempotencyKey,
+        // idempotencyKey: paymentIdempotencyKey,
         orderId: order.id,
       });
 
