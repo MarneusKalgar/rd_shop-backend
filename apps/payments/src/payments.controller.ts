@@ -15,7 +15,6 @@ export class PaymentsController {
 
   @GrpcMethod('Payments', 'Authorize')
   async authorize(data: AuthorizeRequest): Promise<AuthorizeResponse> {
-    console.log('Received authorize request', data);
     const record = await this.paymentsService.authorize(data);
     return { paymentId: record.paymentId, status: record.status };
   }

@@ -4,7 +4,7 @@ import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { DatabaseAdapterFactory } from '@/db/adapters';
 import { CustomTypeOrmLogger } from '@/db/logger';
 import { Payment } from '@/payment.entity';
-import { isProduction } from '@/utils';
+import { isProduction } from '@/utils/env';
 
 /**
  * Determines the correct file paths based on the environment

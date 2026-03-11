@@ -16,9 +16,10 @@ import { PaymentsGrpcService } from './payments-grpc.service';
       useFactory: (config: ConfigService) =>
         ClientProxyFactory.create({
           options: {
+            loader: { enums: String },
             package: 'payments',
             protoPath: join(__dirname, '../proto/payments.proto'),
-            url: `${config.get('PAYMENTS_GRPC_HOST') ?? 'localhost'}:${config.get('PAYMENTS_GRPC_PORT') ?? 5000}`,
+            url: `${config.get<string>('PAYMENTS_GRPC_HOST')}:${config.get<number>('PAYMENTS_GRPC_PORT')}`,
           },
           transport: Transport.GRPC,
         }),

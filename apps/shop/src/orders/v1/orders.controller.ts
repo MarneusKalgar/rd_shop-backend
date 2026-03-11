@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpStatus, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '@/auth/guards';
@@ -7,6 +7,8 @@ import {
   CreateOrderDto,
   CreateOrderResponseDto,
   FindOrdersFilterDto,
+  GetOrderByIdResponseDto,
+  GetOrderPaymentResponseDto,
   GetOrdersResponseDto,
 } from '../dto';
 import { Order } from '../order.entity';
@@ -49,6 +51,46 @@ export class OrdersController {
     return {
       data: order,
     };
+  }
+
+  @ApiOperation({ summary: 'Get order by ID' })
+  @ApiResponse({
+    description: 'Order retrieved successfully',
+    status: HttpStatus.OK,
+    type: GetOrderByIdResponseDto,
+  })
+  @ApiResponse({
+    description: 'Order not found',
+    status: HttpStatus.NOT_FOUND,
+  })
+  @Get(':orderId')
+  async getOrderById(@Param('orderId') orderId: string): Promise<GetOrderByIdResponseDto> {
+    const order = await this.ordersService.getOrderById(orderId);
+    return { data: order };
+  }
+
+  @ApiOperation({ summary: 'Get payment information for an order' })
+  @ApiResponse({
+    description: 'Payment information retrieved successfully',
+    status: HttpStatus.OK,
+    type: GetOrderPaymentResponseDto,
+  })
+  @ApiResponse({
+    description: 'Order not found',
+    status: HttpStatus.NOT_FOUND,
+  })
+  @ApiResponse({
+    description: 'Order has no associated payment',
+    status: HttpStatus.BAD_REQUEST,
+  })
+  @ApiResponse({
+    description: 'Failed to retrieve payment information',
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+  })
+  @Get(':orderId/payment')
+  async getOrderPayment(@Param('orderId') orderId: string): Promise<GetOrderPaymentResponseDto> {
+    const payment = await this.ordersService.getOrderPayment(orderId);
+    return { data: payment };
   }
 
   @ApiOperation({ summary: 'Get orders with filters' })

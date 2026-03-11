@@ -119,7 +119,6 @@ export class OrdersService {
    *     { productId: 'product-uuid-2', quantity: 1 }
    *   ]
    * });
-   * ```
    *
    * @see {@link executeOrderTransaction} for transaction implementation
    * @see {@link handleOrderCreationPgErrors} for error handling
@@ -141,10 +140,94 @@ export class OrdersService {
 
     try {
       const createdOrder = await this.executeOrderTransaction(createOrderDto, user, productIds);
-      await this.authorizePayment(createdOrder);
+      this.publishOrderProcessingMessage(createdOrder, idempotencyKey);
       return createdOrder;
     } catch (error: unknown) {
       return await this.handleOrderCreationPgErrors(error, userId, idempotencyKey);
+    }
+  }
+
+  /**
+   * Retrieves an order by its ID with all relations loaded.
+   *
+   * @param orderId - The UUID of the order to retrieve
+   * @returns Promise resolving to Order entity with items, products, and user
+   * @throws {NotFoundException} If order doesn't exist - HTTP 404
+   */
+  async getOrderById(orderId: string): Promise<Order> {
+    const order = await this.ordersRepository.findByIdWithRelations(orderId);
+
+    if (!order) {
+      throw new NotFoundException(`Order with ID "${orderId}" not found`);
+    }
+
+    return order;
+  }
+
+  // eslint-disable-next-line perfectionist/sort-classes
+  async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
+    const { cursor, limit = DEFAULT_ORDERS_LIMIT } = params;
+
+    const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(params);
+
+    if (cursor) {
+      const cursorOrder = await this.ordersRepository.findByCursor(cursor);
+      if (!cursorOrder) {
+        throw new BadRequestException(`Invalid cursor: no order found for id "${cursor}"`);
+      }
+
+      this.ordersQueryBuilder.applyCursorPagination(subquery, cursorOrder);
+    }
+
+    // Apply ordering and limit to the subquery to get the correct slice of orders for pagination
+    this.ordersQueryBuilder.applyOrderingAndLimit(subquery, limit + 1);
+
+    // Using getRawMany() here to match cursor pagination logic
+    // and avoid performance issues with getManyAndCount() on complex queries.
+    // Total count can be added in the future if needed.
+    const paginatedOrders: { createdAt: Date; id: string }[] = await subquery.getRawMany();
+    if (!paginatedOrders.length) {
+      return { nextCursor: null, orders: [] };
+    }
+
+    const hasNextPage = paginatedOrders.length > limit;
+    const pageSlice = hasNextPage ? paginatedOrders.slice(0, limit) : paginatedOrders;
+
+    const orderIds = pageSlice.map((row) => row.id);
+    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds);
+    const orders = await mainQuery.getMany();
+
+    const nextCursor = hasNextPage ? orders[orders.length - 1].id : null;
+
+    return { nextCursor, orders };
+  }
+
+  /**
+   * Retrieves payment information for an order.
+   *
+   * @param orderId - The UUID of the order
+   * @returns Promise resolving to payment details (paymentId and status)
+   * @throws {NotFoundException} If order doesn't exist - HTTP 404
+   * @throws {BadRequestException} If order has no associated payment - HTTP 400
+   * @throws {Error} If payment service is unavailable - HTTP 500
+   */
+  async getOrderPayment(orderId: string): Promise<{ paymentId: string; status: string }> {
+    const order = await this.ordersRepository.findByIdWithRelations(orderId);
+
+    if (!order) {
+      throw new NotFoundException(`Order with ID "${orderId}" not found`);
+    }
+
+    if (!order.paymentId) {
+      throw new BadRequestException(`Order "${orderId}" has no associated payment`);
+    }
+
+    try {
+      const paymentStatus = await this.paymentsGrpcService.getPaymentStatus(order.paymentId);
+      return paymentStatus;
+    } catch (error) {
+      this.logger.error(`Failed to fetch payment status for order ${orderId}`, error);
+      throw new Error('Failed to retrieve payment information');
     }
   }
 
@@ -172,7 +255,7 @@ export class OrdersService {
       this.configService.get<string>('RABBITMQ_SIMULATE_FAILURE') === 'true';
     const simulateDelay: number = this.configService.get<number>('RABBITMQ_SIMULATE_DELAY') ?? 0;
 
-    await this.dataSource.transaction(async (manager) => {
+    const processedOrder = await this.dataSource.transaction(async (manager) => {
       const processedMessageRepository = manager.getRepository(ProcessedMessage);
 
       const alreadyProcessed = await processedMessageRepository.findOne({
@@ -235,49 +318,24 @@ export class OrdersService {
       await orderRepository.save(order);
 
       this.logger.log(`Order "${orderId}" marked as PROCESSED`);
+
+      return order;
     });
-  }
 
-  // eslint-disable-next-line perfectionist/sort-classes
-  async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
-    const { cursor, limit = DEFAULT_ORDERS_LIMIT } = params;
-
-    const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(params);
-
-    if (cursor) {
-      const cursorOrder = await this.ordersRepository.findByCursor(cursor);
-      if (!cursorOrder) {
-        throw new BadRequestException(`Invalid cursor: no order found for id "${cursor}"`);
-      }
-
-      this.ordersQueryBuilder.applyCursorPagination(subquery, cursorOrder);
+    if (processedOrder && !processedOrder.paymentId) {
+      await this.authorizePayment(processedOrder);
     }
-
-    // Apply ordering and limit to the subquery to get the correct slice of orders for pagination
-    this.ordersQueryBuilder.applyOrderingAndLimit(subquery, limit + 1);
-
-    // Using getRawMany() here to match cursor pagination logic
-    // and avoid performance issues with getManyAndCount() on complex queries.
-    // Total count can be added in the future if needed.
-    const paginatedOrders: { createdAt: Date; id: string }[] = await subquery.getRawMany();
-    if (!paginatedOrders.length) {
-      return { nextCursor: null, orders: [] };
-    }
-
-    const hasNextPage = paginatedOrders.length > limit;
-    const pageSlice = hasNextPage ? paginatedOrders.slice(0, limit) : paginatedOrders;
-
-    const orderIds = pageSlice.map((row) => row.id);
-    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds);
-    const orders = await mainQuery.getMany();
-
-    const nextCursor = hasNextPage ? orders[orders.length - 1].id : null;
-
-    return { nextCursor, orders };
   }
 
   private async authorizePayment(order: Order): Promise<void> {
-    const amount = getTotalSum(order);
+    const orderWithItems = await this.ordersRepository.findByIdWithRelations(order.id);
+
+    if (!orderWithItems) {
+      this.logger.error(`Order "${order.id}" not found for payment authorization`);
+      throw new NotFoundException(`Order "${order.id}" not found for payment authorization`);
+    }
+
+    const amount = getTotalSum(orderWithItems);
     const paymentIdempotencyKey = randomUUID();
 
     try {
@@ -289,14 +347,17 @@ export class OrdersService {
       });
 
       if (response.paymentId) {
-        order.paymentId = response.paymentId;
-        await this.ordersRepository.getRepository().save(order);
-      }
+        await this.ordersRepository
+          .getRepository()
+          .update({ id: order.id }, { paymentId: response.paymentId, status: OrderStatus.PAID });
 
-      this.logger.log(`Payment authorized: ${JSON.stringify(response)} for order=${order.id}`);
+        this.logger.log(
+          `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,
+        );
+      }
     } catch (error) {
       this.logger.error(`Payment authorization failed for order=${order.id}`, error);
-      throw new Error('Payment authorization failed');
+      throw error;
     }
   }
 

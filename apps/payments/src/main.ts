@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { join } from 'node:path';
@@ -11,9 +12,9 @@ async function bootstrap() {
     logger: getLogLevels(),
   });
 
-  // TODO add config service
-  const host = process.env.PAYMENTS_GRPC_HOST;
-  const port = process.env.PAYMENTS_GRPC_PORT;
+  const configService = app.get(ConfigService);
+  const host = configService.get<string>('PAYMENTS_GRPC_HOST');
+  const port = configService.get<string>('PAYMENTS_GRPC_PORT');
 
   const grpc = app.connectMicroservice<MicroserviceOptions>({
     options: {
