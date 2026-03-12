@@ -47,14 +47,15 @@ export class OrdersQueryBuilder {
    * Builds a subquery to get paginated order IDs with filters applied.
    * This ensures LIMIT applies to distinct orders, not joined rows.
    */
-  buildOrderIdsSubquery(params: FindOrdersFilterDto): SelectQueryBuilder<Order> {
-    const { endDate, productName, startDate, status, userEmail } = params;
+  buildOrderIdsSubquery(userId: string, params: FindOrdersFilterDto): SelectQueryBuilder<Order> {
+    const { endDate, productName, startDate, status } = params;
 
     const subquery = this.orderRepository
       .createQueryBuilder('order')
       .select('order.id', 'id')
       .addSelect('order.createdAt', 'createdAt')
-      .distinct(true);
+      .distinct(true)
+      .where('order.userId = :userId', { userId });
 
     // Apply filters (same as before, but no joins yet)
     if (status) {
@@ -69,13 +70,6 @@ export class OrdersQueryBuilder {
       subquery.andWhere('order.createdAt <= :endDate', { endDate });
     }
 
-    // For user email filter, we need to join users in the subquery
-    if (userEmail) {
-      subquery.innerJoin('order.user', 'user').andWhere('user.email ILIKE :userEmail', {
-        userEmail: `%${userEmail}%`,
-      });
-    }
-
     // For product name filter, we need to join order_items and products in the subquery
     if (productName) {
       subquery
@@ -86,7 +80,7 @@ export class OrdersQueryBuilder {
         });
     }
 
-    if (userEmail || productName) {
+    if (productName) {
       subquery.groupBy('order.id').addGroupBy('order.createdAt');
     }
 

@@ -1,7 +1,9 @@
 import { Body, Controller, Get, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
+import { CurrentUser } from '@/auth/decorators/current-user';
 import { JwtAuthGuard } from '@/auth/guards';
+import { AuthUser } from '@/auth/types';
 
 import {
   CreateOrderDto,
@@ -45,8 +47,11 @@ export class OrdersController {
     status: HttpStatus.INTERNAL_SERVER_ERROR,
   })
   @Post()
-  async createOrder(@Body() createOrderDto: CreateOrderDto): Promise<CreateOrderResponseDto> {
-    const order = await this.ordersService.createOrder(createOrderDto);
+  async createOrder(
+    @Body() createOrderDto: CreateOrderDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<CreateOrderResponseDto> {
+    const order = await this.ordersService.createOrder(user.sub, createOrderDto);
 
     return {
       data: order,
@@ -64,8 +69,11 @@ export class OrdersController {
     status: HttpStatus.NOT_FOUND,
   })
   @Get(':orderId')
-  async getOrderById(@Param('orderId') orderId: string): Promise<GetOrderByIdResponseDto> {
-    const order = await this.ordersService.getOrderById(orderId);
+  async getOrderById(
+    @Param('orderId') orderId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<GetOrderByIdResponseDto> {
+    const order = await this.ordersService.getOrderById(user.sub, orderId);
     return { data: order };
   }
 
@@ -88,8 +96,11 @@ export class OrdersController {
     status: HttpStatus.INTERNAL_SERVER_ERROR,
   })
   @Get(':orderId/payment')
-  async getOrderPayment(@Param('orderId') orderId: string): Promise<GetOrderPaymentResponseDto> {
-    const payment = await this.ordersService.getOrderPayment(orderId);
+  async getOrderPayment(
+    @Param('orderId') orderId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<GetOrderPaymentResponseDto> {
+    const payment = await this.ordersService.getOrderPayment(user.sub, orderId);
     return { data: payment };
   }
 
@@ -104,8 +115,14 @@ export class OrdersController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Get()
-  async getOrders(@Query() filters: FindOrdersFilterDto): Promise<GetOrdersResponseDto> {
-    const { nextCursor, orders } = await this.ordersService.findOrdersWithFilters(filters);
+  async getOrders(
+    @Query() filters: FindOrdersFilterDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<GetOrdersResponseDto> {
+    const { nextCursor, orders } = await this.ordersService.findOrdersWithFilters(
+      user.sub,
+      filters,
+    );
 
     return {
       data: orders,

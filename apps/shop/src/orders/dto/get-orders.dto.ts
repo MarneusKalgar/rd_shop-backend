@@ -69,15 +69,6 @@ export class FindOrdersFilterDto {
   @IsEnum(OrderStatus)
   @IsOptional()
   status?: OrderStatus;
-
-  @ApiProperty({
-    description: 'Search by user email (case-insensitive, partial match)',
-    example: 'john',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  userEmail?: string;
 }
 
 export class GetOrdersResponseDto {

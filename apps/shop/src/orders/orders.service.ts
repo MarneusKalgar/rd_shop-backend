@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-// import { randomUUID } from 'node:crypto';
 import { DataSource, Repository } from 'typeorm';
 
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
@@ -112,7 +111,6 @@ export class OrdersService {
    * @example
    * ```typescript
    * const order = await ordersService.createOrder({
-   *   userId: 'user-uuid',
    *   idempotencyKey: 'client-generated-uuid',
    *   items: [
    *     { productId: 'product-uuid-1', quantity: 2 },
@@ -124,8 +122,8 @@ export class OrdersService {
    * @see {@link handleOrderCreationPgErrors} for error handling
    */
 
-  async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
-    const { idempotencyKey, items, userId } = createOrderDto;
+  async createOrder(userId: string, createOrderDto: CreateOrderDto): Promise<Order> {
+    const { idempotencyKey, items } = createOrderDto;
 
     const user = await this.validateUser(userId);
     this.validateOrderItems(items);
@@ -150,25 +148,27 @@ export class OrdersService {
   /**
    * Retrieves an order by its ID with all relations loaded.
    *
+   * @param userId - The UUID of the user
    * @param orderId - The UUID of the order to retrieve
    * @returns Promise resolving to Order entity with items, products, and user
    * @throws {NotFoundException} If order doesn't exist - HTTP 404
    */
-  async getOrderById(orderId: string): Promise<Order> {
+  async getOrderById(userId: string, orderId: string): Promise<Order> {
     const order = await this.ordersRepository.findByIdWithRelations(orderId);
 
-    if (!order) {
-      throw new NotFoundException(`Order with ID "${orderId}" not found`);
-    }
+    this.assertOrderOwnership(order, userId);
 
     return order;
   }
 
   // eslint-disable-next-line perfectionist/sort-classes
-  async findOrdersWithFilters(params: FindOrdersFilterDto): Promise<FindOrdersWithFiltersResponse> {
+  async findOrdersWithFilters(
+    userId: string,
+    params: FindOrdersFilterDto,
+  ): Promise<FindOrdersWithFiltersResponse> {
     const { cursor, limit = DEFAULT_ORDERS_LIMIT } = params;
 
-    const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(params);
+    const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(userId, params);
 
     if (cursor) {
       const cursorOrder = await this.ordersRepository.findByCursor(cursor);
@@ -205,18 +205,20 @@ export class OrdersService {
   /**
    * Retrieves payment information for an order.
    *
+   * @param userId - The UUID of the user
    * @param orderId - The UUID of the order
    * @returns Promise resolving to payment details (paymentId and status)
    * @throws {NotFoundException} If order doesn't exist - HTTP 404
    * @throws {BadRequestException} If order has no associated payment - HTTP 400
    * @throws {Error} If payment service is unavailable - HTTP 500
    */
-  async getOrderPayment(orderId: string): Promise<{ paymentId: string; status: string }> {
+  async getOrderPayment(
+    userId: string,
+    orderId: string,
+  ): Promise<{ paymentId: string; status: string }> {
     const order = await this.ordersRepository.findByIdWithRelations(orderId);
 
-    if (!order) {
-      throw new NotFoundException(`Order with ID "${orderId}" not found`);
-    }
+    this.assertOrderOwnership(order, userId);
 
     if (!order.paymentId) {
       throw new BadRequestException(`Order "${orderId}" has no associated payment`);
@@ -327,6 +329,12 @@ export class OrdersService {
     }
   }
 
+  private assertOrderOwnership(order: null | Order, userId: string): asserts order is Order {
+    if (order?.userId !== userId) {
+      throw new NotFoundException(`Order with ID "${order?.id ?? 'unknown'}" not found`);
+    }
+  }
+
   private async authorizePayment(order: Order): Promise<void> {
     const orderWithItems = await this.ordersRepository.findByIdWithRelations(order.id);
 
@@ -336,13 +344,11 @@ export class OrdersService {
     }
 
     const amount = getTotalSum(orderWithItems);
-    // const paymentIdempotencyKey = randomUUID();
 
     try {
       const response = await this.paymentsGrpcService.authorize({
         amount,
         currency: 'USD',
-        // idempotencyKey: paymentIdempotencyKey,
         orderId: order.id,
       });
 
@@ -424,7 +430,7 @@ export class OrdersService {
     user: User,
     productIds: string[],
   ): Promise<Order> {
-    const { idempotencyKey, items, userId } = createOrderDto;
+    const { idempotencyKey, items } = createOrderDto;
 
     const createdOrder = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
@@ -441,7 +447,7 @@ export class OrdersService {
       const order = await this.ordersRepository.createOrder(manager, {
         idempotencyKey,
         user,
-        userId,
+        userId: user.id,
       });
 
       const orderItemsData: OrderItemData[] = items.map((item) => {

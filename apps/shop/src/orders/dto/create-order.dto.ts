@@ -56,14 +56,6 @@ export class CreateOrderDto {
   @Type(() => CreateOrderItemDto)
   @ValidateNested({ each: true })
   items: CreateOrderItemDto[];
-
-  @ApiProperty({
-    description: 'ID of the user placing the order',
-    example: '550e8400-e29b-41d4-a716-446655440000',
-  })
-  @IsNotEmpty()
-  @IsUUID()
-  userId: string;
 }
 
 export class CreateOrderResponseDto {

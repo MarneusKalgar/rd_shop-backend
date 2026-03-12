@@ -1,6 +1,9 @@
-import { Args, Parent, Query, ResolveField, Resolver } from '@nestjs/graphql';
+import { UseGuards } from '@nestjs/common';
+import { Args, Context, Parent, Query, ResolveField, Resolver } from '@nestjs/graphql';
 import { GraphQLError } from 'graphql';
 
+import { GqlJwtAuthGuard } from '@/auth/guards/gql-jwt-auth.guard';
+import { AuthUser } from '@/auth/types';
 import { Order } from '@/orders/order.entity';
 import { OrdersService } from '@/orders/orders.service';
 
@@ -20,17 +23,17 @@ export class OrdersResolver {
     description: 'Get orders with optional filters and pagination',
     name: 'orders',
   })
+  @UseGuards(GqlJwtAuthGuard)
   async getOrders(
+    @Context() context: { req: { user: AuthUser } },
     @Args('filter', { nullable: true, type: () => OrdersFilterInput }) filter?: OrdersFilterInput,
     @Args('pagination', { nullable: true, type: () => OrdersPaginationInput })
     pagination?: OrdersPaginationInput,
   ): Promise<OrdersConnection> {
-    const filters = {
-      ...filter,
-      ...pagination,
-    };
+    const userId = context.req.user.sub;
+    const filters = { ...filter, ...pagination };
 
-    const { nextCursor, orders } = await this.ordersService.findOrdersWithFilters(filters);
+    const { nextCursor, orders } = await this.ordersService.findOrdersWithFilters(userId, filters);
 
     return { nodes: orders, pageInfo: { hasNextPage: Boolean(nextCursor), nextCursor } };
   }
