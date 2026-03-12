@@ -25,6 +25,9 @@ export function omit<T extends Record<string, any>, K extends keyof T>(
  * @returns A promise that resolves after the specified delay plus a random additional delay
  */
 export function simulateExternalService(delay: number): Promise<void> {
-  const actualDelay = delay + Math.floor(Math.random() * 200);
+  const parsedDelay = Number(delay);
+  const isNotValidNumber = isNaN(parsedDelay) || parsedDelay < 0;
+  const actualDelay = isNotValidNumber ? 0 : parsedDelay + Math.floor(Math.random() * 200);
+
   return new Promise((resolve) => setTimeout(resolve, actualDelay));
 }
