@@ -28,7 +28,7 @@ import {
   OrdersRepository,
 } from './repositories';
 import { FindOrdersWithFiltersResponse } from './types';
-import { getTotalSum } from './utils';
+import { getTotalSumInCents } from './utils';
 
 /**
  * Service responsible for order creation and querying with transaction safety.
@@ -343,7 +343,7 @@ export class OrdersService {
       throw new NotFoundException(`Order "${order.id}" not found for payment authorization`);
     }
 
-    const amount = getTotalSum(orderWithItems);
+    const amount = getTotalSumInCents(orderWithItems);
 
     try {
       const response = await this.paymentsGrpcService.authorize({

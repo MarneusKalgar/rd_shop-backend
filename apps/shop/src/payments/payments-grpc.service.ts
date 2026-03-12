@@ -2,6 +2,7 @@ import { status as GrpcStatus } from '@grpc/grpc-js';
 import {
   BadRequestException,
   ConflictException,
+  GatewayTimeoutException,
   Inject,
   Injectable,
   Logger,
@@ -48,7 +49,7 @@ export class PaymentsGrpcService implements OnModuleInit {
         this.logger.error(
           `Payment authorization timed out after ${timeoutMs}ms for order=${request.orderId}`,
         );
-        throw new Error('Payment authorization timed out');
+        throw new GatewayTimeoutException(`Payment authorization timed out after ${timeoutMs}ms`);
       }
       this.logger.error(`Payment authorization failed for order=${request.orderId}`, err);
       this.mapGrpcError(err);
@@ -60,7 +61,7 @@ export class PaymentsGrpcService implements OnModuleInit {
 
     if (!paymentId) {
       this.logger.error('getPaymentStatus called without paymentId');
-      throw new Error('paymentId is required');
+      throw new BadRequestException('paymentId is required');
     }
 
     try {
@@ -72,7 +73,7 @@ export class PaymentsGrpcService implements OnModuleInit {
         this.logger.error(
           `Get payment status timed out after ${timeoutMs}ms for paymentId=${paymentId}`,
         );
-        throw new Error('Get payment status timed out');
+        throw new GatewayTimeoutException(`Get payment status timed out after ${timeoutMs}ms`);
       }
       this.logger.error(`Get payment status failed for paymentId=${paymentId}`, err);
       this.mapGrpcError(err);
@@ -97,7 +98,7 @@ export class PaymentsGrpcService implements OnModuleInit {
       case GrpcStatus.UNAVAILABLE:
         throw new ServiceUnavailableException('Payment service is unavailable');
       default:
-        throw new Error(message);
+        throw new ServiceUnavailableException(message);
     }
   }
 }

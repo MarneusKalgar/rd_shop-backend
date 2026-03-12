@@ -27,6 +27,14 @@ export class PaymentsService {
       });
     }
 
+    if (!request.amount || request.amount <= 0) {
+      this.logger.error('Invalid authorize request: amount must be greater than 0', request);
+      throw new RpcException({
+        code: GrpcStatus.INVALID_ARGUMENT,
+        message: 'amount must be greater than 0',
+      });
+    }
+
     const existing = await this.paymentRepository.findOne({
       where: { orderId: request.orderId },
     });
@@ -39,7 +47,7 @@ export class PaymentsService {
     }
 
     const payment = this.paymentRepository.create({
-      amount: request.amount.toString(),
+      amount: (request.amount / 100).toFixed(2), // convert cents to dollars
       currency: request.currency,
       orderId: request.orderId,
       paymentId: randomUUID(),
@@ -47,7 +55,9 @@ export class PaymentsService {
     });
 
     await this.paymentRepository.save(payment);
-    this.logger.log(`Authorized payment ${payment.paymentId} for order ${request.orderId}`);
+    this.logger.log(
+      `Authorized payment ${payment.paymentId} for order ${request.orderId} with amount ${payment.amount} ${payment.currency}`,
+    );
 
     return payment;
   }
