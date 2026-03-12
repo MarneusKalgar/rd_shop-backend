@@ -434,9 +434,12 @@ export class OrdersService {
    * @private
    */
   private publishOrderProcessingMessage(order: Order, correlationId?: string) {
-    const forcedMessageId = this.configService.get<string>(
+    const messageIdFromConfig = this.configService.get<string>(
       'RABBITMQ_SIMULATE_DUPLICATE_MESSAGE_ID',
     );
+
+    const forcedMessageId =
+      messageIdFromConfig && messageIdFromConfig.length > 0 ? messageIdFromConfig : undefined;
 
     const message = new OrderProcessMessageDto(order.id, correlationId, forcedMessageId);
 

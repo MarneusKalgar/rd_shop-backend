@@ -1,4 +1,4 @@
-export const ORDER_PROCESS_QUEUE = 'order.process';
+export const ORDER_PROCESS_QUEUE = 'orders.process';
 export const ORDER_DLQ = 'orders.dlq';
 
 export const ORDERS_SERVICE_PRODUCER = 'orders-service';
