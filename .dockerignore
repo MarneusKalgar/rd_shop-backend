@@ -51,7 +51,8 @@ Thumbs.db
 
 # Docker files
 Dockerfile*
-docker-compose*.yml
+compose*.yml
+apps/**/compose*.yml
 .dockerignore
 
 # CI/CD
@@ -64,3 +65,4 @@ docker-compose*.yml
 .eslintrc*
 eslint.config.mjs
 .editorconfig
+jest.config.js

@@ -1,6 +1,6 @@
 ## Overview
 
-This document covers the RabbitMQ integration for asynchronous order processing in the RD Shop backend. After a successful order creation, a message is published to a processing queue. A dedicated worker consumes messages, updates order status, and handles failures with retry logic and dead-letter routing.
+This document covers the RabbitMQ integration for asynchronous order processing in the RD Shop backend. After a successful order creation, a message is published to a processing queue. A dedicated worker consumes messages, updates the order status to `PROCESSED`, then triggers **payment authorization via gRPC to the `apps/payments` microservice** (updating the order to `PAID`), and handles failures with retry logic and dead-letter routing.
 
 ---
 
@@ -9,11 +9,17 @@ This document covers the RabbitMQ integration for asynchronous order processing 
 ### 1.1 Development
 
 ```bash
-# Start all services (app + postgres + rabbitmq + minio)
+# From apps/shop/ — starts shop + postgres + rabbitmq + minio
 npm run docker:start:dev
 
-# Or manually:
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up
+# Also start the payments microservice (required for gRPC payment authorization)
+# From apps/payments/:
+npm run docker:start:dev
+
+# Or manually (from apps/shop/):
+docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml up
+# And payments (from apps/payments/):
+docker compose -p rd_shop_backend_payments_dev -f compose.yml -f compose.dev.yml up
 ```
 
 **Available Management Interfaces:**
@@ -49,11 +55,15 @@ RABBITMQ_SIMULATE_DUPLICATE_MESSAGE_ID=    # Force a fixed messageId to test ide
 ### 1.3 Production
 
 ```bash
-# Build and start
-docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml up -d
+# From apps/shop/ — build and start
+docker compose -p rd_shop_backend_shop_prod -f compose.yml up -d
 
-# View app logs
-docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml logs -f app
+# Also start the payments microservice (required for gRPC payment authorization)
+# From apps/payments/:
+docker compose -p rd_shop_backend_payments_prod -f compose.yml up -d
+
+# View shop logs
+docker compose -p rd_shop_backend_shop_prod -f compose.yml logs -f shop
 ```
 
 ---
@@ -87,7 +97,8 @@ The project uses **classic queues** with **default direct exchange** (no custom 
 │ Consumer: OrderWorkerService                                     │
 │  handleMessage() → ordersService.processOrderMessage()           │
 │                                                                  │
-│  On success  → ack                                               │
+│  On success  → mark PROCESSED → PaymentsGrpcService.authorize()   │
+│               (gRPC → apps/payments) → mark PAID → ack            │
 │  On failure  → retry (re-publish to order.process, attempt+1)    │
 │  On max retry → publish to orders.dlq, ack original              │
 └──────────────────────┬───────────────────────────────────────────┘
@@ -254,12 +265,18 @@ BEGIN TRANSACTION
    → if not found: throw NotFoundException (worker will retry / DLQ)
 
 4. Check order.status === PROCESSED → skip if already done
+   Check order.status !== PENDING → skip if unexpected state
 
-5. Simulate external service call (configurable delay)
+5. Simulate failure / delay if configured (RABBITMQ_SIMULATE_FAILURE / _DELAY)
 
-6. UPDATE order SET status = PROCESSED, processedAt = NOW()
+6. UPDATE order SET status = PROCESSED
 
 COMMIT
+
+7. After transaction: if order.paymentId is null
+   → call PaymentsGrpcService.authorize() via gRPC → apps/payments microservice
+   → on success: UPDATE order SET status = PAID, paymentId = $paymentId
+   → on failure: throws (worker should nack / retry)
 ```
 
 ### 4.4 Two Deduplication Layers
@@ -372,21 +389,22 @@ Authorization: Bearer <accessToken>
 **Logs:**
 
 ```bash
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM     LOG [OrdersService] Order created successfully: 6778f5c9-c65d-449a-821a-2b5160da93f8
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [RabbitMQService] Message published to queue "order.process": {"attempt":1,"correlationId":"client-generated-uuid-15","createdAt":"2026-03-04T15:52:31.017Z","eventName":"order.process","messageId":"1473f8e2-8058-46ae-90f3-5a95de89454e","orderId":"6778f5c9-c65d-449a-821a-2b5160da93f8","producer":"orders-service"}
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM     LOG [OrdersService] Order processing message published for order: 6778f5c9-c65d-449a-821a-2b5160da93f8
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: COMMIT
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM     LOG [OrderWorkerService] Received order.process message [messageId: 1473f8e2-8058-46ae-90f3-5a95de89454e, orderId: 6778f5c9-c65d-449a-821a-2b5160da93f8, attempt: 1]
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: START TRANSACTION
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: SELECT "ProcessedMessage"."created_at" AS "ProcessedMessage_created_at", "ProcessedMessage"."id" AS "ProcessedMessage_id", "ProcessedMessage"."idempotency_key" AS "ProcessedMessage_idempotency_key", "ProcessedMessage"."message_id" AS "ProcessedMessage_message_id", "ProcessedMessage"."order_id" AS "ProcessedMessage_order_id", "ProcessedMessage"."processed_at" AS "ProcessedMessage_processed_at", "ProcessedMessage"."scope" AS "ProcessedMessage_scope" FROM "processed_messages" "ProcessedMessage" WHERE (("ProcessedMessage"."message_id" = $1)) LIMIT 1 -- Parameters: ["1473f8e2-8058-46ae-90f3-5a95de89454e"]
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: INSERT INTO "processed_messages"("created_at", "id", "idempotency_key", "message_id", "order_id", "processed_at", "scope") VALUES (DEFAULT, DEFAULT, $1, $2, $3, $4, $5) RETURNING "created_at", "id" -- Parameters: ["client-generated-uuid-15","1473f8e2-8058-46ae-90f3-5a95de89454e","6778f5c9-c65d-449a-821a-2b5160da93f8","2026-03-04T15:52:31.022Z","order-worker"]
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE (("Order"."id" = $1)) LIMIT 1 -- Parameters: ["6778f5c9-c65d-449a-821a-2b5160da93f8"]
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:31 PM    WARN [OrdersService] Simulating processing delay of 1000ms for messageId: 1473f8e2-8058-46ae-90f3-5a95de89454e
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:32 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE "Order"."id" IN ($1) -- Parameters: ["6778f5c9-c65d-449a-821a-2b5160da93f8"]
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:32 PM   DEBUG [TypeORM] Query: UPDATE "orders" SET "status" = $1, "updated_at" = CURRENT_TIMESTAMP WHERE "id" IN ($2) RETURNING "updated_at" -- Parameters: ["PROCESSED","6778f5c9-c65d-449a-821a-2b5160da93f8"]
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:32 PM     LOG [OrdersService] Order "6778f5c9-c65d-449a-821a-2b5160da93f8" marked as PROCESSED
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:32 PM   DEBUG [TypeORM] Query: COMMIT
-rd_shop_dev-app         | [Nest] 50  - 03/04/2026, 3:52:32 PM     LOG [OrderWorkerService] [result: success] Acked message [messageId: 1473f8e2-8058-46ae-90f3-5a95de89454e, orderId: 6778f5c9-c65d-449a-821a-2b5160da93f8, attempt: 1] processed successfully
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM     LOG [OrdersService] Order created successfully: 6778f5c9-c65d-449a-821a-2b5160da93f8
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [RabbitMQService] Message published to queue "order.process": {"attempt":1,"correlationId":"client-generated-uuid-15","createdAt":"2026-03-04T15:52:31.017Z","eventName":"order.process","messageId":"1473f8e2-8058-46ae-90f3-5a95de89454e","orderId":"6778f5c9-c65d-449a-821a-2b5160da93f8","producer":"orders-service"}
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM     LOG [OrdersService] Order processing message published for order: 6778f5c9-c65d-449a-821a-2b5160da93f8
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: COMMIT
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM     LOG [OrderWorkerService] Received order.process message [messageId: 1473f8e2-8058-46ae-90f3-5a95de89454e, orderId: 6778f5c9-c65d-449a-821a-2b5160da93f8, attempt: 1]
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: START TRANSACTION
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: SELECT "ProcessedMessage"."created_at" AS "ProcessedMessage_created_at", "ProcessedMessage"."id" AS "ProcessedMessage_id", "ProcessedMessage"."idempotency_key" AS "ProcessedMessage_idempotency_key", "ProcessedMessage"."message_id" AS "ProcessedMessage_message_id", "ProcessedMessage"."order_id" AS "ProcessedMessage_order_id", "ProcessedMessage"."processed_at" AS "ProcessedMessage_processed_at", "ProcessedMessage"."scope" AS "ProcessedMessage_scope" FROM "processed_messages" "ProcessedMessage" WHERE (("ProcessedMessage"."message_id" = $1)) LIMIT 1 -- Parameters: ["1473f8e2-8058-46ae-90f3-5a95de89454e"]
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: INSERT INTO "processed_messages"("created_at", "id", "idempotency_key", "message_id", "order_id", "processed_at", "scope") VALUES (DEFAULT, DEFAULT, $1, $2, $3, $4, $5) RETURNING "created_at", "id" -- Parameters: ["client-generated-uuid-15","1473f8e2-8058-46ae-90f3-5a95de89454e","6778f5c9-c65d-449a-821a-2b5160da93f8","2026-03-04T15:52:31.022Z","order-worker"]
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE (("Order"."id" = $1)) LIMIT 1 -- Parameters: ["6778f5c9-c65d-449a-821a-2b5160da93f8"]
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:31 PM    WARN [OrdersService] Simulating processing delay of 1000ms for messageId: 1473f8e2-8058-46ae-90f3-5a95de89454e
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:32 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE "Order"."id" IN ($1) -- Parameters: ["6778f5c9-c65d-449a-821a-2b5160da93f8"]
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:32 PM   DEBUG [TypeORM] Query: UPDATE "orders" SET "status" = $1, "updated_at" = CURRENT_TIMESTAMP WHERE "id" IN ($2) RETURNING "updated_at" -- Parameters: ["PROCESSED","6778f5c9-c65d-449a-821a-2b5160da93f8"]
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:32 PM     LOG [OrdersService] Order "6778f5c9-c65d-449a-821a-2b5160da93f8" marked as PROCESSED
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:32 PM   DEBUG [TypeORM] Query: COMMIT
+# payment authorization gRPC call to apps/payments happens here → order updated to PAID
+rd_shop_backend_shop_dev-app | [Nest] 50  - 03/04/2026, 3:52:32 PM     LOG [OrderWorkerService] [result: success] Acked message [messageId: 1473f8e2-8058-46ae-90f3-5a95de89454e, orderId: 6778f5c9-c65d-449a-821a-2b5160da93f8, attempt: 1] processed successfully
 ```
 
 ---
@@ -411,61 +429,61 @@ RABBITMQ_SIMULATE_FAILURE=true
 **Logs:**
 
 ```bash
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM     LOG [OrdersService] Order created successfully: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [RabbitMQService] Message published to queue "order.process": {"attempt":1,"correlationId":"client-generated-uuid-16","createdAt":"2026-03-04T15:54:26.619Z","eventName":"order.process","messageId":"6985970e-0fc5-4837-9109-551b8714a7b9","orderId":"7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","producer":"orders-service"}
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM     LOG [OrdersService] Order processing message published for order: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: COMMIT
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM     LOG [OrderWorkerService] Received order.process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 1]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: START TRANSACTION
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: SELECT "ProcessedMessage"."created_at" AS "ProcessedMessage_created_at", "ProcessedMessage"."id" AS "ProcessedMessage_id", "ProcessedMessage"."idempotency_key" AS "ProcessedMessage_idempotency_key", "ProcessedMessage"."message_id" AS "ProcessedMessage_message_id", "ProcessedMessage"."order_id" AS "ProcessedMessage_order_id", "ProcessedMessage"."processed_at" AS "ProcessedMessage_processed_at", "ProcessedMessage"."scope" AS "ProcessedMessage_scope" FROM "processed_messages" "ProcessedMessage" WHERE (("ProcessedMessage"."message_id" = $1)) LIMIT 1 -- Parameters: ["6985970e-0fc5-4837-9109-551b8714a7b9"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: INSERT INTO "processed_messages"("created_at", "id", "idempotency_key", "message_id", "order_id", "processed_at", "scope") VALUES (DEFAULT, DEFAULT, $1, $2, $3, $4, $5) RETURNING "created_at", "id" -- Parameters: ["client-generated-uuid-16","6985970e-0fc5-4837-9109-551b8714a7b9","7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","2026-03-04T15:54:26.625Z","order-worker"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE (("Order"."id" = $1)) LIMIT 1 -- Parameters: ["7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM    WARN [OrdersService] Simulating processing failure for messageId: 6985970e-0fc5-4837-9109-551b8714a7b9
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: ROLLBACK
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   ERROR [OrderWorkerService] [result: error] Failed to process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 1] reason: Simulated processing failure
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:26 PM   ERROR [OrderWorkerService] Error: Simulated processing failure
-rd_shop_dev-app         |     at <anonymous> (/app/src/orders/orders.service.ts:246:15)
-rd_shop_dev-app         |     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-rd_shop_dev-app         |     at async EntityManager.transaction (/app/node_modules/typeorm/entity-manager/src/entity-manager/EntityManager.ts:156:28)
-rd_shop_dev-app         |     at async OrdersService.processOrderMessage (/app/src/orders/orders.service.ts:202:5)
-rd_shop_dev-app         |     at async OrderWorkerService.handleMessage (/app/src/orders-worker/orders-worker.service.ts:52:7)
-rd_shop_dev-app         |     at async <anonymous> (/app/src/orders-worker/orders-worker.service.ts:104:9)
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [RabbitMQService] Message published to queue "order.process": {"attempt":2,"correlationId":"client-generated-uuid-16","createdAt":"2026-03-04T15:54:26.619Z","eventName":"order.process","messageId":"6985970e-0fc5-4837-9109-551b8714a7b9","orderId":"7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","producer":"orders-service"}
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM    WARN [OrderWorkerService] [result: retry] Scheduled retry [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 1, nextAttempt: 2]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM     LOG [OrderWorkerService] Received order.process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 2]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: START TRANSACTION
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: SELECT "ProcessedMessage"."created_at" AS "ProcessedMessage_created_at", "ProcessedMessage"."id" AS "ProcessedMessage_id", "ProcessedMessage"."idempotency_key" AS "ProcessedMessage_idempotency_key", "ProcessedMessage"."message_id" AS "ProcessedMessage_message_id", "ProcessedMessage"."order_id" AS "ProcessedMessage_order_id", "ProcessedMessage"."processed_at" AS "ProcessedMessage_processed_at", "ProcessedMessage"."scope" AS "ProcessedMessage_scope" FROM "processed_messages" "ProcessedMessage" WHERE (("ProcessedMessage"."message_id" = $1)) LIMIT 1 -- Parameters: ["6985970e-0fc5-4837-9109-551b8714a7b9"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: INSERT INTO "processed_messages"("created_at", "id", "idempotency_key", "message_id", "order_id", "processed_at", "scope") VALUES (DEFAULT, DEFAULT, $1, $2, $3, $4, $5) RETURNING "created_at", "id" -- Parameters: ["client-generated-uuid-16","6985970e-0fc5-4837-9109-551b8714a7b9","7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","2026-03-04T15:54:28.647Z","order-worker"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE (("Order"."id" = $1)) LIMIT 1 -- Parameters: ["7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM    WARN [OrdersService] Simulating processing failure for messageId: 6985970e-0fc5-4837-9109-551b8714a7b9
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: ROLLBACK
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM   ERROR [OrderWorkerService] [result: error] Failed to process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 2] reason: Simulated processing failure
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:28 PM   ERROR [OrderWorkerService] Error: Simulated processing failure
-rd_shop_dev-app         |     at <anonymous> (/app/src/orders/orders.service.ts:246:15)
-rd_shop_dev-app         |     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-rd_shop_dev-app         |     at async EntityManager.transaction (/app/node_modules/typeorm/entity-manager/src/entity-manager/EntityManager.ts:156:28)
-rd_shop_dev-app         |     at async OrdersService.processOrderMessage (/app/src/orders/orders.service.ts:202:5)
-rd_shop_dev-app         |     at async OrderWorkerService.handleMessage (/app/src/orders-worker/orders-worker.service.ts:52:7)
-rd_shop_dev-app         |     at async <anonymous> (/app/src/orders-worker/orders-worker.service.ts:104:9)
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [RabbitMQService] Message published to queue "order.process": {"attempt":3,"correlationId":"client-generated-uuid-16","createdAt":"2026-03-04T15:54:26.619Z","eventName":"order.process","messageId":"6985970e-0fc5-4837-9109-551b8714a7b9","orderId":"7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","producer":"orders-service"}
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM    WARN [OrderWorkerService] [result: retry] Scheduled retry [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 2, nextAttempt: 3]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM     LOG [OrderWorkerService] Received order.process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 3]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: START TRANSACTION
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: SELECT "ProcessedMessage"."created_at" AS "ProcessedMessage_created_at", "ProcessedMessage"."id" AS "ProcessedMessage_id", "ProcessedMessage"."idempotency_key" AS "ProcessedMessage_idempotency_key", "ProcessedMessage"."message_id" AS "ProcessedMessage_message_id", "ProcessedMessage"."order_id" AS "ProcessedMessage_order_id", "ProcessedMessage"."processed_at" AS "ProcessedMessage_processed_at", "ProcessedMessage"."scope" AS "ProcessedMessage_scope" FROM "processed_messages" "ProcessedMessage" WHERE (("ProcessedMessage"."message_id" = $1)) LIMIT 1 -- Parameters: ["6985970e-0fc5-4837-9109-551b8714a7b9"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: INSERT INTO "processed_messages"("created_at", "id", "idempotency_key", "message_id", "order_id", "processed_at", "scope") VALUES (DEFAULT, DEFAULT, $1, $2, $3, $4, $5) RETURNING "created_at", "id" -- Parameters: ["client-generated-uuid-16","6985970e-0fc5-4837-9109-551b8714a7b9","7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","2026-03-04T15:54:30.665Z","order-worker"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE (("Order"."id" = $1)) LIMIT 1 -- Parameters: ["7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c"]
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM    WARN [OrdersService] Simulating processing failure for messageId: 6985970e-0fc5-4837-9109-551b8714a7b9
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: ROLLBACK
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   ERROR [OrderWorkerService] [result: error] Failed to process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 3] reason: Simulated processing failure
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   ERROR [OrderWorkerService] Error: Simulated processing failure
-rd_shop_dev-app         |     at <anonymous> (/app/src/orders/orders.service.ts:246:15)
-rd_shop_dev-app         |     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-rd_shop_dev-app         |     at async EntityManager.transaction (/app/node_modules/typeorm/entity-manager/src/entity-manager/EntityManager.ts:156:28)
-rd_shop_dev-app         |     at async OrdersService.processOrderMessage (/app/src/orders/orders.service.ts:202:5)
-rd_shop_dev-app         |     at async OrderWorkerService.handleMessage (/app/src/orders-worker/orders-worker.service.ts:52:7)
-rd_shop_dev-app         |     at async <anonymous> (/app/src/orders-worker/orders-worker.service.ts:104:9)
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [RabbitMQService] Message published to queue "orders.dlq": {"attempt":3,"correlationId":"client-generated-uuid-16","createdAt":"2026-03-04T15:54:26.619Z","eventName":"order.process","messageId":"6985970e-0fc5-4837-9109-551b8714a7b9","orderId":"7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","producer":"orders-service"}
-rd_shop_dev-app         | [Nest] 37  - 03/04/2026, 3:54:30 PM   ERROR [OrderWorkerService] [result: dlq] [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 3] reason: max retries (3) reached
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM     LOG [OrdersService] Order created successfully: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [RabbitMQService] Message published to queue "order.process": {"attempt":1,"correlationId":"client-generated-uuid-16","createdAt":"2026-03-04T15:54:26.619Z","eventName":"order.process","messageId":"6985970e-0fc5-4837-9109-551b8714a7b9","orderId":"7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","producer":"orders-service"}
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM     LOG [OrdersService] Order processing message published for order: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: COMMIT
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM     LOG [OrderWorkerService] Received order.process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 1]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: START TRANSACTION
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: SELECT "ProcessedMessage"."created_at" AS "ProcessedMessage_created_at", "ProcessedMessage"."id" AS "ProcessedMessage_id", "ProcessedMessage"."idempotency_key" AS "ProcessedMessage_idempotency_key", "ProcessedMessage"."message_id" AS "ProcessedMessage_message_id", "ProcessedMessage"."order_id" AS "ProcessedMessage_order_id", "ProcessedMessage"."processed_at" AS "ProcessedMessage_processed_at", "ProcessedMessage"."scope" AS "ProcessedMessage_scope" FROM "processed_messages" "ProcessedMessage" WHERE (("ProcessedMessage"."message_id" = $1)) LIMIT 1 -- Parameters: ["6985970e-0fc5-4837-9109-551b8714a7b9"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: INSERT INTO "processed_messages"("created_at", "id", "idempotency_key", "message_id", "order_id", "processed_at", "scope") VALUES (DEFAULT, DEFAULT, $1, $2, $3, $4, $5) RETURNING "created_at", "id" -- Parameters: ["client-generated-uuid-16","6985970e-0fc5-4837-9109-551b8714a7b9","7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","2026-03-04T15:54:26.625Z","order-worker"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE (("Order"."id" = $1)) LIMIT 1 -- Parameters: ["7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM    WARN [OrdersService] Simulating processing failure for messageId: 6985970e-0fc5-4837-9109-551b8714a7b9
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   DEBUG [TypeORM] Query: ROLLBACK
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   ERROR [OrderWorkerService] [result: error] Failed to process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 1] reason: Simulated processing failure
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:26 PM   ERROR [OrderWorkerService] Error: Simulated processing failure
+rd_shop_backend_shop_dev-app |     at <anonymous> (/app/apps/shop/src/orders/orders.service.ts:246:15)
+rd_shop_backend_shop_dev-app |     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+rd_shop_backend_shop_dev-app |     at async EntityManager.transaction (/app/node_modules/typeorm/entity-manager/src/entity-manager/EntityManager.ts:156:28)
+rd_shop_backend_shop_dev-app |     at async OrdersService.processOrderMessage (/app/apps/shop/src/orders/orders.service.ts:202:5)
+rd_shop_backend_shop_dev-app |     at async OrderWorkerService.handleMessage (/app/apps/shop/src/orders-worker/orders-worker.service.ts:52:7)
+rd_shop_backend_shop_dev-app |     at async <anonymous> (/app/apps/shop/src/orders-worker/orders-worker.service.ts:104:9)
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [RabbitMQService] Message published to queue "order.process": {"attempt":2,"correlationId":"client-generated-uuid-16","createdAt":"2026-03-04T15:54:26.619Z","eventName":"order.process","messageId":"6985970e-0fc5-4837-9109-551b8714a7b9","orderId":"7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","producer":"orders-service"}
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM    WARN [OrderWorkerService] [result: retry] Scheduled retry [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 1, nextAttempt: 2]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM     LOG [OrderWorkerService] Received order.process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 2]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: START TRANSACTION
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: SELECT "ProcessedMessage"."created_at" AS "ProcessedMessage_created_at", "ProcessedMessage"."id" AS "ProcessedMessage_id", "ProcessedMessage"."idempotency_key" AS "ProcessedMessage_idempotency_key", "ProcessedMessage"."message_id" AS "ProcessedMessage_message_id", "ProcessedMessage"."order_id" AS "ProcessedMessage_order_id", "ProcessedMessage"."processed_at" AS "ProcessedMessage_processed_at", "ProcessedMessage"."scope" AS "ProcessedMessage_scope" FROM "processed_messages" "ProcessedMessage" WHERE (("ProcessedMessage"."message_id" = $1)) LIMIT 1 -- Parameters: ["6985970e-0fc5-4837-9109-551b8714a7b9"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: INSERT INTO "processed_messages"("created_at", "id", "idempotency_key", "message_id", "order_id", "processed_at", "scope") VALUES (DEFAULT, DEFAULT, $1, $2, $3, $4, $5) RETURNING "created_at", "id" -- Parameters: ["client-generated-uuid-16","6985970e-0fc5-4837-9109-551b8714a7b9","7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","2026-03-04T15:54:28.647Z","order-worker"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE (("Order"."id" = $1)) LIMIT 1 -- Parameters: ["7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM    WARN [OrdersService] Simulating processing failure for messageId: 6985970e-0fc5-4837-9109-551b8714a7b9
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM   DEBUG [TypeORM] Query: ROLLBACK
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM   ERROR [OrderWorkerService] [result: error] Failed to process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 2] reason: Simulated processing failure
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:28 PM   ERROR [OrderWorkerService] Error: Simulated processing failure
+rd_shop_backend_shop_dev-app |     at <anonymous> (/app/apps/shop/src/orders/orders.service.ts:246:15)
+rd_shop_backend_shop_dev-app |     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+rd_shop_backend_shop_dev-app |     at async EntityManager.transaction (/app/node_modules/typeorm/entity-manager/src/entity-manager/EntityManager.ts:156:28)
+rd_shop_backend_shop_dev-app |     at async OrdersService.processOrderMessage (/app/apps/shop/src/orders/orders.service.ts:202:5)
+rd_shop_backend_shop_dev-app |     at async OrderWorkerService.handleMessage (/app/apps/shop/src/orders-worker/orders-worker.service.ts:52:7)
+rd_shop_backend_shop_dev-app |     at async <anonymous> (/app/apps/shop/src/orders-worker/orders-worker.service.ts:104:9)
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [RabbitMQService] Message published to queue "order.process": {"attempt":3,"correlationId":"client-generated-uuid-16","createdAt":"2026-03-04T15:54:26.619Z","eventName":"order.process","messageId":"6985970e-0fc5-4837-9109-551b8714a7b9","orderId":"7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","producer":"orders-service"}
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM    WARN [OrderWorkerService] [result: retry] Scheduled retry [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 2, nextAttempt: 3]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM     LOG [OrderWorkerService] Received order.process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 3]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: START TRANSACTION
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: SELECT "ProcessedMessage"."created_at" AS "ProcessedMessage_created_at", "ProcessedMessage"."id" AS "ProcessedMessage_id", "ProcessedMessage"."idempotency_key" AS "ProcessedMessage_idempotency_key", "ProcessedMessage"."message_id" AS "ProcessedMessage_message_id", "ProcessedMessage"."order_id" AS "ProcessedMessage_order_id", "ProcessedMessage"."processed_at" AS "ProcessedMessage_processed_at", "ProcessedMessage"."scope" AS "ProcessedMessage_scope" FROM "processed_messages" "ProcessedMessage" WHERE (("ProcessedMessage"."message_id" = $1)) LIMIT 1 -- Parameters: ["6985970e-0fc5-4837-9109-551b8714a7b9"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: INSERT INTO "processed_messages"("created_at", "id", "idempotency_key", "message_id", "order_id", "processed_at", "scope") VALUES (DEFAULT, DEFAULT, $1, $2, $3, $4, $5) RETURNING "created_at", "id" -- Parameters: ["client-generated-uuid-16","6985970e-0fc5-4837-9109-551b8714a7b9","7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","2026-03-04T15:54:30.665Z","order-worker"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: SELECT "Order"."created_at" AS "Order_created_at", "Order"."id" AS "Order_id", "Order"."idempotency_key" AS "Order_idempotency_key", "Order"."status" AS "Order_status", "Order"."updated_at" AS "Order_updated_at", "Order"."user_id" AS "Order_user_id" FROM "orders" "Order" WHERE (("Order"."id" = $1)) LIMIT 1 -- Parameters: ["7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c"]
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM    WARN [OrdersService] Simulating processing failure for messageId: 6985970e-0fc5-4837-9109-551b8714a7b9
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [TypeORM] Query: ROLLBACK
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   ERROR [OrderWorkerService] [result: error] Failed to process message [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 3] reason: Simulated processing failure
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   ERROR [OrderWorkerService] Error: Simulated processing failure
+rd_shop_backend_shop_dev-app |     at <anonymous> (/app/apps/shop/src/orders/orders.service.ts:246:15)
+rd_shop_backend_shop_dev-app |     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+rd_shop_backend_shop_dev-app |     at async EntityManager.transaction (/app/node_modules/typeorm/entity-manager/src/entity-manager/EntityManager.ts:156:28)
+rd_shop_backend_shop_dev-app |     at async OrdersService.processOrderMessage (/app/apps/shop/src/orders/orders.service.ts:202:5)
+rd_shop_backend_shop_dev-app |     at async OrderWorkerService.handleMessage (/app/apps/shop/src/orders-worker/orders-worker.service.ts:52:7)
+rd_shop_backend_shop_dev-app |     at async <anonymous> (/app/apps/shop/src/orders-worker/orders-worker.service.ts:104:9)
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   DEBUG [RabbitMQService] Message published to queue "orders.dlq": {"attempt":3,"correlationId":"client-generated-uuid-16","createdAt":"2026-03-04T15:54:26.619Z","eventName":"order.process","messageId":"6985970e-0fc5-4837-9109-551b8714a7b9","orderId":"7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c","producer":"orders-service"}
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/04/2026, 3:54:30 PM   ERROR [OrderWorkerService] [result: dlq] [messageId: 6985970e-0fc5-4837-9109-551b8714a7b9, orderId: 7a43f1db-8a65-47d2-9047-4ac0c7ba8e2c, attempt: 3] reason: max retries (3) reached
 ```
 
 ---

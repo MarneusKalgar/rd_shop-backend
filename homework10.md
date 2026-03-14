@@ -1,14 +1,15 @@
 ## Overview
 
-This homework demonstrates production-ready Docker setup with multi-stage builds, environment-specific configurations, and security best practices for the RD Shop NestJS application.
+This homework demonstrates production-ready Docker setup with multi-stage builds, per-app Docker Compose orchestration, and security best practices for the RD Shop NestJS **monorepo** (`apps/shop` + `apps/payments`).
 
 **Key Topics:**
 
-- Multi-stage Docker builds (development, production, distroless)
-- Docker Compose orchestration (dev vs prod)
-- Image size optimization
+- Monorepo-aware Docker builds using a single `Dockerfile` with `ARG APP`
+- Multi-stage builds (development, production Alpine, production Distroless)
+- Per-app compose files (`apps/<app>/compose.yml` + `compose.dev.yml`)
+- Image size optimization (source map stripping, selective compilation)
 - Security hardening (non-root users, distroless images)
-- Database migrations and seeding in containers
+- Database migrations and seeding per app
 
 ---
 
@@ -16,88 +17,56 @@ This homework demonstrates production-ready Docker setup with multi-stage builds
 
 ### 1.1 Multi-Stage Build Strategy
 
-The project uses three Docker image variants optimized for different use cases:
+The project uses a **single root `Dockerfile`** with an `ARG APP` build argument to select which monorepo application to build:
 
-| Stage                       | Dockerfile Target                      | Use Case                          | Base Image                                    | Shell Access |
-| --------------------------- | -------------------------------------- | --------------------------------- | --------------------------------------------- | ------------ |
-| **Development**             | Dockerfile.dev                         | Local development with hot reload | `node:24-alpine`                              | ✅ Yes       |
-| **Production**              | Dockerfile (target: `prod`)            | Debugging production issues       | `node:24-alpine`                              | ✅ Yes       |
-| **Production (Distroless)** | Dockerfile (target: `prod-distroless`) | Production deployment             | `gcr.io/distroless/nodejs24-debian12:nonroot` | ❌ No        |
+```text
+docker build --build-arg APP=shop     --target prod-distroless-shop .
+docker build --build-arg APP=payments --target prod-distroless-payments .
+```
+
+| Stage Target               | Use Case                             | Base Image                                    | Shell |
+| -------------------------- | ------------------------------------ | --------------------------------------------- | ----- |
+| `Dockerfile.dev`           | Local development with hot reload    | `node:24-alpine`                              | ✅    |
+| `prod-shop`                | Debug shop issues in production      | `node:24-alpine`                              | ✅    |
+| `prod-payments`            | Debug payments issues in production  | `node:24-alpine`                              | ✅    |
+| `prod-distroless-shop`     | Shop production deployment (default) | `gcr.io/distroless/nodejs24-debian12:nonroot` | ❌    |
+| `prod-distroless-payments` | Payments production deployment       | `gcr.io/distroless/nodejs24-debian12:nonroot` | ❌    |
 
 ---
 
 ### 1.2 Build Stages Breakdown
 
-**Development Image** (Dockerfile.dev):
+**`Dockerfile.dev`** — shared dev image, no source code baked in:
 
-```dockerfile
-FROM node:24-alpine
+| Step    | What it does                                                       |
+| ------- | ------------------------------------------------------------------ |
+| Base    | `node:24-alpine` + build tools (`python3`, `make`, `g++`)          |
+| User    | Creates `nestjs` non-root user (UID 1001)                          |
+| Deps    | `npm ci` at monorepo root — all deps (dev + prod)                  |
+| Config  | Copies `package*.json`, `tsconfig.json`, `nest-cli.json` only      |
+| Runtime | Source code + proto **bind-mounted** at startup — nothing baked in |
 
-# Install build tools for native modules
-RUN apk add --no-cache python3 make g++
+**`Dockerfile`** — multi-stage, `ARG APP=shop` selects the target:
 
-# Non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nestjs -u 1001
+| Stage                               | Base                                   | Purpose                                                            |
+| ----------------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| `deps`                              | `node:24-alpine`                       | Prod-only deps (`--omit=dev --ignore-scripts`)                     |
+| `build`                             | `node:24-alpine`                       | Full `npm ci` → `npm run build -- ${APP}` → copy proto into dist   |
+| `prune`                             | `node:24-alpine`                       | Drop dev/optional deps from build's `node_modules`                 |
+| `prod-base` _(internal)_            | `node:24-alpine`                       | Alpine runtime: tini + `nestjs` user + assets from `prune`+`build` |
+| `prod-shop`                         | `prod-base`                            | Alpine shop — has shell, for production debugging                  |
+| `prod-payments`                     | `prod-base`                            | Alpine payments — has shell, for production debugging              |
+| `strip`                             | `node:24-alpine`                       | Remove `*.js.map` from dist before distroless copy                 |
+| `prod-distroless-base` _(internal)_ | `distroless/nodejs24-debian12:nonroot` | Distroless runtime: assets from `prune`+`strip`                    |
+| `prod-distroless-shop`              | `prod-distroless-base`                 | **Default prod target** — no shell, no package manager             |
+| `prod-distroless-payments`          | `prod-distroless-base`                 | **Default prod target** — no shell, no package manager             |
 
-USER nestjs
-WORKDIR /app
+**Key Design Points:**
 
-# Install all dependencies (including devDependencies)
-RUN npm ci
-
-# Source code mounted as volume for hot reload
-CMD ["npm", "run", "start:dev"]
-```
-
-**Production Multi-Stage** (Dockerfile):
-
-```dockerfile
-# Stage 1: deps - Install production dependencies only
-FROM node:24-alpine AS deps
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts
-
-# Stage 2: build - Compile TypeScript
-FROM node:24-alpine AS build
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY tsconfig*.json nest-cli.json ./
-COPY src ./src
-RUN npm run build
-
-# Stage 3: prune - Remove devDependencies
-FROM node:24-alpine AS prune
-WORKDIR /app
-COPY package*.json ./
-COPY --from=build /app/node_modules ./node_modules
-RUN npm prune --omit=dev --omit=optional
-
-# Stage 4: prod - Production runtime (Alpine with shell)
-FROM node:24-alpine AS prod
-RUN apk add --no-cache tini
-RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
-WORKDIR /app
-COPY --from=prune --chown=nestjs:nodejs /app/node_modules ./node_modules
-COPY --from=build --chown=nestjs:nodejs /app/dist ./dist
-COPY --from=build --chown=nestjs:nodejs /app/package.json ./
-USER nestjs
-EXPOSE 3000
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "dist/main.js"]
-
-# Stage 5: prod-distroless - Production runtime (No shell, minimal attack surface)
-FROM gcr.io/distroless/nodejs24-debian12:nonroot AS prod-distroless
-WORKDIR /app
-COPY --from=prune --chown=nonroot:nonroot /app/node_modules ./node_modules
-COPY --from=build --chown=nonroot:nonroot /app/dist ./dist
-COPY --from=build --chown=nonroot:nonroot /app/package.json ./
-USER nonroot
-EXPOSE 3000
-CMD ["dist/main.js"]
-```
+- `ARG APP` defaults to `shop` — only the target application is compiled
+- `prod-base` and `prod-distroless-base` are shared intermediate stages, avoiding per-app duplication
+- `strip` stage removes source maps before distroless copy — reduces size and avoids leaking source info
+- The dev image has no source code baked in; everything is bind-mounted at runtime
 
 ---
 
@@ -110,116 +79,23 @@ The project uses **2 compose files** instead of 3:
 | `compose.yml`     | Full production configuration (all services) |
 | `compose.dev.yml` | Development overrides only                   |
 
-**Production Configuration** (compose.yml — standalone, covers all services):
+**`compose.yml`** — production, standalone (all services):
 
-```yaml
-services:
-  app:
-    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-app
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: prod-distroless # ✅ Distroless by default
-    init: true
-    environment:
-      PORT: ${PORT:-8080} # ✅ Overridable via shell env
-    ports:
-      - '${PORT:-8080}:${PORT:-8080}'
-    env_file:
-      - .env.production
-    restart: always
+| Service      | Build target           | Profile     | Key config                                                                 |
+| ------------ | ---------------------- | ----------- | -------------------------------------------------------------------------- |
+| `shop`       | `prod-distroless-shop` | _(default)_ | Main service; port mapping, `.env.production`, `restart: always`           |
+| `shop-debug` | `prod-shop`            | `debug`     | Alpine with shell — for production debugging                               |
+| `postgres`   | `postgres:16-alpine`   | _(default)_ | Persistent volume, healthcheck                                             |
+| `migrate`    | `prod-shop`            | `tools`     | One-shot; runs `db:migrate:prod`; depends on postgres healthy              |
+| `seed`       | `prod-shop`            | `tools`     | One-shot; `ALLOW_SEED_IN_PRODUCTION=false` safety gate; depends on migrate |
 
-  app-debug: # Alternative for debugging
-    build:
-      target: prod # ✅ Alpine with shell
-    profiles:
-      - debug
+**`compose.dev.yml`** — development overrides (applied on top of `compose.yml`):
 
-  postgres:
-    image: postgres:16-alpine
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  migrate:
-    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-migrate
-    build:
-      dockerfile: Dockerfile
-      target: prod
-    env_file:
-      - .env.production
-    command: npm run db:migrate:prod
-    restart: 'no'
-    profiles:
-      - tools
-
-  seed:
-    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-seed
-    build:
-      dockerfile: Dockerfile
-      target: prod
-    environment:
-      ALLOW_SEED_IN_PRODUCTION: ${ALLOW_SEED_IN_PRODUCTION:-false} # ✅ Explicit opt-in
-    env_file:
-      - .env.production
-    command: npm run db:seed:prod
-    restart: 'no'
-    profiles:
-      - tools
-```
-
-**Development Overrides** (compose.dev.yml — overrides only, used on top of compose.yml):
-
-```yaml
-# Usage: docker compose -f compose.yml -f compose.dev.yml up
-services:
-  app:
-    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-app
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
-      target: '' # ✅ Resets prod-distroless target
-    init: false
-    user: '1001:1001'
-    environment:
-      PORT: ${PORT:-8080}
-    ports:
-      - '${PORT:-8080}:${PORT:-8080}'
-    volumes:
-      - ./src:/app/src # ✅ Hot reload
-      - /app/node_modules
-    env_file:
-      - .env.development
-    restart: unless-stopped
-
-  migrate:
-    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-migrate
-    build:
-      dockerfile: Dockerfile.dev
-      target: ''
-    volumes:
-      - ./src:/app/src
-      - /app/node_modules
-    env_file:
-      - .env.development
-    command: npm run db:migrate:dev
-
-  seed:
-    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-seed
-    build:
-      dockerfile: Dockerfile.dev
-      target: ''
-    volumes:
-      - ./src:/app/src
-      - /app/node_modules
-    env_file:
-      - .env.development
-    command: npm run db:seed:dev
-```
+| Service   | Override                                                                                                                         |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `shop`    | `Dockerfile.dev`, bind-mounts `../../apps` + `../../proto`, `target: ''` resets prod target, hot-reload via `nest start --watch` |
+| `migrate` | `Dockerfile.dev`, bind-mounts `../../apps`, runs `db:migrate:dev`                                                                |
+| `seed`    | `Dockerfile.dev`, bind-mounts `../../apps`, runs `db:seed:dev`                                                                   |
 
 ---
 
@@ -267,6 +143,25 @@ Error: Database is uninitialized and superuser password is not specified.
 1. Ensure `.env.development` or `.env.production` has `POSTGRES_PASSWORD` set
 2. Verify Docker Compose file passes the environment variable to the postgres service
 3. Restart the containers: `npm run docker:stop:dev && npm run docker:start:dev`
+
+---
+
+#### 1.4.4 RabbitMQ: Disabling Payment Authorization
+
+The `apps/payments` microservice (gRPC) is optional for this homework. If you are running only the `apps/shop` stack (without payments), set the following flag in `.env.development`:
+
+```env
+RABBITMQ_DISABLE_PAYMENTS_AUTHORIZATION=true
+```
+
+**What it does:** When `true`, `processOrderMessage` skips the `PaymentsGrpcService.authorize()` call after the DB transaction commits. The order stays in `PROCESSED` status — which is the final state expected for HW10.
+
+**When to use `false` (default for full stack):** When `apps/payments` is running (e.g., for HW12+), leave this unset or set to `false`. The worker will call the payments microservice via gRPC and transition the order from `PROCESSED` → `PAID`.
+
+| Value   | Order status after worker | Requires `apps/payments` |
+| ------- | ------------------------- | ------------------------ |
+| `true`  | `PROCESSED`               | No                       |
+| `false` | `PAID`                    | Yes (gRPC must be up)    |
 
 ---
 
@@ -583,16 +478,16 @@ USER nonroot
 
 ```bash
 # Start dev environment
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up -d
+docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml up -d
 
 # Verify non-root user
-docker exec rd_shop_dev-rd_shop_dev-app id
+docker exec rd_shop_backend_shop_dev-app id
 
 # Output:
 uid=1001(nestjs) gid=1001(nodejs) groups=1001(nodejs)
 
 # Verify process owner
-docker exec rd_shop_dev-app ps aux | grep node
+docker exec rd_shop_backend_shop_dev-app ps aux | grep node
 
 # Output:
 18 nestjs    0:00 {MainThread} node /app/node_modules/.bin/cross-env NODE_ENV=development nest start --watch
@@ -606,21 +501,21 @@ docker exec rd_shop_dev-app ps aux | grep node
 
 ```bash
 # Start prod with debug profile
-docker compose -p rd_shop_prod -f compose.yml --profile debug up app-debug -d
+docker compose -p rd_shop_backend_shop_prod -f compose.yml --profile debug up shop-debug -d
 
 # Verify non-root user
-docker exec rd_shop_prod-app-debug id
+docker exec rd_shop_backend_shop_prod-app-debug id
 
 # Output:
 uid=1001(nestjs) gid=65533(nogroup) groups=65533(nogroup)
 
 # Verify tini process (PID 1)
-docker exec rd_shop_prod-app-debug ps aux
+docker exec rd_shop_backend_shop_prod-app-debug ps aux
 
 #Output
 PID   USER     TIME  COMMAND
-    1 nestjs    0:00 /sbin/tini -- node dist/main.js
-    7 nestjs    0:00 {MainThread} node dist/main.js
+    1 nestjs    0:00 /sbin/tini -- node dist/apps/shop/main.js
+    7 nestjs    0:00 {MainThread} node dist/apps/shop/main.js
    19 nestjs    0:00 ps aux
 ```
 
@@ -630,16 +525,16 @@ PID   USER     TIME  COMMAND
 
 ```bash
 # Start prod with distroless
-docker compose -p rd_shop_prod -f compose.yml up -d
+docker compose -p rd_shop_backend_shop_prod -f compose.yml up -d
 
 # Attempt to exec (will fail - no shell)
-docker exec rd_shop_prod-app id
+docker exec rd_shop_backend_shop_prod-app id
 
 #Output
 OCI runtime exec failed: exec failed: unable to start container process: exec: "id": executable file not found in $PATH
 
 # Verify via inspect
-docker inspect rd_shop_prod-app --format '{{.Config.User}}'
+docker inspect rd_shop_backend_shop_prod-app --format '{{.Config.User}}'
 
 # Output:
 nonroot
@@ -690,89 +585,30 @@ docker image inspect gcr.io/distroless/nodejs24-debian12:nonroot \
 
 ### 4.1 Migration Container
 
-**Base definition** is in `compose.yml` (prod-ready by default):
-
-```yaml
-migrate:
-  container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-migrate
-  build:
-    context: .
-    dockerfile: Dockerfile
-    target: prod # Uses compiled JS in prod
-  user: '1001:1001'
-  working_dir: /app
-  env_file:
-    - .env.production
-  depends_on:
-    postgres:
-      condition: service_healthy
-  command: npm run db:migrate:prod
-  restart: 'no' # One-time execution
-  profiles:
-    - tools # Optional service
-```
-
-**Development overrides** (compose.dev.yml — overrides the base):
-
-```yaml
-migrate:
-  container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-migrate
-  build:
-    dockerfile: Dockerfile.dev
-    target: '' # Resets prod target — uses ts-node
-  volumes:
-    - ./src:/app/src
-    - /app/node_modules
-  env_file:
-    - .env.development
-  command: npm run db:migrate:dev
-```
+| Property   | `compose.yml` (prod)       | `compose.dev.yml` (dev override)      |
+| ---------- | -------------------------- | ------------------------------------- |
+| Build      | `Dockerfile` → `prod-shop` | `Dockerfile.dev`, `target: ''`        |
+| Command    | `npm run db:migrate:prod`  | `npm run db:migrate:dev`              |
+| Env file   | `.env.production`          | `.env.development`                    |
+| Volumes    | —                          | `./src:/app/src`, `/app/node_modules` |
+| Depends on | `postgres` (healthy)       | —                                     |
+| Restart    | `no` (one-shot)            | `no` (one-shot)                       |
+| Profile    | `tools`                    | `tools`                               |
 
 ---
 
 ### 4.2 Seed Container (Dev & Prod)
 
-**Base definition** is in `compose.yml` (prod-ready):
-
-```yaml
-seed:
-  container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_prod}-seed
-  build:
-    context: .
-    dockerfile: Dockerfile
-    target: prod
-  user: '1001:1001'
-  working_dir: /app
-  depends_on:
-    postgres:
-      condition: service_healthy
-    migrate:
-      condition: service_completed_successfully
-  environment:
-    ALLOW_SEED_IN_PRODUCTION: ${ALLOW_SEED_IN_PRODUCTION:-false} # ✅ Explicit opt-in
-  env_file:
-    - .env.production
-  command: npm run db:seed:prod
-  restart: 'no'
-  profiles:
-    - tools
-```
-
-**Development overrides** (compose.dev.yml):
-
-```yaml
-seed:
-  container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_dev}-seed
-  build:
-    dockerfile: Dockerfile.dev
-    target: ''
-  volumes:
-    - ./src:/app/src
-    - /app/node_modules
-  env_file:
-    - .env.development
-  command: npm run db:seed:dev
-```
+| Property    | `compose.yml` (prod)                        | `compose.dev.yml` (dev override)      |
+| ----------- | ------------------------------------------- | ------------------------------------- |
+| Build       | `Dockerfile` → `prod-shop`                  | `Dockerfile.dev`, `target: ''`        |
+| Command     | `npm run db:seed:prod`                      | `npm run db:seed:dev`                 |
+| Env file    | `.env.production`                           | `.env.development`                    |
+| Volumes     | —                                           | `./src:/app/src`, `/app/node_modules` |
+| Depends on  | `postgres` (healthy), `migrate` (completed) | —                                     |
+| Restart     | `no` (one-shot)                             | `no` (one-shot)                       |
+| Profile     | `tools`                                     | `tools`                               |
+| Safety gate | `ALLOW_SEED_IN_PRODUCTION=false` by default | —                                     |
 
 **Safety Features:**
 
@@ -788,22 +624,22 @@ seed:
 
 ```bash
 # 1. Build and start all services
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up --build
+docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml up --build
 
 # 2. Run migrations
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml run --rm migrate
+docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml run --rm migrate
 
 # 3. Seed database
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml run --rm seed
+docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml run --rm seed
 
 # 4. Access logs
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml logs -f app
+docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml logs -f shop
 
 # 5. Stop services
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml down
+docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml down
 
 # Override port at runtime (both port mapping and in-container PORT env)
-PORT=9090 docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up
+PORT=9090 docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml up
 ```
 
 ---
@@ -813,11 +649,11 @@ PORT=9090 docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up
 **Expected Output** when starting the dev environment:
 
 ```
-rd_shop_dev-app         | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG [GraphQLModule] Mapped {/graphql, POST} route +55ms
-rd_shop_dev-app         | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG [NestApplication] Nest application successfully started +1ms
-rd_shop_dev-app         | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG Application is running on port: 8080
-rd_shop_dev-app         | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG Swagger UI available at: http://localhost:8080/api-docs
-rd_shop_dev-app         | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG GraphQL Playground available at: http://localhost:8080/graphql
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG [GraphQLModule] Mapped {/graphql, POST} route +55ms
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG [NestApplication] Nest application successfully started +1ms
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG Application is running on port: 8080
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG Swagger UI available at: http://localhost:8080/api-docs
+rd_shop_backend_shop_dev-app | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG GraphQL Playground available at: http://localhost:8080/graphql
 ```
 
 **✅ Development Environment Ready!**
@@ -834,11 +670,11 @@ rd_shop_dev-app         | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG GraphQL Pl
 ```json
 {
   "scripts": {
-    "docker:build:dev": "docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up --build",
-    "docker:start:dev": "docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up",
-    "docker:migrate:dev": "docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml run --rm migrate",
-    "docker:seed:dev": "docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml run --rm seed",
-    "docker:down:dev": "docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml down"
+    "docker:build:dev": "docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml up --build",
+    "docker:start:dev": "docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml up",
+    "docker:migrate:dev": "docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml run --rm migrate",
+    "docker:seed:dev": "docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml run --rm seed",
+    "docker:down:dev": "docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml down"
   }
 }
 ```
@@ -848,26 +684,26 @@ rd_shop_dev-app         | [Nest] 37  - 03/01/2026, 6:42:58 PM     LOG GraphQL Pl
 ### 5.2 Production Workflow
 
 ```bash
-# 1. Build production images
-docker compose -p rd_shop_prod -f compose.yml build
+# 1. Build and start production services
+docker compose -p rd_shop_backend_shop_prod -f compose.yml up --build
 
 # 2. Run migrations (before starting app)
-docker compose -p rd_shop_prod -f compose.yml run --rm migrate
+docker compose -p rd_shop_backend_shop_prod -f compose.yml run --rm migrate
 
 # 3. Seed database (explicit opt-in)
-ALLOW_SEED_IN_PRODUCTION=true docker compose -p rd_shop_prod -f compose.yml run --rm seed
+ALLOW_SEED_IN_PRODUCTION=true docker compose -p rd_shop_backend_shop_prod -f compose.yml run --rm seed
 
 # 4. Start services (distroless by default)
-docker compose -p rd_shop_prod -f compose.yml up -d
+docker compose -p rd_shop_backend_shop_prod -f compose.yml up -d
 
 # 5. View logs
-docker compose -p rd_shop_prod -f compose.yml logs -f app
+docker compose -p rd_shop_backend_shop_prod -f compose.yml logs -f shop
 
 # 6. Stop services
-docker compose -p rd_shop_prod -f compose.yml down
+docker compose -p rd_shop_backend_shop_prod -f compose.yml down
 
 # Override port at runtime
-PORT=9090 docker compose -p rd_shop_prod -f compose.yml up -d
+PORT=9090 docker compose -p rd_shop_backend_shop_prod -f compose.yml up -d
 ```
 
 ---
@@ -877,9 +713,9 @@ PORT=9090 docker compose -p rd_shop_prod -f compose.yml up -d
 **Expected Output** when starting the production environment:
 
 ```
-rd_shop_prod-app        | [Nest] 1  - 03/01/2026, 6:50:12 PM     LOG [GraphQLModule] Mapped {/graphql, POST} route +45ms
-rd_shop_prod-app        | [Nest] 1  - 03/01/2026, 6:50:12 PM     LOG [NestApplication] Nest application successfully started +2ms
-rd_shop_prod-app        | [Nest] 1  - 03/01/2026, 6:50:12 PM     LOG Application is running on port: 8080
+rd_shop_backend_shop_prod-app | [Nest] 1  - 03/01/2026, 6:50:12 PM     LOG [GraphQLModule] Mapped {/graphql, POST} route +45ms
+rd_shop_backend_shop_prod-app | [Nest] 1  - 03/01/2026, 6:50:12 PM     LOG [NestApplication] Nest application successfully started +2ms
+rd_shop_backend_shop_prod-app | [Nest] 1  - 03/01/2026, 6:50:12 PM     LOG Application is running on port: 8080
 ```
 
 **✅ Production Environment Ready!**
@@ -899,15 +735,15 @@ rd_shop_prod-app        | [Nest] 1  - 03/01/2026, 6:50:12 PM     LOG Application
 
 ```bash
 # Start with debug profile
-docker compose -p rd_shop_prod -f compose.yml --profile debug up app-debug -d
+docker compose -p rd_shop_backend_shop_prod -f compose.yml --profile debug up shop-debug -d
 ```
 
 **Expected Output**:
 
 ```
-rd_shop_prod-app-debug  | [Nest] 7  - 03/01/2026, 6:55:30 PM     LOG [GraphQLModule] Mapped {/graphql, POST} route +48ms
-rd_shop_prod-app-debug  | [Nest] 7  - 03/01/2026, 6:55:30 PM     LOG [NestApplication] Nest application successfully started +1ms
-rd_shop_prod-app-debug  | [Nest] 7  - 03/01/2026, 6:55:30 PM     LOG Application is running on port: 8080
+rd_shop_backend_shop_prod-app-debug | [Nest] 7  - 03/01/2026, 6:55:30 PM     LOG [GraphQLModule] Mapped {/graphql, POST} route +48ms
+rd_shop_backend_shop_prod-app-debug | [Nest] 7  - 03/01/2026, 6:55:30 PM     LOG [NestApplication] Nest application successfully started +1ms
+rd_shop_backend_shop_prod-app-debug | [Nest] 7  - 03/01/2026, 6:55:30 PM     LOG Application is running on port: 8080
 ```
 
 **✅ Production Debug Environment Ready!**
@@ -936,17 +772,17 @@ rd_shop_prod-app-debug  | [Nest] 7  - 03/01/2026, 6:55:30 PM     LOG Application
 
 ```bash
 # View real-time logs from distroless container
-docker compose -p rd_shop_prod -f compose.yml logs -f app
+docker compose -p rd_shop_backend_shop_prod -f compose.yml logs -f shop
 
 # Check container resource usage
-docker stats rd_shop_prod-app
+docker stats rd_shop_backend_shop_prod-app
 
 # Inspect container configuration
-docker inspect rd_shop_prod-app | jq '.[0].Config'
+docker inspect rd_shop_backend_shop_prod-app | jq '.[0].Config'
 
 # For deep debugging, switch to Alpine debug image
-docker compose -p rd_shop_prod -f compose.yml --profile debug up app-debug -d
-docker exec -it rd_shop_prod-app-debug sh
+docker compose -p rd_shop_backend_shop_prod -f compose.yml --profile debug up shop-debug -d
+docker exec -it rd_shop_backend_shop_prod-app-debug sh
 ```
 
 ---
@@ -956,16 +792,77 @@ docker exec -it rd_shop_prod-app-debug sh
 ```json
 {
   "scripts": {
-    "docker:build:prod": "docker compose -p rd_shop_prod -f compose.yml build",
-    "docker:start:prod": "docker compose -p rd_shop_prod -f compose.yml up",
-    "docker:start:prod:debug": "docker compose -p rd_shop_prod -f compose.yml --profile debug up app-debug",
-    "docker:migrate:prod": "docker compose -p rd_shop_prod -f compose.yml run --rm migrate",
-    "docker:seed:prod": "docker compose -p rd_shop_prod -f compose.yml run --rm seed",
-    "docker:down:prod": "docker compose -p rd_shop_prod -f compose.yml down",
-    "docker:down:prod:debug": "docker compose -p rd_shop_prod -f compose.yml --profile debug down"
+    "docker:build:dev": "docker compose -p rd_shop_backend_shop_dev  -f compose.yml -f compose.dev.yml up --build",
+    "docker:start:dev": "docker compose -p rd_shop_backend_shop_dev  -f compose.yml -f compose.dev.yml up",
+    "docker:migrate:dev": "docker compose -p rd_shop_backend_shop_dev  -f compose.yml -f compose.dev.yml run --rm migrate",
+    "docker:seed:dev": "docker compose -p rd_shop_backend_shop_dev  -f compose.yml -f compose.dev.yml run --rm seed",
+    "docker:down:dev": "docker compose -p rd_shop_backend_shop_dev  -f compose.yml -f compose.dev.yml down",
+    "docker:build:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml up --build",
+    "docker:start:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml up",
+    "docker:start:prod:debug": "docker compose -p rd_shop_backend_shop_prod -f compose.yml --profile debug up shop-debug",
+    "docker:migrate:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml run --rm migrate",
+    "docker:seed:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml run --rm seed",
+    "docker:down:prod": "docker compose -p rd_shop_backend_shop_prod -f compose.yml down",
+    "docker:down:prod:debug": "docker compose -p rd_shop_backend_shop_prod -f compose.yml --profile debug down"
   }
 }
 ```
+
+---
+
+### 5.3 Payments Workflow
+
+The payments app is a **gRPC-only service** (no HTTP port, no seed). Compose files live in `apps/payments/`.
+
+```bash
+# --- Development ---
+docker compose -p rd_shop_backend_payments_dev -f compose.yml -f compose.dev.yml up --build
+docker compose -p rd_shop_backend_payments_dev -f compose.yml -f compose.dev.yml run --rm migrate
+docker compose -p rd_shop_backend_payments_dev -f compose.yml -f compose.dev.yml logs -f payments
+docker compose -p rd_shop_backend_payments_dev -f compose.yml -f compose.dev.yml down
+
+# --- Production ---
+docker compose -p rd_shop_backend_payments_prod -f compose.yml up --build
+docker compose -p rd_shop_backend_payments_prod -f compose.yml run --rm migrate
+docker compose -p rd_shop_backend_payments_prod -f compose.yml logs -f payments
+docker compose -p rd_shop_backend_payments_prod -f compose.yml down
+
+# --- Production debug (Alpine with shell) ---
+docker compose -p rd_shop_backend_payments_prod -f compose.yml --profile debug up payments-debug -d
+docker exec -it rd_shop_backend_payments_prod-payments-debug sh
+docker compose -p rd_shop_backend_payments_prod -f compose.yml --profile debug down
+```
+
+**Convenience scripts** (`apps/payments/package.json`):
+
+```json
+{
+  "scripts": {
+    "docker:build:dev": "docker compose -p rd_shop_backend_payments_dev  -f compose.yml -f compose.dev.yml up --build",
+    "docker:start:dev": "docker compose -p rd_shop_backend_payments_dev  -f compose.yml -f compose.dev.yml up",
+    "docker:migrate:dev": "docker compose -p rd_shop_backend_payments_dev  -f compose.yml -f compose.dev.yml run --rm migrate",
+    "docker:down:dev": "docker compose -p rd_shop_backend_payments_dev  -f compose.yml -f compose.dev.yml down",
+    "docker:build:prod": "docker compose -p rd_shop_backend_payments_prod -f compose.yml up --build",
+    "docker:start:prod": "docker compose -p rd_shop_backend_payments_prod -f compose.yml up",
+    "docker:start:prod:debug": "docker compose -p rd_shop_backend_payments_prod -f compose.yml --profile debug up payments-debug",
+    "docker:migrate:prod": "docker compose -p rd_shop_backend_payments_prod -f compose.yml run --rm migrate",
+    "docker:down:prod": "docker compose -p rd_shop_backend_payments_prod -f compose.yml down",
+    "docker:down:prod:debug": "docker compose -p rd_shop_backend_payments_prod -f compose.yml --profile debug down"
+  }
+}
+```
+
+**Key differences from shop:**
+
+| Feature        | Shop                                 | Payments                             |
+| -------------- | ------------------------------------ | ------------------------------------ |
+| Protocol       | HTTP + GraphQL                       | gRPC only                            |
+| Port exposed   | `8080`                               | none (internal network)              |
+| Seed service   | ✅ Yes                               | ❌ No                                |
+| Extra services | Postgres, MinIO, RabbitMQ            | Postgres only                        |
+| Shared network | `rd_shop_backend_[dev\|prod]_shared` | `rd_shop_backend_[dev\|prod]_shared` |
+
+---
 
 ## Summary
 

@@ -27,6 +27,8 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **RabbitMQ Integration** - Asynchronous order processing with manual ack, retry policy, and dead-letter queue (see [homework12.md](homework12.md))
 - **Idempotent Message Processing** - Duplicate message prevention via `ProcessedMessage` table and unique `messageId` constraint
 - **Order Worker** - Dedicated NestJS module consuming `order.process` queue, updating order status to `PROCESSED` after DB commit
+- **gRPC Payments Integration** - Independent payments-service communicating over gRPC; order worker authorizes payment after processing, updating order to `PAID` (see [homework14.md](homework14.md))
+- **GraphQL Authentication** - JWT-protected GraphQL queries via `GqlJwtAuthGuard`; user identity derived from Bearer token
 
 ## 🛠️ Technology Stack
 
@@ -78,6 +80,12 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **[RabbitMQ](https://www.rabbitmq.com/)** - Message broker for async order processing
 - **[amqplib](https://github.com/amqp-node/amqplib)** - AMQP 0-9-1 client for Node.js
 
+### gRPC
+
+- **[@nestjs/microservices](https://docs.nestjs.com/microservices/grpc)** - NestJS microservices with gRPC transport
+- **[@grpc/grpc-js](https://github.com/grpc/grpc-node)** - Pure JavaScript gRPC implementation
+- **[@grpc/proto-loader](https://github.com/grpc/grpc-node/tree/master/packages/proto-loader)** - Dynamic proto file loading
+
 ### Infrastructure
 
 - **[Docker](https://www.docker.com/)** - Containerization platform
@@ -100,7 +108,7 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 
 ## Description
 
-Production-ready NestJS API with comprehensive type-safe environment management and standardized error handling.
+NestJS monorepo with two independently deployed services: **shop-service** (HTTP REST + GraphQL + RabbitMQ consumer) and **payments-service** (gRPC only).
 
 ## 🔧 Installation
 
@@ -109,80 +117,113 @@ Production-ready NestJS API with comprehensive type-safe environment management 
 git clone <repository-url>
 cd rd_shop
 
-# Install dependencies
+# Install dependencies (shared across both services)
 npm install
 
-# Copy environment file
-cp .env.example .env.development
+# Create environment files for each service
+touch apps/shop/.env.development
+touch apps/payments/.env.development
 
-# Configure environment variables
-# Edit .env.development with your settings
+# Fill in the required variables (see Environment Configuration below)
 ```
 
 ## 🌍 Environment Configuration
 
-The application uses environment-specific configuration files:
+Each service has its own environment file under `apps/<service>/`:
 
-- `.env` - Default configuration (base template)
-- `.env.development` - Development environment
-- `.env.production` - Production environment
-- `.env.test` - Test environment
-- `.env.local` - Local overrides (not committed to git)
+- `apps/shop/.env.development` / `.env.production`
+- `apps/payments/.env.development` / `.env.production`
 
-### Environment Variables
+### shop-service key variables
 
 ```bash
-# Server Configuration
-PORT=4000
+PORT=8080
 NODE_ENV=development
-NODE_HOSTNAME=localhost
-
-# Logging
-APP_LOG_LEVEL=log  # Options: error, warn, log, debug, verbose
-
-# Database Configuration
-DATABASE_URL=postgresql://user:password@localhost:5432/rd_shop
-DATABASE_PROVIDER=neon  # Options: neon, postgres
+DATABASE_URL=postgresql://user:password@localhost:5432/rd_shop_dev
+JWT_ACCESS_SECRET=<hex>
+JWT_ACCESS_EXPIRES_IN=1h
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+PAYMENTS_GRPC_HOST=payments
+PAYMENTS_GRPC_PORT=5001
+PAYMENTS_GRPC_TIMEOUT_MS=5000
 ```
 
-The application automatically loads the appropriate `.env.{NODE_ENV}` file based on the `NODE_ENV` variable.
+### payments-service key variables
+
+```bash
+PAYMENTS_GRPC_HOST=0.0.0.0
+PAYMENTS_GRPC_PORT=5001
+DATABASE_URL=postgresql://user:password@localhost:5432/rd_shop_payments_dev
+```
 
 ## 🚀 Running the Application
 
+Both services are run via Docker Compose. See the **Docker Support** section below.
+
+For local development without Docker (each from project root):
+
 ```bash
-# Development mode with hot reload
-npm run start:dev
+# shop-service
+cd apps/shop && npm run start:dev
 
-# Debug mode
-npm run start:debug
+# payments-service (separate terminal)
+cd apps/payments && npm run start:dev
 
-# Production modes
-npm run start:prod
-
-# Build the project
+# Build all
 npm run build
 ```
 
-The API will be available at `http://localhost` using your configured `PORT`.
-
 ## Docker Support
 
-The application includes production-ready Docker setup with multi-stage builds, environment-specific configurations, and security best practices.
+The application uses per-service Docker Compose files with a **shared bridge network** (`rd_shop_backend_dev_shared`) for inter-service gRPC communication.
 
-### Quick Start with Docker
+### Prerequisites
 
 ```bash
-# Development environment (with hot reload)
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml up --build
+# Create the shared network once
+docker network create rd_shop_backend_dev_shared
+```
 
-# Run migrations
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml run --rm migrate
+### Starting services (development)
 
-# Seed database
-docker compose -p rd_shop_dev -f compose.yml -f compose.dev.yml run --rm seed
+```bash
+# payments-service first (shop depends on it)
+cd apps/payments && npm run docker:start:dev
+# or: docker compose -p rd_shop_backend_payments_dev -f apps/payments/compose.yml -f apps/payments/compose.dev.yml up
 
-# Production environment (distroless)
-docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml up --build
+# shop-service
+cd apps/shop && npm run docker:start:dev
+# or: docker compose -p rd_shop_backend_shop_dev -f apps/shop/compose.yml -f apps/shop/compose.dev.yml up
+```
+
+### Migrations & Seeding
+
+```bash
+# shop-service
+cd apps/shop && npm run docker:migrate:dev
+cd apps/shop && npm run docker:seed:dev
+
+# payments-service
+cd apps/payments && npm run docker:migrate:dev
+```
+
+### Teardown
+
+```bash
+cd apps/shop && npm run docker:down:dev
+cd apps/payments && npm run docker:down:dev
+docker network rm rd_shop_backend_dev_shared
+```
+
+### Production (WIP)
+
+```bash
+# payments-service
+cd apps/payments && npm run docker:start:prod
+
+# shop-service
+cd apps/shop && npm run docker:start:prod
 ```
 
 ### Docker Features
@@ -191,15 +232,19 @@ docker compose -p rd_shop_prod -f compose.yml -f compose.prod.yml up --build
 - **Distroless images** - Minimal attack surface with no shell or package manager
 - **Non-root users** - All containers run as non-root (UID 1001 or 65532)
 - **Hot reload** - Development environment with source code bind mounts
-- **Service isolation** - PostgreSQL on internal-only network
-- **Health checks** - Automatic dependency management with health checks
-- **MinIO integration** - S3-compatible object storage for local development
+- **Service isolation** - PostgreSQL on internal-only networks per service
+- **Health checks** - Automatic dependency management
+- **MinIO integration** - S3-compatible object storage for local development (shop only)
+- **Shared network** - `rd_shop_backend_dev_shared` bridge network for gRPC communication
 
 ### Available Endpoints
 
-- **REST API**: `http://localhost:8080` (Swagger docs at `/api-docs`)
-- **GraphQL**: `http://localhost:8080/graphql` (with Playground)
-- **Health Check**: `http://localhost:8080/health`
+| Service          | Endpoint                        | Description            |
+| ---------------- | ------------------------------- | ---------------------- |
+| shop-service     | `http://localhost:8080/api/v1`  | REST API               |
+| shop-service     | `http://localhost:8080/graphql` | GraphQL Playground     |
+| shop-service     | `http://localhost:15672`        | RabbitMQ Management UI |
+| payments-service | `grpc://localhost:5001`         | gRPC (internal only)   |
 
 For comprehensive Docker documentation, see [homework10.md](homework10.md).
 
@@ -252,65 +297,11 @@ User (1) ──────< (N) Order (1) ──────< (N) OrderItem (N)
 - **OrderItem** - Line items with quantity and price at purchase
 - **Product** - Product catalog with pricing and active status
 
-### Running Migrations
-
-Migrations track and version your database schema changes:
-
-```bash
-# Run pending migrations (development)
-npm run db:migrate:dev
-
-# Run pending migrations (production)
-npm run db:migrate:prod
-
-# Generate a new migration after entity changes
-npm run db:generate -- AddUserRoleColumn
-
-# Revert the last migration (development)
-npm run db:revert:dev
-
-# Revert the last migration (production)
-npm run db:revert:prod
-```
-
-### Seeding the Database
-
-Populate your database with test data:
-
-```bash
-# Run seed data (dev/test only)
-npm run db:seed
-```
-
-**Seed Data Includes:**
-
-- 5 test users
-- 12 products (various prices and states)
-- 8 orders with multiple items
-
 **Features:**
 
 - Idempotent (safe to run multiple times)
 - Production safety (prevents accidental seeding in production)
 - Relationship resolution (maintains foreign key integrity)
-
-### Database Commands Reference
-
-```bash
-# Migration commands
-npm run db:migrate:dev       # Apply migrations (development)
-npm run db:migrate:prod      # Apply migrations (production)
-npm run db:generate -- Name  # Generate new migration
-npm run db:revert:dev        # Rollback last migration (dev)
-npm run db:revert:prod       # Rollback last migration (prod)
-
-# Seed command
-npm run db:seed              # Seed database with test data
-
-# TypeORM CLI (advanced)
-npm run typeorm -- migration:show  # Show all migrations
-npm run typeorm -- query "SELECT * FROM users"  # Run SQL query
-```
 
 ### Database Adapter Pattern
 
@@ -342,19 +333,43 @@ npm run test:debug
 
 ## 🏗️ Architecture Overview
 
+### Services
+
+The system is a **monorepo** with two independently deployable services:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  shop-service  (HTTP :8080 + RabbitMQ consumer)      │
+│                                                      │
+│   REST API  →  OrdersService  →  RabbitMQ publish    │
+│   GraphQL   →  OrdersService  →  RabbitMQ publish    │
+│                                        │             │
+│   OrderWorkerService  ◄────────────────┘             │
+│        │  mark PROCESSED                             │
+│        ▼                                             │
+│   PaymentsGrpcService.authorize()  ──── gRPC ──►     │
+└──────────────────────────────────────────────────────┘
+                                          │
+                        ┌─────────────────▼──────────┐
+                        │  payments-service (:5001)  │
+                        │  gRPC: Authorize           │
+                        │  gRPC: GetPaymentStatus    │
+                        └────────────────────────────┘
+```
+
 ### Design Patterns
 
 #### 1. **Layered Architecture**
 
 ```
 ┌─────────────────────────────────────────┐
-│         Controllers Layer               │  ← HTTP/REST endpoints
+│         Controllers Layer               │  ← HTTP/REST/GraphQL endpoints
 ├─────────────────────────────────────────┤
 │         Services Layer                  │  ← Business logic
 ├─────────────────────────────────────────┤
-│         Repository Layer (TODO)         │  ← Data access
+│         Repository Layer                │  ← Data access
 ├─────────────────────────────────────────┤
-│         Database Layer (TODO)           │  ← PostgreSQL
+│         Database Layer                  │  ← PostgreSQL
 └─────────────────────────────────────────┘
 ```
 
@@ -450,66 +465,44 @@ Request → Middleware → Guards → Interceptors → Controller → Intercepto
 
 ```
 rd_shop/
-├── src/
-│   ├── common/                    # Shared utilities & components
-│   │   ├── constants/             # Application constants
-│   │   ├── dto/                   # Common DTOs
-│   │   ├── errors/                # Custom error classes
-│   │   ├── filters/               # Exception filters
-│   │   ├── interceptors/          # Request/response interceptors
-│   │   └── middlewares/           # HTTP middlewares
+├── apps/
+│   ├── shop/                      # shop-service (HTTP :8080)
+│   │   ├── src/
+│   │   │   ├── auth/              # JWT auth, guards, decorators
+│   │   │   ├── common/            # Filters, interceptors, middlewares
+│   │   │   ├── config/            # App configuration
+│   │   │   ├── core/              # Environment, Swagger, process handlers
+│   │   │   ├── db/                # Migrations, seed, adapters
+│   │   │   ├── files/             # S3 file upload module
+│   │   │   ├── graphql/           # GraphQL module, resolvers, loaders
+│   │   │   ├── orders/            # Orders feature module
+│   │   │   ├── orders-worker/     # RabbitMQ consumer
+│   │   │   ├── payments/          # gRPC client for payments-service
+│   │   │   ├── products/          # Products feature module
+│   │   │   ├── rabbitmq/          # RabbitMQ service & processed messages
+│   │   │   ├── users/             # Users feature module
+│   │   │   └── utils/             # Utility functions
+│   │   ├── compose.yml            # Production Compose
+│   │   ├── compose.dev.yml        # Development Compose overrides
+│   │   └── package.json
 │   │
-│   ├── config/                    # Application configuration
-│   │
-│   ├── core/                      # Core utilities
-│   │   ├── environment/           # Environment management
-│   │   ├── process/               # Process error handlers
-│   │   └── swagger/               # API documentation setup
-│   │
-│   ├── db/                        # Database layer
-│   │   ├── adapters/              # Database adapter pattern
-│   │   ├── migrations/            # TypeORM migrations
-│   │   └── seed/                  # Database seeding
-│   │
-│   ├── users/                     # Users feature module
-│   │   ├── dto/                   # User DTOs
-│   │   ├── interfaces/            # User interfaces
-│   │   └── v1/                    # API version 1 controllers
-│   │
-│   ├── orders/                    # Orders feature module
-│   │
-│   ├── products/                  # Products feature module
-│   │
-│   └── utils/                     # Utility functions
+│   └── payments/                  # payments-service (gRPC :5001)
+│       ├── src/
+│       │   ├── config/            # App configuration
+│       │   ├── db/                # Migrations
+│       │   ├── proto/             # Copied proto file (generated at startup)
+│       │   └── utils/             # Utility functions
+│       ├── compose.yml            # Production Compose
+│       ├── compose.dev.yml        # Development Compose overrides
+│       └── package.json
 │
-└── test/                          # E2E tests
+├── proto/
+│   └── payments.proto             # Single source of truth for gRPC contract
+│
+├── Dockerfile                     # Multi-stage production build
+├── Dockerfile.dev                 # Development build
+└── package.json                   # Root — shared dependencies & tooling
 ```
-
-### Folder Descriptions
-
-#### `/src/common/` - Shared Components
-
-Reusable components across the application including filters, interceptors, middlewares, DTOs, and error classes.
-
-#### `/src/config/` - Application Configuration
-
-Application-level configuration for graceful shutdown, logging, TypeORM, and environment-specific settings.
-
-#### `/src/core/` - Core Utilities
-
-Framework-level utilities including environment management, process handlers, and Swagger configuration.
-
-#### `/src/db/` - Database Layer
-
-Database configuration with adapter pattern for provider flexibility, TypeORM migrations, and seeding system.
-
-#### `/src/users/`, `/src/orders/`, `/src/products/` - Feature Modules
-
-Domain-driven feature modules containing entities, DTOs, services, controllers, and business logic.
-
-#### `/src/utils/` - Utility Functions
-
-Helper functions and utilities used across the application.
 
 ## 🔌 API Endpoints
 
@@ -526,6 +519,8 @@ http://localhost:8080/graphql
 ```
 
 **GraphQL Playground:** Available at `http://localhost:8080/graphql`
+
+**Authentication required:** All GraphQL queries require a Bearer token in the `Authorization` header.
 
 **Example Query:**
 
@@ -709,8 +704,9 @@ See [TODO.md](TODO.md) for planned features:
 - [x] GraphQL API with DataLoader (see [homework07.md](homework07.md))
 - [x] Docker support with multi-stage builds (see [homework10.md](homework10.md))
 - [x] RabbitMQ async order processing with retry and DLQ (see [homework12.md](homework12.md))
+- [x] gRPC payments integration with independent payments-service (see [homework14.md](homework14.md))
+- [x] Authentication & Authorization (JWT) for REST and GraphQL
 - [ ] Complete service layer implementation (CRUD operations)
-- [ ] Authentication & Authorization (JWT)
 - [ ] Health check endpoint
 - [ ] Rate limiting
 - [ ] Redis caching

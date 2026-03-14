@@ -1,6 +1,6 @@
 ## Overview
 
-This document describes the GraphQL implementation for the RD Shop backend, including schema generation, resolver architecture, DataLoader integration for N+1 query prevention, and error handling strategies.
+This document describes the GraphQL implementation for the RD Shop backend, including authentication requirements, schema generation, resolver architecture, DataLoader integration for N+1 query prevention, and error handling strategies.
 
 ## 1. GraphQL Module Setup
 
@@ -30,7 +30,107 @@ GraphQLModule.forRootAsync<ApolloDriverConfig>({
 - ✅ Schema auto-generation from TypeScript decorators
 - ✅ Request-scoped DataLoader instances for N+1 prevention
 
-## 2. Schema Approach: Code-First
+## 2. Authentication
+
+### Overview
+
+Access to protected GraphQL queries (e.g., `orders`) requires a valid JWT access token. The token is obtained through the REST authentication endpoints and passed as a Bearer token in the `Authorization` header of every GraphQL request.
+
+### Auth Flow
+
+**Step 1 — Register a new user:**
+
+```http
+POST /v1/auth/signup
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+Response:
+
+```json
+{
+  "id": "uuid",
+  "email": "user@example.com",
+  "message": "User successfully registered. Please sign in to continue."
+}
+```
+
+**Step 2 — Sign in to obtain access token:**
+
+```http
+POST /v1/auth/signin
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+Response:
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "roles": [],
+    "scopes": []
+  }
+}
+```
+
+**Step 3 — Include the token in GraphQL requests:**
+
+```http
+POST /graphql
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+```
+
+### Guard Implementation
+
+Protected resolvers use the `GqlJwtAuthGuard`, which extends the standard `JwtAuthGuard` and overrides `getRequest()` to extract the HTTP request from the GraphQL execution context:
+
+```typescript
+// src/auth/guards/gql-jwt-auth.guard.ts
+@Injectable()
+export class GqlJwtAuthGuard extends JwtAuthGuard {
+  getRequest(context: ExecutionContext) {
+    const ctx = GqlExecutionContext.create(context);
+    return ctx.getContext<{ req: Request }>().req;
+  }
+}
+```
+
+Applied to the `orders` query resolver:
+
+```typescript
+@Query(() => OrdersConnection, { name: 'orders' })
+@UseGuards(GqlJwtAuthGuard)
+async getOrders(
+  @Context() context: { req: { user: AuthUser } },
+  ...
+): Promise<OrdersConnection> {
+  const userId = context.req.user.sub; // extracted from JWT payload
+  ...
+}
+```
+
+**Key Points:**
+
+- ✅ Token validated via `passport-jwt` strategy using `JWT_ACCESS_SECRET`
+- ✅ Authenticated user injected into resolver context via `@Context()`
+- ✅ `orders` query is scoped to the authenticated user (returns only their orders)
+- ✅ Returns `UNAUTHENTICATED` GraphQL error when token is missing or invalid
+
+## 3. Schema Approach: Code-First
 
 ### Why Code-First?
 
@@ -126,7 +226,7 @@ export class OrdersPaginationInput {
 - ✅ Type-safe transformations with `class-transformer`
 - ✅ Auto-generated GraphQL schema with proper types
 
-## 3. Query Orders Implementation
+## 4. Query Orders Implementation
 
 ### Business Logic Reuse
 
@@ -276,7 +376,7 @@ query GetOrders {
 }
 ```
 
-## 4. N+1 Query Problem Resolution
+## 5. N+1 Query Problem Resolution
 
 ### 4.1 Detecting N+1 Problem (Before DataLoader)
 
@@ -474,7 +574,7 @@ SQL Queries: 4
 
 **Result:** From **41 queries** down to **4 queries**, eliminating the N+1 problem entirely.
 
-## 5. Error Handling
+## 6. Error Handling
 
 ### Global GraphQL Exception Filter
 
@@ -670,6 +770,7 @@ async user(@Parent() order: Order): Promise<UserType> {
 
 ### GraphQL Implementation Highlights
 
+✅ **JWT Authentication** - Protected queries require a valid Bearer token  
 ✅ **Code-First Schema** - Type-safe schema generation from TypeScript decorators  
 ✅ **Business Logic Reuse** - Same services as REST API, no duplication  
 ✅ **N+1 Prevention** - DataLoader batching reduces queries by 90%  

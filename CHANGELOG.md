@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] - 2026-03-12
+
+### Added
+
+- **gRPC Payments Integration** - `PaymentsGrpcService` in shop-service communicates with payments-service over gRPC; `Authorize` and `GetPaymentStatus` RPCs implemented via proto contract (see [homework14.md](homework14.md))
+- **Payments Microservice** - Independent `payments-service` with its own PostgreSQL database, exposing `Authorize`, `GetPaymentStatus`, `Capture` (stub), and `Refund` (stub) gRPC methods
+- **Order Payment Endpoint** - `GET /api/v1/orders/:orderId/payment` — polls payment status from payments-service via gRPC
+- **Auto Payment Authorization** - After worker marks order as `PROCESSED`, `authorizePayment()` calls gRPC `Authorize`, updates order to status `PAID` and stores `paymentId`
+- **GraphQL Authentication** - `GqlJwtAuthGuard` extends `JwtAuthGuard` to support Passport JWT in GraphQL context; `orders` query now requires Bearer token
+- **gRPC Error Mapping** - `mapGrpcError()` translates gRPC status codes to NestJS HTTP exceptions (NOT_FOUND → 404, UNAVAILABLE → 503, etc.)
+- **gRPC Timeout** - All gRPC calls wrapped with RxJS `timeout(PAYMENTS_GRPC_TIMEOUT_MS)` from env; never hardcoded
+- **Shared Proto Contract** - Single `proto/payments.proto` source of truth; copied into each service at container startup via Docker volume
+
+### Changed
+
+- **Order Creation** - `userId` no longer accepted in request body; taken from JWT token (`req.user.sub`) instead
+- **Orders GraphQL Resolver** - Fixed bug where `findOrdersWithFilters` was called without `userId`; user is now extracted from GraphQL context
+- **Order Status Flow** - Extended: `PENDING` → `PROCESSED` (worker) → `PAID` (after gRPC Authorize)
+
+### Security
+
+- **GraphQL Auth** - All GraphQL queries/mutations now protected by `GqlJwtAuthGuard`; unauthenticated requests receive 401
+- **No userId in body** - Prevents users from creating orders on behalf of other users by spoofing userId
+
 ## [0.0.7] - 2026-03-04
 
 ### Added
@@ -241,6 +265,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.0.8]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.8
 [0.0.7]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.7
 [0.0.6]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.6
 [0.0.5]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.5
