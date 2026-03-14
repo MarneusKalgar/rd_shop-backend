@@ -234,28 +234,35 @@ export class OrdersService {
   }
 
   /**
-   * Processes an order within a transaction after receiving a RabbitMQ message.
+   * Processes an order after receiving a RabbitMQ message, then authorizes payment.
    *
-   * **Transaction Steps:**
-   * 1. Idempotency check — skip if message already processed
-   * 2. Fetch order by ID
-   * 3. Simulate external service call (300–500ms)
-   * 4. Update order status to PROCESSED
-   * 5. Insert ProcessedMessage record (idempotency guard)
-   * 6. Commit
+   * **Inside DB transaction:**
+   * 1. SELECT from processed_messages — skip if already processed (fast-path idempotency)
+   * 2. INSERT into processed_messages — idempotency lock (UNIQUE violation = safe duplicate, return)
+   * 3. Fetch order by orderId — throw NotFoundException if missing (worker retries / DLQ)
+   * 4. Guard: skip if status is already PROCESSED or not PENDING (unexpected state)
+   * 5. Simulate failure / delay if configured via env (RABBITMQ_SIMULATE_FAILURE / _DELAY)
+   * 6. UPDATE order SET status = PROCESSED
+   * 7. COMMIT
    *
-   * Caller (worker) must ack the message only after this method resolves successfully.
+   * **After transaction (if order.paymentId is null):**
+   * 8. Call PaymentsGrpcService.authorize() — gRPC call to `apps/payments` microservice
+   *    → on success: UPDATE order SET status = PAID, paymentId = response.paymentId
+   *    → on failure: throws (worker should nack / retry)
    *
-   * @param messageId - Unique RabbitMQ message ID
-   * @param orderId - Order UUID to process
-   * @param correlationId - Optional correlation ID (idempotencyKey from producer)
-   * @throws {Error} If order not found or DB error occurs — worker should nack
+   * Caller (worker) acks the message only after this method resolves successfully.
+   *
+   * @param payload - OrderProcessMessageDto containing messageId, orderId, correlationId
+   * @throws {NotFoundException} If order not found — worker should nack
+   * @throws {Error} If DB error occurs or payment authorization fails — worker should nack
    */
   async processOrderMessage(payload: OrderProcessMessageDto): Promise<void> {
     const { correlationId, messageId, orderId } = payload;
     const simulateFailure: boolean =
       this.configService.get<string>('RABBITMQ_SIMULATE_FAILURE') === 'true';
     const simulateDelay: number = this.configService.get<number>('RABBITMQ_SIMULATE_DELAY') ?? 0;
+    const disablePaymentsAuthorization: boolean =
+      this.configService.get<string>('RABBITMQ_DISABLE_PAYMENTS_AUTHORIZATION') === 'true';
 
     const processedOrder = await this.dataSource.transaction(async (manager) => {
       const processedMessageRepository = manager.getRepository(ProcessedMessage);
@@ -323,6 +330,13 @@ export class OrdersService {
 
       return order;
     });
+
+    if (disablePaymentsAuthorization) {
+      this.logger.warn(
+        `Payments authorization is disabled via configuration. Skipping payment authorization for orderId: ${orderId}`,
+      );
+      return;
+    }
 
     if (processedOrder && !processedOrder.paymentId) {
       await this.authorizePayment(processedOrder);

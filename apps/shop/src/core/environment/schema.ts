@@ -102,6 +102,10 @@ export class EnvironmentVariables {
   @IsString()
   POSTGRES_USER?: string;
 
+  @IsOptional()
+  @IsString()
+  RABBITMQ_DISABLE_PAYMENTS_AUTHORIZATION: string;
+
   @IsString()
   RABBITMQ_HOST: string;
 
