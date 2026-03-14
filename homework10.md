@@ -146,6 +146,25 @@ Error: Database is uninitialized and superuser password is not specified.
 
 ---
 
+#### 1.4.4 RabbitMQ: Disabling Payment Authorization
+
+The `apps/payments` microservice (gRPC) is optional for this homework. If you are running only the `apps/shop` stack (without payments), set the following flag in `.env.development`:
+
+```env
+RABBITMQ_DISABLE_PAYMENTS_AUTHORIZATION=true
+```
+
+**What it does:** When `true`, `processOrderMessage` skips the `PaymentsGrpcService.authorize()` call after the DB transaction commits. The order stays in `PROCESSED` status — which is the final state expected for HW10.
+
+**When to use `false` (default for full stack):** When `apps/payments` is running (e.g., for HW12+), leave this unset or set to `false`. The worker will call the payments microservice via gRPC and transition the order from `PROCESSED` → `PAID`.
+
+| Value   | Order status after worker | Requires `apps/payments` |
+| ------- | ------------------------- | ------------------------ |
+| `true`  | `PROCESSED`               | No                       |
+| `false` | `PAID`                    | Yes (gRPC must be up)    |
+
+---
+
 ## 2. Image Size Optimization
 
 ### 2.1 Build Strategy

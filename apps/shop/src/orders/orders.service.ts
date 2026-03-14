@@ -250,6 +250,11 @@ export class OrdersService {
    *    → on success: UPDATE order SET status = PAID, paymentId = response.paymentId
    *    → on failure: throws (worker should nack / retry)
    *
+   * **Skipping payment authorization (HW10 / shop-only mode):**
+   * Set `RABBITMQ_DISABLE_PAYMENTS_AUTHORIZATION=true` in the environment to skip step 8.
+   * The order remains in `PROCESSED` status — useful when `apps/payments` is not running
+   * (e.g., standalone shop stack for HW10).
+   *
    * Caller (worker) acks the message only after this method resolves successfully.
    *
    * @param payload - OrderProcessMessageDto containing messageId, orderId, correlationId
@@ -488,8 +493,6 @@ export class OrdersService {
 
       return createdOrder;
     });
-
-    this.publishOrderProcessingMessage(createdOrder, idempotencyKey);
 
     return createdOrder;
   }
