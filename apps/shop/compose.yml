@@ -25,6 +25,7 @@ services:
     networks:
       - shop-network
       - shop-network-internal
+      - rd_shop_backend_prod_shared
 
   shop-debug:
     container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_prod}-app-debug
@@ -187,6 +188,9 @@ networks:
   shop-network-internal:
     driver: bridge
     internal: true
+  rd_shop_backend_prod_shared:
+    driver: bridge
+    external: true
 
 volumes:
   shop_postgres_data:

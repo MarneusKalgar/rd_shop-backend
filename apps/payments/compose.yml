@@ -7,8 +7,9 @@ services:
       target: prod-distroless-payments
       args:
         APP: payments
-    environment:
-      GRPC_PORT: ${GRPC_PORT:-50051}
+    init: true
+    # environment:
+    #   GRPC_PORT: ${GRPC_PORT:-50051}
     env_file:
       - .env.production
     depends_on:
@@ -17,6 +18,7 @@ services:
     restart: always
     networks:
       - payments-network-internal
+      - rd_shop_backend_prod_shared
 
   payments-debug:
     container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_prod}-payments-debug
@@ -24,8 +26,8 @@ services:
       context: ../..
       dockerfile: Dockerfile
       target: prod-payments
-    environment:
-      GRPC_PORT: ${GRPC_PORT:-50051}
+    # environment:
+    #   GRPC_PORT: ${GRPC_PORT:-50051}
     env_file:
       - .env.production
     depends_on:
@@ -69,7 +71,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: npm run db:migrate:prod
+    command: ['sh', '-c', 'cd apps/payments && npm run db:migrate:prod']
     restart: 'no'
     profiles:
       - tools
@@ -80,6 +82,9 @@ networks:
   payments-network-internal:
     driver: bridge
     internal: true
+  rd_shop_backend_prod_shared:
+    driver: bridge
+    external: true
 
 volumes:
   payments_postgres_data:
