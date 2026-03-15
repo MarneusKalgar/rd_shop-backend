@@ -61,9 +61,9 @@ jobs:
           target: prod-distroless-${{ matrix.app }}
           build-args: APP=${{ matrix.app }}
           push: false
-          tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.app }}:pr-${{ github.event.pull_request.number }}
-            ghcr.io/${{ github.repository }}/${{ matrix.app }}:${{ github.sha }}
+          # tags: |
+          #   ghcr.io/${{ github.repository }}/${{ matrix.app }}:pr-${{ github.event.pull_request.number }}
+          #   ghcr.io/${{ github.repository }}/${{ matrix.app }}:${{ github.sha }}
           # Layer cache scoped per app to speed up repeated builds
           cache-from: type=gha,scope=docker-${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.app }}
