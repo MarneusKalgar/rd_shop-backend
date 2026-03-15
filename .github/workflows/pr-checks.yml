@@ -24,6 +24,9 @@ jobs:
     name: Code Quality
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - uses: ./.github/actions/install-dependencies
         with:
           node-version: ${{ env.NODE_VERSION }}
