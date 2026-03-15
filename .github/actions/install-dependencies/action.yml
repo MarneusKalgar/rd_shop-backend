@@ -1,0 +1,26 @@
+name: Install Dependencies
+description: >
+  Checks out the repository, sets up Node.js, runs npm ci, and persists
+  node_modules to the GitHub Actions cache for downstream jobs.
+
+inputs:
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '24'
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
