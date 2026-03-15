@@ -8,7 +8,7 @@ runs:
   steps:
     - name: Lint
       shell: bash
-      run: npm run lint
+      run: npm run lint:ci
 
     - name: Type check (shop + payments)
       shell: bash
