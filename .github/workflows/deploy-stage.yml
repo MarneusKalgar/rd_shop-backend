@@ -7,20 +7,6 @@ on:
     branches: [development]
     types: [completed]
 
-  # Manual trigger for testing — supply run_id and sha from any
-  # successful Build and Push run (including PR builds)
-  # TODO: remove after testing — deploy-stage should only run on workflow_run
-  workflow_dispatch:
-    inputs:
-      run_id:
-        description: 'build-and-push run ID'
-        required: true
-        type: string
-      sha:
-        description: 'Commit SHA that produced the above run'
-        required: true
-        type: string
-
 # Never cancel an in-progress deploy — always let it finish
 concurrency:
   group: deploy-stage
@@ -33,36 +19,15 @@ jobs:
     environment: stage # Separate env variables / secrets scoped to stage
     # Only proceed if the upstream build actually succeeded
 
-    # if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    # TODO: re-enable the above condition after testing — currently allowing manual dispatch for testing regardless of workflow_run context
-    if: >
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      github.event_name == 'workflow_dispatch'
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
-    # TODO remove after testing — deploy-stage should only run on workflow_run
     steps:
-      # ── 0. Resolve run context (workflow_run vs workflow_dispatch) ────────────
-      - name: Resolve run context
-        id: ctx
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "run_id=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
-            echo "sha=${{ inputs.sha }}"       >> "$GITHUB_OUTPUT"
-          else
-            echo "run_id=${{ github.event.workflow_run.id }}"    >> "$GITHUB_OUTPUT"
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      # steps:
       # ── 1. Download the release manifest produced by build-and-push ──────────
       - name: Download release manifest
         uses: actions/download-artifact@v8
         with:
-          # name: release-manifest-${{ github.event.workflow_run.head_sha }}
-          # run-id: ${{ github.event.workflow_run.id }}
-          # TODO remove after testing — use resolved context instead of github.event.workflow_run
-          name: release-manifest-${{ steps.ctx.outputs.sha }}
-          run-id: ${{ steps.ctx.outputs.run_id }}
+          name: release-manifest-${{ github.event.workflow_run.head_sha }}
+          run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # ── 2. Extract image references and commit info ───────────────────────────
