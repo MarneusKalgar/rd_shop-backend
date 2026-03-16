@@ -17,8 +17,12 @@ jobs:
     name: Deploy to Stage
     runs-on: ubuntu-latest
     environment: stage # Separate env variables / secrets scoped to stage
-    # Only proceed if the upstream build actually succeeded
 
+    permissions:
+      actions: read # Required to download artifacts from workflow_run
+      contents: read # Standard read access
+
+    # Only proceed if the upstream build actually succeeded
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
@@ -47,13 +51,15 @@ jobs:
       # ── 3. SSH into stage VM and deploy ──────────────────────────────────────
       #
       # Secrets required (scoped to the `stage` GitHub Environment):
-      #   SSH_PRIVATE_KEY  — private key for the deploy user
+      #   SSH_PRIVATE_KEY     — private key for the deploy user
+      #   ENV_FILE_SHOP       — base64-encoded .env file for shop app
+      #   ENV_FILE_PAYMENTS   — base64-encoded .env file for payments app
+      #   GHCR_TOKEN          — GitHub PAT with read:packages scope (for docker login on VM)
       #
       # Variables required (scoped to the `stage` GitHub Environment):
       #   SSH_HOST         — hostname / IP of the stage VM
       #   SSH_USER         — SSH username on the VM
       #   DEPLOY_DIR       — absolute path where the repo is checked out on the VM
-      #   GHCR_TOKEN       — GitHub PAT with read:packages scope (for docker login on VM)
       #
       - name: Deploy to stage
         uses: appleboy/ssh-action@v1.2.5

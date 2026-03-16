@@ -98,16 +98,16 @@ jobs:
             echo "| Job | Result |"
             echo "| --- | ------ |"
             echo "| Code Quality (lint · type-check · unit tests) | $(badge '${{ needs.code-quality.result }}') |"
-            echo "| Docker Preview Build — shop                   | $(badge '${{ needs.docker-preview-build.result }}') |"
-            echo "| Docker Preview Build — payments               | $(badge '${{ needs.docker-preview-build.result }}') |"
+            echo "| Docker Preview Build (shop, payments)         | $(badge '${{ needs.docker-preview-build.result }}') |"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Evaluate upstream results
         run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" \
-            || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more required checks failed or were cancelled."
+            || "${{ contains(needs.*.result, 'cancelled') }}" == "true" \
+            || "${{ contains(needs.*.result, 'skipped') }}" == "true" ]]; then
+            echo "One or more required checks failed, were cancelled, or were skipped."
             exit 1
           fi
           echo "All required checks passed."

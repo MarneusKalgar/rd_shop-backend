@@ -6,10 +6,6 @@ on:
       - development
       - main
       - release/*
-  # TODO: remove after testing — build-and-push should only run on push (post-merge)
-  pull_request:
-    branches:
-      - development
 
 env:
   REGISTRY: ghcr.io

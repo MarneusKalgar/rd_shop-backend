@@ -1,7 +1,7 @@
 name: Install Dependencies
 description: >
-  Sets up Node.js, runs npm ci, and persists
-  node_modules to the GitHub Actions cache for downstream jobs.
+  Sets up Node.js with npm download cache enabled
+  and installs dependencies via npm ci.
 
 inputs:
   node-version:
