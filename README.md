@@ -1,98 +1,734 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# RD Shop Backend - NestJS REST API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A production-ready, type-safe REST API built with NestJS, featuring comprehensive environment management, graceful shutdown handling, and standardized error responses.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 🚀 Features
+
+- **Database Integration** - TypeORM with PostgreSQL, supporting multiple providers (Neon, standard PostgreSQL)
+- **Database Migrations** - Version-controlled schema management with TypeORM migrations
+- **Database Seeding** - Idempotent seed data for development and testing
+- **Entity Relationships** - Complete domain model with User, Order, OrderItem, and Product entities
+- **Type-Safe Environment Management** - Runtime validation with class-validator
+- **Graceful Shutdown** - Proper cleanup of resources and connections
+- **Global Error Handling** - Consistent error responses with request tracing
+- **Request/Response Interceptors** - Standardized API response format
+- **Validation** - Automatic DTO validation with class-validator
+- **API Versioning** - URI-based versioning (default: v1)
+- **Request Tracing** - X-Request-ID header for distributed tracing
+- **Configurable Logging** - Environment-based log levels
+- **Cross-Platform Support** - Works on Windows, macOS, and Linux
+- **GraphQL API** - Code-first GraphQL implementation with Apollo Server (see [homework07.md](homework07.md))
+- **DataLoader Integration** - N+1 query prevention with request-scoped DataLoaders (90% query reduction)
+- **File Upload System** - Presigned S3 URLs for secure file uploads with two-phase workflow (see [homework09.md](homework09.md))
+- **Product Images** - Support for product main image association with AWS S3 storage
+- **Docker Support** - Production-ready multi-stage builds with distroless images (see [homework10.md](homework10.md))
+- **Container Security** - Non-root users, minimal base images, and network isolation
+- **Hot Reload in Docker** - Development environment with source code bind mounts
+- **RabbitMQ Integration** - Asynchronous order processing with manual ack, retry policy, and dead-letter queue (see [homework12.md](homework12.md))
+- **Idempotent Message Processing** - Duplicate message prevention via `ProcessedMessage` table and unique `messageId` constraint
+- **Order Worker** - Dedicated NestJS module consuming `order.process` queue, updating order status to `PROCESSED` after DB commit
+- **gRPC Payments Integration** - Independent payments-service communicating over gRPC; order worker authorizes payment after processing, updating order to `PAID` (see [homework14.md](homework14.md))
+- **GraphQL Authentication** - JWT-protected GraphQL queries via `GqlJwtAuthGuard`; user identity derived from Bearer token
+
+## 🛠️ Technology Stack
+
+### Core Framework
+
+- **[NestJS](https://nestjs.com/)** ^11.0.1 - Progressive Node.js framework
+- **[TypeScript](https://www.typescriptlang.org/)** ^5.7.3 - Type-safe JavaScript
+- **[Node.js](https://nodejs.org/)** - Runtime environment
+- **[Express](https://expressjs.com/)** - HTTP server
+
+### GraphQL
+
+- **[@nestjs/graphql](https://docs.nestjs.com/graphql/quick-start)** - NestJS GraphQL integration
+- **[@nestjs/apollo](https://www.apollographql.com/)** - Apollo Server v4 driver
+- **[graphql](https://graphql.org/)** - GraphQL.js implementation
+- **[dataloader](https://github.com/graphql/dataloader)** - Batching and caching layer for N+1 prevention
+
+### Database
+
+- **[TypeORM](https://typeorm.io/)** ^0.3.21 - ORM for TypeScript and JavaScript
+- **[PostgreSQL](https://www.postgresql.org/)** - Relational database
+- **[pg](https://node-postgres.com/)** - PostgreSQL client for Node.js
+
+### File Storage
+
+- **[@aws-sdk/client-s3](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/)** - AWS SDK v3 for S3 operations
+- **[@aws-sdk/s3-request-presigner](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/)** - Presigned URL generation for secure uploads
+
+### Validation & Configuration
+
+- **[class-validator](https://github.com/typestack/class-validator)** - Decorator-based validation
+- **[class-transformer](https://github.com/typestack/class-transformer)** - Object transformation
+- **[@nestjs/config](https://docs.nestjs.com/techniques/configuration)** - Configuration management
+
+### Development & Code Quality
+
+- **[ESLint](https://eslint.org/)** - Code linting
+- **[Prettier](https://prettier.io/)** - Code formatting
+- **[Husky](https://typicode.github.io/husky/)** - Git hooks
+- **[lint-staged](https://github.com/okonet/lint-staged)** - Run linters on staged files
+
+### Testing
+
+- **[Jest](https://jestjs.io/)** - Testing framework
+- **[Supertest](https://github.com/visionmedia/supertest)** - HTTP assertions
+
+### Messaging
+
+- **[RabbitMQ](https://www.rabbitmq.com/)** - Message broker for async order processing
+- **[amqplib](https://github.com/amqp-node/amqplib)** - AMQP 0-9-1 client for Node.js
+
+### gRPC
+
+- **[@nestjs/microservices](https://docs.nestjs.com/microservices/grpc)** - NestJS microservices with gRPC transport
+- **[@grpc/grpc-js](https://github.com/grpc/grpc-node)** - Pure JavaScript gRPC implementation
+- **[@grpc/proto-loader](https://github.com/grpc/grpc-node/tree/master/packages/proto-loader)** - Dynamic proto file loading
+
+### Infrastructure
+
+- **[Docker](https://www.docker.com/)** - Containerization platform
+- **[Docker Compose](https://docs.docker.com/compose/)** - Multi-container orchestration
+- **[Distroless Images](https://github.com/GoogleContainerTools/distroless)** - Minimal base images from Google
+- **[MinIO](https://min.io/)** - S3-compatible object storage for local development
+
+## 📋 Prerequisites
+
+### Required
+
+- Node.js (v18+ recommended)
+- npm or yarn
+- Git
+
+### Optional (for Docker setup)
+
+- Docker Desktop or Docker Engine (v20.10+)
+- Docker Compose (v2.0+)
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+NestJS monorepo with two independently deployed services: **shop-service** (HTTP REST + GraphQL + RabbitMQ consumer) and **payments-service** (gRPC only).
 
-## Project setup
-
-```bash
-$ npm install
-```
-
-## Compile and run the project
+## 🔧 Installation
 
 ```bash
-# development
-$ npm run start
+# Clone the repository
+git clone <repository-url>
+cd rd_shop
 
-# watch mode
-$ npm run start:dev
+# Install dependencies (shared across both services)
+npm install
 
-# production mode
-$ npm run start:prod
+# Create environment files for each service
+touch apps/shop/.env.development
+touch apps/payments/.env.development
+
+# Fill in the required variables (see Environment Configuration below)
 ```
 
-## Run tests
+## 🌍 Environment Configuration
+
+Each service has its own environment file under `apps/<service>/`:
+
+- `apps/shop/.env.development` / `.env.production`
+- `apps/payments/.env.development` / `.env.production`
+
+### shop-service key variables
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+PORT=8080
+NODE_ENV=development
+DATABASE_URL=postgresql://user:password@localhost:5432/rd_shop_dev
+JWT_ACCESS_SECRET=<hex>
+JWT_ACCESS_EXPIRES_IN=1h
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_PORT=5672
+PAYMENTS_GRPC_HOST=payments
+PAYMENTS_GRPC_PORT=5001
+PAYMENTS_GRPC_TIMEOUT_MS=5000
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### payments-service key variables
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+PAYMENTS_GRPC_HOST=0.0.0.0
+PAYMENTS_GRPC_PORT=5001
+DATABASE_URL=postgresql://user:password@localhost:5432/rd_shop_payments_dev
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## 🚀 Running the Application
+
+Both services are run via Docker Compose. See the **Docker Support** section below.
+
+For local development without Docker (each from project root):
+
+```bash
+# shop-service
+cd apps/shop && npm run start:dev
+
+# payments-service (separate terminal)
+cd apps/payments && npm run start:dev
+
+# Build all
+npm run build
+```
+
+## Docker Support
+
+The application uses per-service Docker Compose files with a **shared bridge network** (`rd_shop_backend_dev_shared`) for inter-service gRPC communication.
+
+### Prerequisites
+
+```bash
+# Create the shared network once
+docker network create rd_shop_backend_dev_shared
+```
+
+### Starting services (development)
+
+```bash
+# payments-service first (shop depends on it)
+cd apps/payments && npm run docker:start:dev
+# or: docker compose -p rd_shop_backend_payments_dev -f apps/payments/compose.yml -f apps/payments/compose.dev.yml up
+
+# shop-service
+cd apps/shop && npm run docker:start:dev
+# or: docker compose -p rd_shop_backend_shop_dev -f apps/shop/compose.yml -f apps/shop/compose.dev.yml up
+```
+
+### Migrations & Seeding
+
+```bash
+# shop-service
+cd apps/shop && npm run docker:migrate:dev
+cd apps/shop && npm run docker:seed:dev
+
+# payments-service
+cd apps/payments && npm run docker:migrate:dev
+```
+
+### Teardown
+
+```bash
+cd apps/shop && npm run docker:down:dev
+cd apps/payments && npm run docker:down:dev
+docker network rm rd_shop_backend_dev_shared
+```
+
+### Production (WIP)
+
+```bash
+# payments-service
+cd apps/payments && npm run docker:start:prod
+
+# shop-service
+cd apps/shop && npm run docker:start:prod
+```
+
+### Docker Features
+
+- **Multi-stage builds** - Optimized image sizes (67% reduction: 1.2 GB → 384 MB)
+- **Distroless images** - Minimal attack surface with no shell or package manager
+- **Non-root users** - All containers run as non-root (UID 1001 or 65532)
+- **Hot reload** - Development environment with source code bind mounts
+- **Service isolation** - PostgreSQL on internal-only networks per service
+- **Health checks** - Automatic dependency management
+- **MinIO integration** - S3-compatible object storage for local development (shop only)
+- **Shared network** - `rd_shop_backend_dev_shared` bridge network for gRPC communication
+
+### Available Endpoints
+
+| Service          | Endpoint                        | Description            |
+| ---------------- | ------------------------------- | ---------------------- |
+| shop-service     | `http://localhost:8080/api/v1`  | REST API               |
+| shop-service     | `http://localhost:8080/graphql` | GraphQL Playground     |
+| shop-service     | `http://localhost:15672`        | RabbitMQ Management UI |
+| payments-service | `grpc://localhost:5001`         | gRPC (internal only)   |
+
+For comprehensive Docker documentation, see [homework10.md](homework10.md).
+
+## 🐇 Asynchronous Order Processing (RabbitMQ)
+
+After a successful order creation the HTTP response is returned immediately while processing continues asynchronously:
+
+```
+POST /api/v1/orders
+       │
+       ├─ DB transaction: reserve stock, create order (status: PENDING)
+       ├─ Publish → order.process queue
+       └─ Return 201 (non-blocking)
+
+order.process queue
+       │
+       └─ OrderWorkerService.handleMessage()
+              ├─ processOrderMessage() inside DB transaction
+              ├─ ack only after commit
+              ├─ on failure: retry up to 3×  (2s delay)
+              └─ on exhaustion: publish → orders.dlq
+```
+
+**Queue topology:**
+
+| Queue           | Purpose                                            |
+| --------------- | -------------------------------------------------- |
+| `order.process` | Main processing queue (durable)                    |
+| `orders.dlq`    | Dead-letter queue for exhausted messages (durable) |
+
+**Idempotency:** each message carries a unique `messageId`; the `ProcessedMessage` table with a unique index on `message_id` prevents duplicate processing even under retries or network replays.
+
+For full details, reproduction steps, and log evidence see [homework12.md](homework12.md).
+
+## �🗄️ Database Management
+
+### Database Schema
+
+The application includes a complete e-commerce data model:
+
+```
+User (1) ──────< (N) Order (1) ──────< (N) OrderItem (N) >────── (1) Product
+         orders              items                    product
+```
+
+**Entities:**
+
+- **User** - Customer accounts with email and timestamps
+- **Order** - Customer orders with status tracking (CREATED, PAID, CANCELLED)
+- **OrderItem** - Line items with quantity and price at purchase
+- **Product** - Product catalog with pricing and active status
+
+**Features:**
+
+- Idempotent (safe to run multiple times)
+- Production safety (prevents accidental seeding in production)
+- Relationship resolution (maintains foreign key integrity)
+
+### Database Adapter Pattern
+
+The application uses an adapter pattern for database flexibility:
+
+- **NeonAdapter** - Optimized for Neon Database (serverless PostgreSQL)
+- **BasePostgresAdapter** - Standard PostgreSQL configuration
+- Auto-detection based on DATABASE_URL
+- Easy to extend for other providers
+
+## 🧪 Testing
+
+```bash
+# Run unit tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Generate test coverage
+npm run test:cov
+
+# Run e2e tests
+npm run test:e2e
+
+# Debug tests
+npm run test:debug
+```
+
+## 🏗️ Architecture Overview
+
+### Services
+
+The system is a **monorepo** with two independently deployable services:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  shop-service  (HTTP :8080 + RabbitMQ consumer)      │
+│                                                      │
+│   REST API  →  OrdersService  →  RabbitMQ publish    │
+│   GraphQL   →  OrdersService  →  RabbitMQ publish    │
+│                                        │             │
+│   OrderWorkerService  ◄────────────────┘             │
+│        │  mark PROCESSED                             │
+│        ▼                                             │
+│   PaymentsGrpcService.authorize()  ──── gRPC ──►     │
+└──────────────────────────────────────────────────────┘
+                                          │
+                        ┌─────────────────▼──────────┐
+                        │  payments-service (:5001)  │
+                        │  gRPC: Authorize           │
+                        │  gRPC: GetPaymentStatus    │
+                        └────────────────────────────┘
+```
+
+### Design Patterns
+
+#### 1. **Layered Architecture**
+
+```
+┌─────────────────────────────────────────┐
+│         Controllers Layer               │  ← HTTP/REST/GraphQL endpoints
+├─────────────────────────────────────────┤
+│         Services Layer                  │  ← Business logic
+├─────────────────────────────────────────┤
+│         Repository Layer                │  ← Data access
+├─────────────────────────────────────────┤
+│         Database Layer                  │  ← PostgreSQL
+└─────────────────────────────────────────┘
+```
+
+#### 2. **Dependency Injection**
+
+- NestJS built-in IoC container
+- Constructor-based injection
+- Provider pattern for services
+
+#### 3. **Middleware Pattern**
+
+```
+Request → Middleware → Guards → Interceptors → Controller → Interceptors → Response
+                                                     ↓
+                                            Exception Filters
+```
+
+#### 4. **DTO (Data Transfer Object) Pattern**
+
+- Request/response data validation
+- Type safety with TypeScript
+- Automatic transformation
+
+#### 5. **Exception Handling Strategy**
+
+- Global exception filter
+- Standardized error responses
+- Request ID tracking
+- Environment-specific logging
+
+### Request/Response Flow
+
+```
+┌──────────────┐
+│   Request    │
+└──────┬───────┘
+       │
+       ↓
+┌──────────────────────┐
+│ RequestIdMiddleware  │  ← Adds X-Request-ID header
+└──────┬───────────────┘
+       │
+       ↓
+┌──────────────────────┐
+│   ValidationPipe     │  ← Validates & transforms DTOs
+└──────┬───────────────┘
+       │
+       ↓
+┌──────────────────────┐
+│    Controller        │  ← Route handlers
+└──────┬───────────────┘
+       │
+       ↓
+┌──────────────────────┐
+│     Service          │  ← Business logic
+└──────┬───────────────┘
+       │
+       ↓
+┌──────────────────────┐
+│ TransformInterceptor │  ← Wraps response in { data: ... }
+└──────┬───────────────┘
+       │
+       ↓
+┌──────────────────────┐
+│   Response: 200      │
+│   {                  │
+│     "data": {...}    │
+│   }                  │
+└──────────────────────┘
+
+       If Error ↓
+
+┌──────────────────────┐
+│ GlobalExceptionFilter│  ← Catches & formats errors
+└──────┬───────────────┘
+       │
+       ↓
+┌──────────────────────┐
+│   Response: 4xx/5xx  │
+│   {                  │
+│     "statusCode": n, │
+│     "message": "...",│
+│     "error": "...",  │
+│     "errorCode": ".. │
+│     "path": "...",   │
+│     "timestamp": "..."│
+│     "requestId": "..."│
+│   }                  │
+└──────────────────────┘
+```
+
+## 📁 Project Structure
+
+```
+rd_shop/
+├── apps/
+│   ├── shop/                      # shop-service (HTTP :8080)
+│   │   ├── src/
+│   │   │   ├── auth/              # JWT auth, guards, decorators
+│   │   │   ├── common/            # Filters, interceptors, middlewares
+│   │   │   ├── config/            # App configuration
+│   │   │   ├── core/              # Environment, Swagger, process handlers
+│   │   │   ├── db/                # Migrations, seed, adapters
+│   │   │   ├── files/             # S3 file upload module
+│   │   │   ├── graphql/           # GraphQL module, resolvers, loaders
+│   │   │   ├── orders/            # Orders feature module
+│   │   │   ├── orders-worker/     # RabbitMQ consumer
+│   │   │   ├── payments/          # gRPC client for payments-service
+│   │   │   ├── products/          # Products feature module
+│   │   │   ├── rabbitmq/          # RabbitMQ service & processed messages
+│   │   │   ├── users/             # Users feature module
+│   │   │   └── utils/             # Utility functions
+│   │   ├── compose.yml            # Production Compose
+│   │   ├── compose.dev.yml        # Development Compose overrides
+│   │   └── package.json
+│   │
+│   └── payments/                  # payments-service (gRPC :5001)
+│       ├── src/
+│       │   ├── config/            # App configuration
+│       │   ├── db/                # Migrations
+│       │   ├── proto/             # Copied proto file (generated at startup)
+│       │   └── utils/             # Utility functions
+│       ├── compose.yml            # Production Compose
+│       ├── compose.dev.yml        # Development Compose overrides
+│       └── package.json
+│
+├── proto/
+│   └── payments.proto             # Single source of truth for gRPC contract
+│
+├── Dockerfile                     # Multi-stage production build
+├── Dockerfile.dev                 # Development build
+└── package.json                   # Root — shared dependencies & tooling
+```
+
+## 🔌 API Endpoints
+
+### REST API Base URL
+
+```
+http://localhost:8080/api/v1
+```
+
+### GraphQL Endpoint
+
+```
+http://localhost:8080/graphql
+```
+
+**GraphQL Playground:** Available at `http://localhost:8080/graphql`
+
+**Authentication required:** All GraphQL queries require a Bearer token in the `Authorization` header.
+
+**Example Query:**
+
+```graphql
+query GetOrders {
+  orders(filter: { status: PAID }, pagination: { limit: 10 }) {
+    nodes {
+      id
+      status
+      createdAt
+      user {
+        email
+      }
+      items {
+        quantity
+        product {
+          title
+          price
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      nextCursor
+    }
+  }
+}
+```
+
+For comprehensive GraphQL documentation, see [homework07.md](homework07.md).
+
+### Users Module
+
+All responses are wrapped in a standard format:
+
+```json
+{
+  "data": {
+    /* actual response */
+  }
+}
+```
+
+### Error Response Format
+
+All errors follow this standardized format:
+
+```json
+{
+  "statusCode": 404,
+  "message": "User not found",
+  "error": "Not Found Error",
+  "path": "/api/v1/users/123",
+  "timestamp": "2026-01-20T10:30:00.000Z",
+  "requestId": "abc-123-def"
+}
+```
+
+## 🔐 Environment Management
+
+### Type-Safe Configuration
+
+The application uses a schema-based approach to environment variables:
+
+```typescript
+// src/core/environment/schema.ts
+export class EnvironmentVariables {
+  @IsString()
+  NODE_ENV?: string;
+
+  @IsNumber()
+  PORT: number;
+
+  @IsOptional()
+  @IsString()
+  APP_LOG_LEVEL?: string;
+}
+```
+
+### Using Configuration in Services
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { InjectConfig, TypedConfigService } from '@/core/environment';
+
+@Injectable()
+export class MyService {
+  constructor(@InjectConfig() private config: TypedConfigService) {}
+
+  getPort() {
+    return this.config.get('PORT', { infer: true }); // Type-safe!
+  }
+}
+```
+
+## 🛡️ Error Handling
+
+### Standard Error Codes
+
+| Status | Error Code            | Description             |
+| ------ | --------------------- | ----------------------- |
+| 400    | BAD_REQUEST           | Invalid request format  |
+| 401    | UNAUTHORIZED          | Authentication required |
+| 403    | FORBIDDEN             | Permission denied       |
+| 404    | NOT_FOUND             | Resource not found      |
+| 409    | CONFLICT              | Resource conflict       |
+| 422    | UNPROCESSABLE_ENTITY  | Validation failed       |
+| 429    | TOO_MANY_REQUESTS     | Rate limit exceeded     |
+| 500    | INTERNAL_SERVER_ERROR | Server error            |
+| 503    | SERVICE_UNAVAILABLE   | Service unavailable     |
+
+## 📝 Code Quality
+
+### Linting & Formatting
+
+```bash
+# Run ESLint
+npm run lint
+
+# Format code with Prettier
+npm run format
+
+# Type checking
+npm run type-check
+```
+
+### Pre-commit Hooks
+
+The project uses Husky and lint-staged to enforce code quality:
+
+- Automatic linting and formatting on commit
+- Type checking before push
+- Prevents committing code with errors
+
+## 🚢 Deployment
+
+### Building for Production
+
+```bash
+# Build the application
+npm run build
+
+# The compiled output will be in the dist/ folder
+```
+
+### Running in Production
+
+```bash
+# Set NODE_ENV to production
+export NODE_ENV=production
+
+# Run the built application
+npm run start:prod
+```
+
+### Environment Variables for Production
+
+Ensure the following are set in your production environment:
+
+- `NODE_ENV=production`
+- `PORT=<your-port>`
+- `APP_LOG_LEVEL=log` (or appropriate level)
+
+## 🔄 Graceful Shutdown
+
+The application handles graceful shutdown automatically:
+
+- Closes HTTP server
+- Waits for active requests to complete
+- Cleans up resources (database connections, Redis, etc.)
+- Exits cleanly on SIGTERM/SIGINT
+
+Configuration per environment in `src/config/graceful-shutdown.ts`
+
+## 📚 Next Steps
+
+See [TODO.md](TODO.md) for planned features:
+
+- [x] Database integration (TypeORM + PostgreSQL)
+- [x] Database migrations and seeding
+- [x] GraphQL API with DataLoader (see [homework07.md](homework07.md))
+- [x] Docker support with multi-stage builds (see [homework10.md](homework10.md))
+- [x] RabbitMQ async order processing with retry and DLQ (see [homework12.md](homework12.md))
+- [x] gRPC payments integration with independent payments-service (see [homework14.md](homework14.md))
+- [x] Authentication & Authorization (JWT) for REST and GraphQL
+- [ ] Complete service layer implementation (CRUD operations)
+- [ ] Health check endpoint
+- [ ] Rate limiting
+- [ ] Redis caching
+- [ ] API documentation (Swagger)
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## Resources
 
-Check out a few resources that may come in handy when working with NestJS:
+- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework
+- For questions and support, visit the [Discord channel](https://discord.gg/G7Qnnhy)
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## 📄 License
 
-## Support
+This project is licensed under the UNLICENSED license.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+---
 
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+**Built with ❤️ using NestJS**

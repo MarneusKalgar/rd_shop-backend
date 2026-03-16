@@ -1,0 +1,91 @@
+services:
+  payments:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_prod}-payments
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-distroless-payments
+      args:
+        APP: payments
+    init: true
+    # environment:
+    #   GRPC_PORT: ${GRPC_PORT:-50051}
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - payments-network-internal
+      - rd_shop_backend_prod_shared
+
+  payments-debug:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_prod}-payments-debug
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-payments
+    # environment:
+    #   GRPC_PORT: ${GRPC_PORT:-50051}
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+    networks:
+      - payments-network-internal
+    profiles:
+      - debug
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_prod}-postgres
+    volumes:
+      - payments_postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env.production
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      payments-network-internal:
+        aliases:
+          - postgres
+
+  migrate:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_prod}-migrate
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-payments
+      args:
+        APP: payments
+    user: '1001:1001'
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['sh', '-c', 'cd apps/payments && npm run db:migrate:prod']
+    restart: 'no'
+    profiles:
+      - tools
+    networks:
+      - payments-network-internal
+
+networks:
+  payments-network-internal:
+    driver: bridge
+    internal: true
+  rd_shop_backend_prod_shared:
+    driver: bridge
+    external: true
+
+volumes:
+  payments_postgres_data:
+    name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments}-postgres_data

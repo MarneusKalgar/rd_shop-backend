@@ -1,0 +1,5 @@
+echo "Type checking. Please wait...\r"
+npm run type-check
+
+echo "Linting and formatting staged files. Please wait...\r"
+npx lint-staged

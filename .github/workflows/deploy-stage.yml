@@ -1,0 +1,175 @@
+name: Deploy — Stage
+
+on:
+  # Automatically triggered when build-and-push completes on the development branch
+  workflow_run:
+    workflows: ['Build and Push']
+    branches: [development]
+    types: [completed]
+
+# Never cancel an in-progress deploy — always let it finish
+concurrency:
+  group: deploy-stage
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Stage
+    runs-on: ubuntu-latest
+    environment: stage # Separate env variables / secrets scoped to stage
+
+    permissions:
+      actions: read # Required to download artifacts from workflow_run
+      contents: read # Standard read access
+
+    # Only proceed if the upstream build actually succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      # ── 1. Download the release manifest produced by build-and-push ──────────
+      - name: Download release manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-manifest-${{ github.event.workflow_run.head_sha }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Extract image references and commit info ───────────────────────────
+      - name: Parse release manifest
+        id: manifest
+        run: |
+          echo "=== release-manifest.json ==="
+          cat release-manifest.json
+
+          echo "commit=$(jq -r '.commit' release-manifest.json)"             >> "$GITHUB_OUTPUT"
+          echo "ref=$(jq -r '.ref' release-manifest.json)"                   >> "$GITHUB_OUTPUT"
+          echo "shop_image=$(jq -r '.services.shop.image' release-manifest.json)"         >> "$GITHUB_OUTPUT"
+          echo "shop_digest=$(jq -r '.services.shop.digest' release-manifest.json)"       >> "$GITHUB_OUTPUT"
+          echo "payments_image=$(jq -r '.services.payments.image' release-manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "payments_digest=$(jq -r '.services.payments.digest' release-manifest.json)" >> "$GITHUB_OUTPUT"
+
+      # ── 3. SSH into stage VM and deploy ──────────────────────────────────────
+      #
+      # Secrets required (scoped to the `stage` GitHub Environment):
+      #   SSH_PRIVATE_KEY     — private key for the deploy user
+      #   ENV_FILE_SHOP       — base64-encoded .env file for shop app
+      #   ENV_FILE_PAYMENTS   — base64-encoded .env file for payments app
+      #   GHCR_TOKEN          — GitHub PAT with read:packages scope (for docker login on VM)
+      #
+      # Variables required (scoped to the `stage` GitHub Environment):
+      #   SSH_HOST         — hostname / IP of the stage VM
+      #   SSH_USER         — SSH username on the VM
+      #   DEPLOY_DIR       — absolute path where the repo is checked out on the VM
+      #
+      - name: Deploy to stage
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          ENV_FILE_SHOP: ${{ secrets.ENV_FILE_SHOP }}
+          ENV_FILE_PAYMENTS: ${{ secrets.ENV_FILE_PAYMENTS }}
+          SHOP_IMAGE: ${{ steps.manifest.outputs.shop_image }}
+          PAYMENTS_IMAGE: ${{ steps.manifest.outputs.payments_image }}
+          COMMIT_SHA: ${{ steps.manifest.outputs.commit }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_USER: ${{ github.repository_owner }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+        with:
+          host: ${{ vars.SSH_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: SHOP_IMAGE,PAYMENTS_IMAGE,COMMIT_SHA,GHCR_TOKEN,GHCR_USER,DEPLOY_DIR,ENV_FILE_SHOP,ENV_FILE_PAYMENTS
+          script: |
+            set -euo pipefail
+            printf '%s' "${ENV_FILE_SHOP}"     | base64 -d > "${DEPLOY_DIR}/apps/shop/.env.production"
+            printf '%s' "${ENV_FILE_PAYMENTS}" | base64 -d > "${DEPLOY_DIR}/apps/payments/.env.production"
+
+            echo "========================================"
+            echo " Stage Deploy"
+            echo " Commit:         ${COMMIT_SHA}"
+            echo " Shop image:     ${SHOP_IMAGE}"
+            echo " Payments image: ${PAYMENTS_IMAGE}"
+            echo "========================================"
+
+            # --- Authenticate and pull pre-built images ----------------------
+            printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+
+            docker pull "${SHOP_IMAGE}"
+            docker pull "${PAYMENTS_IMAGE}"
+
+            # --- Update compose files from repo ------------------------------
+            cd "${DEPLOY_DIR}"
+            git fetch origin
+            git checkout development
+            git pull --ff-only
+
+            # --- Generate image override files -------------------------------
+            printf 'services:\n  payments:\n    image: "%s"\n' "${PAYMENTS_IMAGE}" \
+              > /tmp/payments-override.yml
+
+            printf 'services:\n  shop:\n    image: "%s"\n' "${SHOP_IMAGE}" \
+              > /tmp/shop-override.yml
+
+            # --- Deploy payments ---------------------------------------------
+            echo "--- Deploying payments ---"
+            PAYMENTS_ARGS="-p rd_shop_backend_payments_stage \
+              -f ${DEPLOY_DIR}/apps/payments/compose.yml \
+              -f /tmp/payments-override.yml"
+
+            docker compose ${PAYMENTS_ARGS} up -d --no-build --remove-orphans
+
+            # --- Deploy shop -------------------------------------------------
+            echo "--- Deploying shop ---"
+            SHOP_ARGS="-p rd_shop_backend_shop_stage \
+              -f ${DEPLOY_DIR}/apps/shop/compose.yml \
+              -f /tmp/shop-override.yml"
+
+            docker compose ${SHOP_ARGS} up -d --no-build --remove-orphans
+
+            docker logout ghcr.io
+            echo "--- Deploy complete ---"
+
+      # ── 4. Post-deploy smoke test ─────────────────────────────────────────────
+      #
+      # Variable required (scoped to the `stage` GitHub Environment):
+      #   HEALTH_URL — local URL on the VM, e.g.: http://localhost:8080/health
+      #
+      - name: Smoke test — shop health check
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+        with:
+          host: ${{ vars.SSH_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: HEALTH_URL
+          script: |
+            set -euo pipefail
+            echo "Probing ${HEALTH_URL} ..."
+            for i in $(seq 1 24); do
+              if curl -sf --max-time 5 "${HEALTH_URL}"; then
+                echo ""
+                echo "✅ Health check passed"
+                exit 0
+              fi
+              echo "  attempt ${i}/24 failed — retrying in 5s"
+              sleep 5
+            done
+            echo "❌ Health check failed after 120s"
+            exit 1
+
+      # ── 5. Write step summary ─────────────────────────────────────────────────
+      - name: Write deploy summary
+        if: always()
+        run: |
+          {
+            echo "## Stage Deploy Summary"
+            echo ""
+            echo "| Field | Value |"
+            echo "| ----- | ----- |"
+            echo "| Environment | \`stage\` |"
+            echo "| Commit | \`${{ steps.manifest.outputs.commit }}\` |"
+            echo "| Ref | \`${{ steps.manifest.outputs.ref }}\` |"
+            echo "| Shop image | \`${{ steps.manifest.outputs.shop_image }}\` |"
+            echo "| Shop digest | \`${{ steps.manifest.outputs.shop_digest }}\` |"
+            echo "| Payments image | \`${{ steps.manifest.outputs.payments_image }}\` |"
+            echo "| Payments digest | \`${{ steps.manifest.outputs.payments_digest }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

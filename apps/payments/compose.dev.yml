@@ -1,0 +1,57 @@
+services:
+  payments:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}-payments
+    build:
+      context: ../..
+      dockerfile: Dockerfile.dev
+      target: ''
+    user: '1001:1001'
+    environment:
+      APP: payments
+    volumes:
+      - ../../apps:/app/apps
+      - ../../proto:/app/proto
+      - /app/node_modules
+    env_file:
+      - .env.development
+    command:
+      [
+        'sh',
+        '-c',
+        'mkdir -p /app/apps/payments/src/proto && cp /app/proto/payments.proto /app/apps/payments/src/proto/payments.proto && echo "Proto copied:" && ls /app/apps/payments/src/proto/ && cd apps/payments && npm run start:dev',
+      ]
+    networks:
+      - payments-dev-network-internal
+      - rd_shop_backend_dev_shared
+
+  postgres:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}-postgres
+    env_file:
+      - .env.development
+    networks:
+      payments-dev-network-internal:
+        aliases:
+          - postgres
+
+  migrate:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}-migrate
+    build:
+      context: ../..
+      dockerfile: Dockerfile.dev
+      target: ''
+    volumes:
+      - ../../apps:/app/apps
+      - /app/node_modules
+    env_file:
+      - .env.development
+    command: ['sh', '-c', 'cd apps/payments && npm run db:migrate:dev']
+    networks:
+      - payments-dev-network-internal
+
+networks:
+  payments-dev-network-internal:
+    driver: bridge
+    internal: true
+  rd_shop_backend_dev_shared:
+    driver: bridge
+    external: true

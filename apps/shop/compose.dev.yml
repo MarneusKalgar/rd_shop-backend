@@ -1,0 +1,112 @@
+services:
+  shop:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-app
+    build:
+      context: ../..
+      dockerfile: Dockerfile.dev
+      target: ''
+    environment:
+      APP: shop
+    init: true
+    user: '1001:1001'
+    ports:
+      - '${PORT:-8080}:${PORT:-8080}'
+    volumes:
+      - ../../apps:/app/apps
+      - ../../proto:/app/proto
+      - /app/node_modules
+    env_file:
+      - .env.development
+    command:
+      [
+        'sh',
+        '-c',
+        'mkdir -p /app/apps/shop/src/proto && cp /app/proto/payments.proto /app/apps/shop/src/proto/payments.proto && echo "Proto copied:" && ls /app/apps/shop/src/proto/ && cd apps/shop && npm run start:dev',
+      ]
+    networks:
+      - shop-dev-network
+      - shop-dev-network-internal
+      - rd_shop_backend_dev_shared
+
+  postgres:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-postgres
+    env_file:
+      - .env.development
+    networks:
+      shop-dev-network-internal:
+        aliases:
+          - postgres
+
+  minio:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-minio
+    env_file:
+      - .env.development
+    ports:
+      - '${MINIO_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    networks:
+      - shop-dev-network
+
+  minio-init:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-minio-init
+    env_file:
+      - .env.development
+    networks:
+      - shop-dev-network
+
+  rabbitmq:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-rabbitmq
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
+    env_file:
+      - .env.development
+    networks:
+      - shop-dev-network
+      - shop-dev-network-internal
+
+  migrate:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-migrate
+    environment:
+      TS_NODE_PROJECT: tsconfig.app.json
+      APP: shop
+    build:
+      context: ../..
+      dockerfile: Dockerfile.dev
+      target: ''
+    volumes:
+      - ../../apps:/app/apps
+      - /app/node_modules
+    env_file:
+      - .env.development
+    command: ['sh', '-c', 'cd apps/shop && npm run db:migrate:dev']
+    networks:
+      - shop-dev-network-internal
+
+  seed:
+    container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-seed
+    environment:
+      TS_NODE_PROJECT: tsconfig.app.json
+      APP: shop
+    build:
+      context: ../..
+      dockerfile: Dockerfile.dev
+      target: ''
+    volumes:
+      - ../../apps:/app/apps
+      - /app/node_modules
+    env_file:
+      - .env.development
+    command: ['sh', '-c', 'cd apps/shop && npm run db:seed:dev']
+    networks:
+      - shop-dev-network-internal
+
+networks:
+  shop-dev-network:
+    driver: bridge
+  shop-dev-network-internal:
+    driver: bridge
+    internal: true
+  rd_shop_backend_dev_shared:
+    driver: bridge
+    external: true

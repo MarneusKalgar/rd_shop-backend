@@ -1,0 +1,113 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - development
+      - main
+      - release/*
+
+env:
+  NODE_VERSION: '24'
+
+# Cancel any in-flight run for the same PR when a new commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Stage 1+2 · Install + Code quality (single runner)
+  # Both actions share the same VM — no cache round-trip needed.
+  # ──────────────────────────────────────────────────────────────
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - uses: ./.github/actions/install-dependencies
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: ./.github/actions/code-quality
+
+  # ──────────────────────────────────────────────────────────────
+  # Stage 3 · Additional quality gate — Docker build validation
+  # Validates that the production Dockerfile builds successfully
+  # for both apps. Runs only after all stage-2 checks pass.
+  # ──────────────────────────────────────────────────────────────
+  docker-preview-build:
+    name: Docker Preview Build (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    needs: code-quality
+    strategy:
+      fail-fast: true
+      matrix:
+        app: [shop, payments]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build ${{ matrix.app }} production image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          target: prod-distroless-${{ matrix.app }}
+          build-args: APP=${{ matrix.app }}
+          push: false
+          # tags: |
+          #   ghcr.io/${{ github.repository }}/${{ matrix.app }}:pr-${{ github.event.pull_request.number }}
+          #   ghcr.io/${{ github.repository }}/${{ matrix.app }}:${{ github.sha }}
+          # Layer cache scoped per app to speed up repeated builds
+          cache-from: type=gha,scope=docker-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.app }}
+
+  # ──────────────────────────────────────────────────────────────
+  # Required check sentinel
+  # Add THIS job name to your branch protection "required status
+  # checks" — it aggregates every upstream result so you only
+  # need to maintain one entry in the repository settings.
+  # ──────────────────────────────────────────────────────────────
+  all-checks-passed:
+    name: All Checks Passed
+    runs-on: ubuntu-latest
+    needs: [code-quality, docker-preview-build]
+    if: always()
+    steps:
+      - name: Write job summary
+        run: |
+          function badge() {
+            case "$1" in
+              success)   echo "✅ success"   ;;
+              failure)   echo "❌ failure"   ;;
+              cancelled) echo "⚠️ cancelled" ;;
+              skipped)   echo "⏭️ skipped"   ;;
+              *)         echo "❓ $1"        ;;
+            esac
+          }
+
+          {
+            echo "## PR Checks Summary"
+            echo ""
+            echo "| Job | Result |"
+            echo "| --- | ------ |"
+            echo "| Code Quality (lint · type-check · unit tests) | $(badge '${{ needs.code-quality.result }}') |"
+            echo "| Docker Preview Build (shop, payments)         | $(badge '${{ needs.docker-preview-build.result }}') |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Evaluate upstream results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" \
+            || "${{ contains(needs.*.result, 'cancelled') }}" == "true" \
+            || "${{ contains(needs.*.result, 'skipped') }}" == "true" ]]; then
+            echo "One or more required checks failed, were cancelled, or were skipped."
+            exit 1
+          fi
+          echo "All required checks passed."

@@ -1,0 +1,27 @@
+name: Code Quality
+description: >
+  Runs lint, TypeScript type checking, and unit tests (with coverage upload).
+  Expects node_modules to already be present on the runner.
+
+runs:
+  using: composite
+  steps:
+    - name: Lint
+      shell: bash
+      run: npm run lint:ci
+
+    - name: Type check (shop + payments)
+      shell: bash
+      run: npm run type-check
+
+    - name: Unit tests with coverage
+      shell: bash
+      run: npm run test:cov
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage-report
+        path: coverage/
+        retention-days: 7
