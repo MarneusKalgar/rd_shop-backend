@@ -7,7 +7,7 @@ import { PAYMENTS_GRPC_CLIENT } from './constants';
 import { PaymentsGrpcService } from './payments-grpc.service';
 
 @Module({
-  exports: [PaymentsGrpcService],
+  exports: [PaymentsGrpcService, PAYMENTS_GRPC_CLIENT],
   imports: [ConfigModule],
   providers: [
     {

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TerminusModule } from '@nestjs/terminus';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { getTypeOrmModuleOptions } from './config';
@@ -22,6 +23,7 @@ import { PaymentsService } from './payments.service';
       useFactory: getTypeOrmModuleOptions,
     }),
     TypeOrmModule.forFeature([Payment]),
+    TerminusModule,
   ],
   providers: [PaymentsService],
 })
