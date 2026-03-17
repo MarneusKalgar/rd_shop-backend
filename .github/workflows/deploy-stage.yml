@@ -110,19 +110,17 @@ jobs:
 
             # --- Deploy payments ---------------------------------------------
             echo "--- Deploying payments ---"
-            PAYMENTS_ARGS="-p rd_shop_backend_payments_stage \
-              -f ${DEPLOY_DIR}/apps/payments/compose.yml \
-              -f /tmp/payments-override.yml"
-
-            docker compose ${PAYMENTS_ARGS} up -d --no-build --remove-orphans
+            docker compose -p rd_shop_backend_payments_stage \
+              -f "${DEPLOY_DIR}/apps/payments/compose.yml" \
+              -f /tmp/payments-override.yml \
+              up -d --no-build --remove-orphans
 
             # --- Deploy shop -------------------------------------------------
             echo "--- Deploying shop ---"
-            SHOP_ARGS="-p rd_shop_backend_shop_stage \
-              -f ${DEPLOY_DIR}/apps/shop/compose.yml \
-              -f /tmp/shop-override.yml"
-
-            docker compose ${SHOP_ARGS} up -d --no-build --remove-orphans
+            docker compose -p rd_shop_backend_shop_stage \
+              -f "${DEPLOY_DIR}/apps/shop/compose.yml" \
+              -f /tmp/shop-override.yml \
+              up -d --no-build --remove-orphans
 
             docker logout ghcr.io
             echo "--- Deploy complete ---"
