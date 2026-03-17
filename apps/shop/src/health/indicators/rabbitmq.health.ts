@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { HealthIndicatorResult, HealthIndicatorService } from '@nestjs/terminus';
 
-import { RabbitMQService } from '../rabbitmq/rabbitmq.service';
+import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
 
 @Injectable()
 export class RabbitMQHealthIndicator {

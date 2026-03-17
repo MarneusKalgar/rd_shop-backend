@@ -4,7 +4,7 @@ import { ClientGrpc } from '@nestjs/microservices';
 import { HealthIndicatorResult, HealthIndicatorService } from '@nestjs/terminus';
 import { firstValueFrom, Observable, timeout } from 'rxjs';
 
-import { PAYMENTS_GRPC_CLIENT } from '../payments/constants';
+import { PAYMENTS_GRPC_CLIENT } from '@/payments/constants';
 
 interface PaymentsPingService {
   ping(request: Record<string, never>): Observable<{ status: string }>;

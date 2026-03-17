@@ -1,5 +1,6 @@
 import {
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -136,5 +137,15 @@ export class S3Service {
     }
 
     return `https://${this.bucketName}.s3.${this.region}.amazonaws.com/${key}`;
+  }
+
+  async healthCheck(): Promise<void> {
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+    } catch (error) {
+      console.error(error);
+      this.logger.error(`S3 health check failed: ${error}`);
+      throw error;
+    }
   }
 }
