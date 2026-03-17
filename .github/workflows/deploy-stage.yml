@@ -76,6 +76,7 @@ jobs:
           host: ${{ vars.SSH_HOST }}
           username: ${{ vars.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 30m
           envs: SHOP_IMAGE,PAYMENTS_IMAGE,COMMIT_SHA,GHCR_TOKEN,GHCR_USER,DEPLOY_DIR,ENV_FILE_SHOP,ENV_FILE_PAYMENTS
           script: |
             set -euo pipefail
