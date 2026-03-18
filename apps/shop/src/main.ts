@@ -7,6 +7,7 @@ import { GlobalExceptionFilter } from './common/filters';
 import { getLogLevels } from './config';
 import { getEnvVariable, safeClose, setupProcessErrorHandlers } from './core';
 import { setupSwagger } from './core/swagger';
+import { HEALTH_PATHS_TO_BYPASS } from './health/constants';
 import { isProduction } from './utils';
 
 async function bootstrap() {
@@ -28,7 +29,7 @@ async function bootstrap() {
     });
 
     app.setGlobalPrefix('api', {
-      exclude: ['/health', '/'],
+      exclude: [...HEALTH_PATHS_TO_BYPASS, '/'],
     });
 
     app.useGlobalFilters(new GlobalExceptionFilter());

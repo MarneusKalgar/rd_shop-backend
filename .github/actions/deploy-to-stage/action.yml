@@ -1,0 +1,101 @@
+name: Deploy to Stage
+description: >
+  SSHs into the stage VM, pulls pre-built images from GHCR,
+  and brings up the payments and shop stacks via Docker Compose.
+
+inputs:
+  ssh-host:
+    description: 'Hostname or IP of the stage VM'
+    required: true
+  ssh-user:
+    description: 'SSH username on the stage VM'
+    required: true
+  ssh-private-key:
+    description: 'Private SSH key for the deploy user'
+    required: true
+  deploy-dir:
+    description: 'Absolute path to the repo checkout on the VM'
+    required: true
+  shop-image:
+    description: 'Fully-qualified shop image reference (registry/image:tag)'
+    required: true
+  payments-image:
+    description: 'Fully-qualified payments image reference (registry/image:tag)'
+    required: true
+  commit-sha:
+    description: 'Git commit SHA being deployed'
+    required: true
+  ghcr-token:
+    description: 'GitHub PAT with read:packages scope for docker login on the VM'
+    required: true
+  ghcr-user:
+    description: 'GitHub username / org for docker login (repository_owner)'
+    required: true
+  env-file-shop:
+    description: 'Base64-encoded .env file for the shop app'
+    required: true
+  env-file-payments:
+    description: 'Base64-encoded .env file for the payments app'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@v1.2.5
+      env:
+        ENV_FILE_SHOP: ${{ inputs.env-file-shop }}
+        ENV_FILE_PAYMENTS: ${{ inputs.env-file-payments }}
+        SHOP_IMAGE: ${{ inputs.shop-image }}
+        PAYMENTS_IMAGE: ${{ inputs.payments-image }}
+        COMMIT_SHA: ${{ inputs.commit-sha }}
+        GHCR_TOKEN: ${{ inputs.ghcr-token }}
+        GHCR_USER: ${{ inputs.ghcr-user }}
+        DEPLOY_DIR: ${{ inputs.deploy-dir }}
+      with:
+        host: ${{ inputs.ssh-host }}
+        username: ${{ inputs.ssh-user }}
+        key: ${{ inputs.ssh-private-key }}
+        command_timeout: 30m
+        envs: SHOP_IMAGE,PAYMENTS_IMAGE,COMMIT_SHA,GHCR_TOKEN,GHCR_USER,DEPLOY_DIR,ENV_FILE_SHOP,ENV_FILE_PAYMENTS
+        script: |
+          set -euo pipefail
+          printf '%s' "${ENV_FILE_SHOP}"     | base64 -d > "${DEPLOY_DIR}/apps/shop/.env.production"
+          printf '%s' "${ENV_FILE_PAYMENTS}" | base64 -d > "${DEPLOY_DIR}/apps/payments/.env.production"
+
+          echo "========================================"
+          echo " Stage Deploy"
+          echo " Commit:         ${COMMIT_SHA}"
+          echo " Shop image:     ${SHOP_IMAGE}"
+          echo " Payments image: ${PAYMENTS_IMAGE}"
+          echo "========================================"
+
+          # --- Authenticate and pull pre-built images ----------------------
+          printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+
+          docker pull "${SHOP_IMAGE}"
+          docker pull "${PAYMENTS_IMAGE}"
+
+          # --- Update compose files from repo ------------------------------
+          cd "${DEPLOY_DIR}"
+          git fetch origin
+          git checkout development
+          git pull --ff-only
+
+          # --- Generate image override files -------------------------------
+          printf 'services:\n  payments:\n    image: "%s"\n' "${PAYMENTS_IMAGE}" \
+            > /tmp/payments-override.yml
+
+          printf 'services:\n  shop:\n    image: "%s"\n' "${SHOP_IMAGE}" \
+            > /tmp/shop-override.yml
+
+          # --- Deploy payments ---------------------------------------------
+          echo "--- Deploying payments ---"
+          docker compose -p rd_shop_backend_payments_stage -f "${DEPLOY_DIR}/apps/payments/compose.yml" -f /tmp/payments-override.yml up -d --no-build --remove-orphans
+
+          # --- Deploy shop -------------------------------------------------
+          echo "--- Deploying shop ---"
+          docker compose -p rd_shop_backend_shop_stage -f "${DEPLOY_DIR}/apps/shop/compose.yml" -f /tmp/shop-override.yml up -d --no-build --remove-orphans
+
+          docker logout ghcr.io
+          echo "--- Deploy complete ---"

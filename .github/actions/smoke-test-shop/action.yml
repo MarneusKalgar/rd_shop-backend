@@ -1,0 +1,66 @@
+name: Smoke Test — Shop
+description: >
+  SSHs into the stage VM and runs a two-phase smoke test:
+  1. Polls /health (liveness) until the process is up.
+  2. Hits /ready (readiness) to verify all hard dependencies.
+  3. Logs /status (informational) to show full service state including soft deps.
+
+inputs:
+  ssh-host:
+    description: 'Hostname or IP of the stage VM'
+    required: true
+  ssh-user:
+    description: 'SSH username on the stage VM'
+    required: true
+  ssh-private-key:
+    description: 'Private SSH key for the deploy user'
+    required: true
+  base-url:
+    description: 'Base URL of the shop app on the VM, e.g. http://localhost:8080'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Smoke test via SSH
+      uses: appleboy/ssh-action@v1.2.5
+      env:
+        BASE_URL: ${{ inputs.base-url }}
+      with:
+        host: ${{ inputs.ssh-host }}
+        username: ${{ inputs.ssh-user }}
+        key: ${{ inputs.ssh-private-key }}
+        envs: BASE_URL
+        script: |
+          set -euo pipefail
+
+          echo "Waiting for app to start (liveness) ..."
+          liveness_ok=false
+          for i in $(seq 1 24); do
+            if curl -sf --max-time 5 "${BASE_URL}/health"; then
+              echo ""
+              echo "✅ Liveness OK"
+              liveness_ok=true
+              break
+            fi
+            echo "  attempt ${i}/24 — retrying in 5s"
+            sleep 5
+          done
+
+          if [[ "${liveness_ok}" != "true" ]]; then
+            echo "❌ App did not start after 120s"
+            exit 1
+          fi
+
+          echo "Checking dependencies (readiness) ..."
+          if curl -sf --max-time 10 "${BASE_URL}/ready"; then
+            echo ""
+            echo "✅ Readiness OK — all hard dependencies healthy"
+          else
+            echo "❌ Readiness check failed — one or more hard dependencies are down"
+            curl -s --max-time 10 "${BASE_URL}/ready" || true
+            exit 1
+          fi
+
+          echo "Full status (informational) ..."
+          curl -s --max-time 10 "${BASE_URL}/status" | jq . || true

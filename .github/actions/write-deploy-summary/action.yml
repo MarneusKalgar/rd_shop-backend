@@ -1,0 +1,43 @@
+name: Write Deploy Summary
+description: >
+  Appends a structured deploy summary table to the GitHub Actions step summary.
+
+inputs:
+  commit:
+    description: 'Git commit SHA'
+    required: true
+  ref:
+    description: 'Git ref'
+    required: true
+  shop-image:
+    description: 'Shop image reference'
+    required: true
+  shop-digest:
+    description: 'Shop image digest'
+    required: true
+  payments-image:
+    description: 'Payments image reference'
+    required: true
+  payments-digest:
+    description: 'Payments image digest'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Write summary
+      shell: bash
+      run: |
+        {
+          echo "## Stage Deploy Summary"
+          echo ""
+          echo "| Field | Value |"
+          echo "| ----- | ----- |"
+          echo "| Environment | \`stage\` |"
+          echo "| Commit | \`${{ inputs.commit }}\` |"
+          echo "| Ref | \`${{ inputs.ref }}\` |"
+          echo "| Shop image | \`${{ inputs.shop-image }}\` |"
+          echo "| Shop digest | \`${{ inputs.shop-digest }}\` |"
+          echo "| Payments image | \`${{ inputs.payments-image }}\` |"
+          echo "| Payments digest | \`${{ inputs.payments-digest }}\` |"
+        } >> "$GITHUB_STEP_SUMMARY"

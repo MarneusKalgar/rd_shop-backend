@@ -1,7 +1,9 @@
-import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import { GqlArgumentsHost, GqlContextType } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 import { GraphQLError } from 'graphql';
+
+import { HEALTH_PATHS_TO_BYPASS } from '@/health/constants';
 
 import { extractRequestIdFromGraphQL, normalizeGQLError } from './utils/gql';
 import { extractMessage, extractRequestId, extractStatus, formatMessage } from './utils/http';
@@ -35,6 +37,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
+
+    // Let Terminus handle health/readiness responses directly
+    if (HEALTH_PATHS_TO_BYPASS.includes(request.path) && exception instanceof HttpException) {
+      response.status(exception.getStatus()).json(exception.getResponse());
+      return;
+    }
 
     const status = extractStatus(exception);
     const message = extractMessage(exception);
