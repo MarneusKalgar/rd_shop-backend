@@ -28,8 +28,8 @@ export class PaymentsHealthIndicator implements OnModuleInit {
     try {
       await firstValueFrom(this.pingService.ping({}).pipe(timeout(timeoutMs)));
       return indicator.up();
-    } catch (error) {
-      this.logger.warn(`Payments health check failed: ${error}`);
+    } catch (error: unknown) {
+      this.logger.error('Payments health check failed: ', error);
       return indicator.down();
     }
   }

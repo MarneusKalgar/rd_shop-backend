@@ -140,12 +140,6 @@ export class S3Service {
   }
 
   async healthCheck(): Promise<void> {
-    try {
-      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
-    } catch (error) {
-      console.error(error);
-      this.logger.error(`S3 health check failed: ${error}`);
-      throw error;
-    }
+    await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
   }
 }

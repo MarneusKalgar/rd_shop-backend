@@ -123,31 +123,43 @@ jobs:
       # ── 4. Post-deploy smoke test ─────────────────────────────────────────────
       #
       # Variable required (scoped to the `stage` GitHub Environment):
-      #   HEALTH_URL — local URL on the VM, e.g.: http://localhost:8080/health
+      #   BASE_URL — local URL on the VM, e.g.: http://localhost:8080
       #
       - name: Smoke test — shop health check
         uses: appleboy/ssh-action@v1.2.5
         env:
-          HEALTH_URL: ${{ vars.HEALTH_URL }}
+          BASE_URL: ${{ vars.BASE_URL }}
         with:
           host: ${{ vars.SSH_HOST }}
           username: ${{ vars.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: HEALTH_URL
+          envs: BASE_URL
           script: |
             set -euo pipefail
-            echo "Probing ${HEALTH_URL} ..."
+
+            echo "Waiting for app to start (liveness) ..."
             for i in $(seq 1 24); do
-              if curl -sf --max-time 5 "${HEALTH_URL}"; then
+              if curl -sf --max-time 5 "${BASE_URL}/health"; then
                 echo ""
-                echo "✅ Health check passed"
-                exit 0
+                echo "✅ Liveness OK"
+                break
               fi
-              echo "  attempt ${i}/24 failed — retrying in 5s"
+              echo "  attempt ${i}/24 — retrying in 5s"
               sleep 5
-            done
-            echo "❌ Health check failed after 120s"
-            exit 1
+            done || { echo "❌ App did not start after 120s"; exit 1; }
+
+            echo "Checking dependencies (readiness) ..."
+            if curl -sf --max-time 10 "${BASE_URL}/ready"; then
+              echo ""
+              echo "✅ Readiness OK — all hard dependencies healthy"
+            else
+              echo "❌ Readiness check failed — one or more hard dependencies are down"
+              curl -s --max-time 10 "${BASE_URL}/ready" || true
+              exit 1
+            fi
+
+            echo "Full status (informational) ..."
+            curl -s --max-time 10 "${BASE_URL}/status" | jq . || true
 
       # ── 5. Write step summary ─────────────────────────────────────────────────
       - name: Write deploy summary

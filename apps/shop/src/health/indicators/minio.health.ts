@@ -18,8 +18,8 @@ export class MinioHealthIndicator {
     try {
       await this.s3Service.healthCheck();
       return indicator.up();
-    } catch (error) {
-      this.logger.warn(`MinIO health check failed: ${error}`);
+    } catch (error: unknown) {
+      this.logger.error('MinIO health check failed: ', error);
       return indicator.down();
     }
   }
