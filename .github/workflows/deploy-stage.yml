@@ -34,12 +34,19 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 2. Extract image references and commit info ───────────────────────────
+      # ── 2. Checkout the commit that triggered this workflow ──────────────────
+      # Required so the runner can resolve local actions under .github/actions/
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # ── 3. Extract image references and commit info ───────────────────────────
       - name: Parse release manifest
         id: manifest
         uses: ./.github/actions/parse-release-manifest
 
-      # ── 3. SSH into stage VM and deploy ──────────────────────────────────────
+      # ── 4. SSH into stage VM and deploy ──────────────────────────────────────
       #
       # Secrets required (scoped to the `stage` GitHub Environment):
       #   SSH_PRIVATE_KEY     — private key for the deploy user
@@ -67,7 +74,7 @@ jobs:
           env-file-shop: ${{ secrets.ENV_FILE_SHOP }}
           env-file-payments: ${{ secrets.ENV_FILE_PAYMENTS }}
 
-      # ── 4. Post-deploy smoke test ─────────────────────────────────────────────
+      # ── 5. Post-deploy smoke test ─────────────────────────────────────────────
       #
       # Variable required (scoped to the `stage` GitHub Environment):
       #   BASE_URL — local URL on the VM, e.g.: http://localhost:8080
@@ -80,7 +87,7 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           base-url: ${{ vars.BASE_URL }}
 
-      # ── 5. Write step summary ─────────────────────────────────────────────────
+      # ── 6. Write step summary ─────────────────────────────────────────────────
       - name: Write deploy summary
         if: always()
         uses: ./.github/actions/write-deploy-summary
