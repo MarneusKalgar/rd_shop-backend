@@ -7,6 +7,7 @@ import {
   AuthorizeResponse,
   GetPaymentStatusRequest,
   GetPaymentStatusResponse,
+  PingResponse,
 } from './dto';
 import { PaymentsService } from './payments.service';
 
@@ -38,7 +39,7 @@ export class PaymentsController {
   }
 
   @GrpcMethod('Payments', 'Ping')
-  async ping(): Promise<{ status: string }> {
+  async ping(): Promise<PingResponse> {
     await this.db.pingCheck('postgres');
     return { status: 'ok' };
   }

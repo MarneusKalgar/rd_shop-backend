@@ -35,15 +35,22 @@ runs:
           set -euo pipefail
 
           echo "Waiting for app to start (liveness) ..."
+          liveness_ok=false
           for i in $(seq 1 24); do
             if curl -sf --max-time 5 "${BASE_URL}/health"; then
               echo ""
               echo "✅ Liveness OK"
+              liveness_ok=true
               break
             fi
             echo "  attempt ${i}/24 — retrying in 5s"
             sleep 5
-          done || { echo "❌ App did not start after 120s"; exit 1; }
+          done
+
+          if [[ "${liveness_ok}" != "true" ]]; then
+            echo "❌ App did not start after 120s"
+            exit 1
+          fi
 
           echo "Checking dependencies (readiness) ..."
           if curl -sf --max-time 10 "${BASE_URL}/ready"; then
