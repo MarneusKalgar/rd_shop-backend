@@ -26,20 +26,21 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      # ── 1. Download the release manifest produced by build-and-push ──────────
+      # ── 1. Checkout the commit that triggered this workflow ──────────────────
+      # Must come first: checkout wipes the workspace, so the artifact download
+      # must happen after it. Also required to resolve local actions under .github/actions/
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # ── 2. Download the release manifest produced by build-and-push ──────────
       - name: Download release manifest
         uses: actions/download-artifact@v8
         with:
           name: release-manifest-${{ github.event.workflow_run.head_sha }}
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      # ── 2. Checkout the commit that triggered this workflow ──────────────────
-      # Required so the runner can resolve local actions under .github/actions/
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       # ── 3. Extract image references and commit info ───────────────────────────
       - name: Parse release manifest
