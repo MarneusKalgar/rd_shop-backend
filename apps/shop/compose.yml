@@ -99,11 +99,11 @@ services:
       - .env.production
     entrypoint: >
       /bin/sh -c "
-      until mc alias set local http://minio:9000 ${AWS_ACCESS_KEY_ID:-minioadmin} ${AWS_SECRET_ACCESS_KEY:-minioadmin}; do
+      until mc alias set local http://minio:9000 $${AWS_ACCESS_KEY_ID:-minioadmin} $${AWS_SECRET_ACCESS_KEY:-minioadmin}; do
         echo 'waiting for minio...'; sleep 2;
       done;
-      mc mb --ignore-existing local/${AWS_S3_BUCKET:-rd-shop-files-private};
-      mc anonymous set none local/${AWS_S3_BUCKET:-rd-shop-files-private};
+      mc mb --ignore-existing local/$${AWS_S3_BUCKET:-rd-shop-files-private};
+      mc anonymous set none local/$${AWS_S3_BUCKET:-rd-shop-files-private};
       echo 'minio bucket is ready';
       "
     networks:

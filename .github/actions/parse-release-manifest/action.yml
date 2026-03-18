@@ -1,0 +1,41 @@
+name: Parse Release Manifest
+description: >
+  Reads release-manifest.json and exposes commit, ref, and per-service
+  image references and digests as step outputs.
+
+outputs:
+  commit:
+    description: 'Git commit SHA from the manifest'
+    value: ${{ steps.parse.outputs.commit }}
+  ref:
+    description: 'Git ref from the manifest'
+    value: ${{ steps.parse.outputs.ref }}
+  shop-image:
+    description: 'Fully-qualified shop image reference'
+    value: ${{ steps.parse.outputs.shop_image }}
+  shop-digest:
+    description: 'Shop image digest'
+    value: ${{ steps.parse.outputs.shop_digest }}
+  payments-image:
+    description: 'Fully-qualified payments image reference'
+    value: ${{ steps.parse.outputs.payments_image }}
+  payments-digest:
+    description: 'Payments image digest'
+    value: ${{ steps.parse.outputs.payments_digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Parse manifest
+      id: parse
+      shell: bash
+      run: |
+        echo "=== release-manifest.json ==="
+        cat release-manifest.json
+
+        echo "commit=$(jq -r '.commit' release-manifest.json)"                       >> "$GITHUB_OUTPUT"
+        echo "ref=$(jq -r '.ref' release-manifest.json)"                             >> "$GITHUB_OUTPUT"
+        echo "shop_image=$(jq -r '.services.shop.image' release-manifest.json)"      >> "$GITHUB_OUTPUT"
+        echo "shop_digest=$(jq -r '.services.shop.digest' release-manifest.json)"    >> "$GITHUB_OUTPUT"
+        echo "payments_image=$(jq -r '.services.payments.image' release-manifest.json)"  >> "$GITHUB_OUTPUT"
+        echo "payments_digest=$(jq -r '.services.payments.digest' release-manifest.json)" >> "$GITHUB_OUTPUT"
