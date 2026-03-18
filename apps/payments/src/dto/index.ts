@@ -17,3 +17,7 @@ export interface GetPaymentStatusResponse {
   paymentId: string;
   status: number;
 }
+
+export interface PingResponse {
+  status: string;
+}
