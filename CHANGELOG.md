@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0] - 2026-03-19
+
+### Added
+
+- **GitHub Actions CI/CD Pipeline** - Four-workflow pipeline: PR checks, build & push, deploy to stage, deploy to production (see [homework17.md](homework17.md))
+- **PR Checks Workflow** - Code quality gate on every pull request: lint, TypeScript type-check, unit tests with coverage upload, and Docker preview build for both services
+- **Build and Push Workflow** - Triggered on push to `development`; builds both service images, pushes to GHCR with immutable `sha-<full-sha>` tag, and assembles a signed release manifest artifact
+- **Deploy to Stage Workflow** - Automatically triggered after successful build; SSHs into stage VM, pulls pre-built images, runs Docker Compose, and validates deployment with three-phase smoke test (`/health`, `/ready`, `/status`)
+- **Deploy to Production Workflow** - Manual `workflow_dispatch` with `run_id` + `sha` inputs; requires production environment approval gate; supports reliable rollbacks by checking out the exact commit SHA on the target VM
+- **Release Manifest Artifact** - JSON artifact (`release-manifest-<sha>`) carrying image references and digests; 90-day retention; single source of truth for both deploy workflows
+- **Seven Reusable Composite Actions** - `install-dependencies`, `code-quality`, `parse-release-manifest`, `deploy-to-stage`, `deploy-to-production`, `smoke-test-shop`, `write-deploy-summary`
+- **Sentinel Required Check** - `All Checks Passed` job aggregates all PR check results into one branch-protection entry
+- **CI/CD Documentation** - Pipeline architecture, action dependency maps, artifact flow, secrets reference, and security considerations ([homework17.md](homework17.md))
+
+### Security
+
+- **Scoped Secrets per Environment** - `stage` and `production` GitHub Environments hold separate SSH keys, env files, and GHCR tokens; no cross-environment secret access
+- **Immutable Deployment Tags** - `sha-<full-git-sha>` image tags prevent tag mutation; digests are stored in the release manifest and logged in every step summary
+- **Production Approval Gate** - `production` environment configured with required reviewers; no unattended production deploys
+
 ## [0.0.8] - 2026-03-12
 
 ### Added
@@ -265,6 +285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.1.0]: https://github.com/yourusername/rd_shop/releases/tag/v0.1.0
 [0.0.8]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.8
 [0.0.7]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.7
 [0.0.6]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.6

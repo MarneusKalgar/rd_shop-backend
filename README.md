@@ -29,6 +29,7 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **Order Worker** - Dedicated NestJS module consuming `order.process` queue, updating order status to `PROCESSED` after DB commit
 - **gRPC Payments Integration** - Independent payments-service communicating over gRPC; order worker authorizes payment after processing, updating order to `PAID` (see [homework14.md](homework14.md))
 - **GraphQL Authentication** - JWT-protected GraphQL queries via `GqlJwtAuthGuard`; user identity derived from Bearer token
+- **CI/CD Pipeline** - Four-workflow GitHub Actions pipeline with PR quality gates, immutable image build, automatic stage deploy, and manual production deploy with approval gate (see [homework17.md](homework17.md))
 
 ## 🛠️ Technology Stack
 
@@ -684,7 +685,30 @@ Ensure the following are set in your production environment:
 - `PORT=<your-port>`
 - `APP_LOG_LEVEL=log` (or appropriate level)
 
-## 🔄 Graceful Shutdown
+## � CI/CD Pipeline
+
+The project ships a four-workflow GitHub Actions pipeline. A single immutable Docker image is built once on every push to `development` and promoted through environments without rebuilding.
+
+### Workflow overview
+
+| Workflow                | Trigger                                  | Purpose                                                                 |
+| ----------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
+| **PR Checks**           | `pull_request` → dev / main / release/\* | Lint, type-check, unit tests, Docker preview build                      |
+| **Build and Push**      | `push` → `development`                   | Build + push both service images to GHCR, produce release manifest      |
+| **Deploy — Stage**      | `workflow_run` (build success)           | Pull pre-built images, SSH deploy to stage VM, smoke test               |
+| **Deploy — Production** | `workflow_dispatch` (manual)             | Pull pre-built images, SSH deploy to prod VM, approval gate, smoke test |
+
+### Key design decisions
+
+- **Build once, deploy many** — images tagged `sha-<full-sha>` (immutable) are the deployment unit; no rebuilds during promotion.
+- **Release manifest** — a JSON artifact carrying image references and digests is the handoff contract between build and deploy workflows.
+- **Rollback** — re-running the production workflow with a past `run_id` / `sha` restores both images and compose configuration in sync.
+- **Sentinel check** — `All Checks Passed` job aggregates all PR results into one required status check entry in branch protection.
+- **Seven reusable composite actions** encapsulate install, code-quality, manifest parsing, deployment, smoke testing, and summary writing.
+
+For full pipeline architecture, action dependency maps, artifact flow diagrams, secrets reference, and security notes see [homework17.md](homework17.md).
+
+## �🔄 Graceful Shutdown
 
 The application handles graceful shutdown automatically:
 
@@ -706,6 +730,7 @@ See [TODO.md](TODO.md) for planned features:
 - [x] RabbitMQ async order processing with retry and DLQ (see [homework12.md](homework12.md))
 - [x] gRPC payments integration with independent payments-service (see [homework14.md](homework14.md))
 - [x] Authentication & Authorization (JWT) for REST and GraphQL
+- [x] CI/CD pipeline with GitHub Actions (PR checks, build & push, stage/production deploy) (see [homework17.md](homework17.md))
 - [ ] Complete service layer implementation (CRUD operations)
 - [ ] Health check endpoint
 - [ ] Rate limiting
