@@ -17,7 +17,7 @@ export class OrdersQueryBuilder {
     cursorOrder: Pick<Order, 'createdAt' | 'id'>,
   ): void {
     queryBuilder.andWhere(
-      '(order.createdAt < :cursorDate OR (order.createdAt = :cursorDate AND order.id < :cursorId))',
+      `(date_trunc('milliseconds', order.createdAt) < :cursorDate OR (date_trunc('milliseconds', order.createdAt) = :cursorDate AND order.id < :cursorId))`,
       {
         cursorDate: cursorOrder.createdAt,
         cursorId: cursorOrder.id,
