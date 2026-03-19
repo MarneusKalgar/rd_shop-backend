@@ -30,6 +30,7 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **gRPC Payments Integration** - Independent payments-service communicating over gRPC; order worker authorizes payment after processing, updating order to `PAID` (see [homework14.md](homework14.md))
 - **GraphQL Authentication** - JWT-protected GraphQL queries via `GqlJwtAuthGuard`; user identity derived from Bearer token
 - **CI/CD Pipeline** - Four-workflow GitHub Actions pipeline with PR quality gates, immutable image build, automatic stage deploy, and manual production deploy with approval gate (see [homework17.md](homework17.md))
+- **Health Check System** - Three-tier health endpoints (`/health`, `/ready`, `/status`) built with `@nestjs/terminus`; custom indicators for PostgreSQL, RabbitMQ, MinIO, and payments-service gRPC; liveness/readiness/full-status probes with Kubernetes-compatible semantics
 
 ## 🛠️ Technology Stack
 
@@ -240,14 +241,41 @@ cd apps/shop && npm run docker:start:prod
 
 ### Available Endpoints
 
-| Service          | Endpoint                        | Description            |
-| ---------------- | ------------------------------- | ---------------------- |
-| shop-service     | `http://localhost:8080/api/v1`  | REST API               |
-| shop-service     | `http://localhost:8080/graphql` | GraphQL Playground     |
-| shop-service     | `http://localhost:15672`        | RabbitMQ Management UI |
-| payments-service | `grpc://localhost:5001`         | gRPC (internal only)   |
+| Service          | Endpoint                        | Description             |
+| ---------------- | ------------------------------- | ----------------------- |
+| shop-service     | `http://localhost:8080/api/v1`  | REST API                |
+| shop-service     | `http://localhost:8080/graphql` | GraphQL Playground      |
+| shop-service     | `http://localhost:8080/health`  | Liveness probe          |
+| shop-service     | `http://localhost:8080/ready`   | Readiness probe         |
+| shop-service     | `http://localhost:8080/status`  | Full status (soft deps) |
+| shop-service     | `http://localhost:15672`        | RabbitMQ Management UI  |
+| payments-service | `grpc://localhost:5001`         | gRPC (internal only)    |
 
 For comprehensive Docker documentation, see [homework10.md](homework10.md).
+
+## 🏥 Health Checks
+
+Three dedicated endpoints expose runtime health information without requiring authentication or a versioned URL prefix:
+
+| Endpoint  | Probe type  | Hard deps checked           | Soft deps checked | Failure response |
+| --------- | ----------- | --------------------------- | ----------------- | ---------------- |
+| `/health` | Liveness    | —                           | —                 | —                |
+| `/ready`  | Readiness   | PostgreSQL, RabbitMQ, MinIO | —                 | 503              |
+| `/status` | Full status | PostgreSQL, RabbitMQ, MinIO | payments-service  | always 200       |
+
+**Probe semantics:**
+
+- **`/health`** — Lightweight liveness probe. Returns `200 { status: "ok" }` as long as the Node.js process is running. No I/O performed.
+- **`/ready`** — Readiness probe. Checks hard dependencies (PostgreSQL via `TypeOrmHealthIndicator.pingCheck`, RabbitMQ by asserting the `order.process` queue, and MinIO via an S3 `HeadBucket` call). Returns `503` if any check fails — used by load balancers and Kubernetes to gate traffic.
+- **`/status`** — Full status dashboard. Runs all hard-dep checks plus the gRPC `Ping` RPC to payments-service. Always returns `200` so monitoring systems can diff the body without alerting on the HTTP status; soft-dependency failures appear in the `error` key of the response.
+
+**Custom health indicators (`@nestjs/terminus`):**
+
+- `RabbitMQHealthIndicator` — verifies the AMQP channel is open and the `order.process` queue is reachable
+- `MinioHealthIndicator` — calls `S3Service.healthCheck()` which issues an S3 `HeadBucket` request
+- `PaymentsHealthIndicator` — fires a gRPC `Ping` RPC with the configured `PAYMENTS_GRPC_TIMEOUT_MS`; soft dependency only
+
+The payments-service exposes a `Ping` gRPC method that in turn runs its own PostgreSQL ping check, making the `/status` endpoint a single call that reflects the health of the entire service graph.
 
 ## 🐇 Asynchronous Order Processing (RabbitMQ)
 
@@ -732,7 +760,7 @@ See [TODO.md](TODO.md) for planned features:
 - [x] Authentication & Authorization (JWT) for REST and GraphQL
 - [x] CI/CD pipeline with GitHub Actions (PR checks, build & push, stage/production deploy) (see [homework17.md](homework17.md))
 - [ ] Complete service layer implementation (CRUD operations)
-- [ ] Health check endpoint
+- [x] Health check endpoint (`/health`, `/ready`, `/status` with custom Terminus indicators)
 - [ ] Rate limiting
 - [ ] Redis caching
 - [ ] API documentation (Swagger)

@@ -25,6 +25,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Immutable Deployment Tags** - `sha-<full-git-sha>` image tags prevent tag mutation; digests are stored in the release manifest and logged in every step summary
 - **Production Approval Gate** - `production` environment configured with required reviewers; no unattended production deploys
 
+## [0.0.9] - 2026-03-15
+
+### Added
+
+- **Health Check System** - Three-tier health endpoints built with `@nestjs/terminus`: `/health` (liveness), `/ready` (readiness), and `/status` (full status dashboard)
+- **Liveness Probe** - `GET /health` returns `200` immediately with no I/O; used by process supervisors and Kubernetes liveness checks to confirm the process is alive
+- **Readiness Probe** - `GET /ready` checks hard dependencies (PostgreSQL, RabbitMQ, MinIO); returns `503` if any are unhealthy; gates traffic at load-balancer level
+- **Full Status Endpoint** - `GET /status` checks all hard dependencies plus the payments-service gRPC `Ping` RPC; always returns `200` so monitoring dashboards can diff the body without triggering alerts on HTTP status
+- **Custom Health Indicators** - `RabbitMQHealthIndicator` (asserts `order.process` queue), `MinioHealthIndicator` (S3 `HeadBucket` call via `S3Service`), `PaymentsHealthIndicator` (gRPC `Ping` with configurable timeout via `PAYMENTS_GRPC_TIMEOUT_MS`)
+- **Payments-Service Ping RPC** - New `Ping` gRPC method on payments-service performs an internal PostgreSQL ping and returns `{ status: "ok" }`; used as a soft-dependency probe by the shop-service `/status` endpoint
+- **Bypass Global Prefix** - Health endpoints operate at root level (no `/api/v1` prefix) so infrastructure tooling can reach them without API versioning knowledge
+- **Swagger Documentation** - All three endpoints annotated with `@ApiOperation` and `@ApiResponse` describing success and failure schemas
+
+### Changed
+
+- **HealthModule** - Imports `RabbitMQModule`, `PaymentsGrpcModule`, and `FilesModule` to wire the custom indicators; `TerminusModule` registered for built-in `TypeOrmHealthIndicator`
+- **AppModule** - `HEALTH_PATHS_TO_BYPASS` excludes `/health`, `/ready`, and `/status` from the global `api` prefix and authentication guards
+
+### Security
+
+- **No Auth Required** - Health endpoints are explicitly excluded from JWT guards; they expose only binary up/down status with no business data
+
 ## [0.0.8] - 2026-03-12
 
 ### Added
@@ -286,6 +308,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Jest testing setup
 
 [0.1.0]: https://github.com/yourusername/rd_shop/releases/tag/v0.1.0
+[0.0.9]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.9
 [0.0.8]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.8
 [0.0.7]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.7
 [0.0.6]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.6
