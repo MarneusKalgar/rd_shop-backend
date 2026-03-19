@@ -8,7 +8,7 @@ on:
       run_id:
         description: 'build-and-push run ID to deploy (find in Actions → Build and Push)'
         required: true
-        type: string
+        type: number
       sha:
         description: 'Commit SHA that produced the above run'
         required: true
@@ -38,7 +38,7 @@ jobs:
       # Must come first: checkout wipes the workspace, so the artifact download
       # must happen after it. Also required to resolve local actions under .github/actions/
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.sha }}
 

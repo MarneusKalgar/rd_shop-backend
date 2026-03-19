@@ -1,10 +1,11 @@
 name: Deploy — Stage
 
 on:
-  # Automatically triggered when build-and-push completes on the development branch
+  # Automatically triggered when build-and-push completes on the development branch.
+  # Production deploys the same artifact manually via deploy-production.yml (workflow_dispatch).
   workflow_run:
     workflows: ['Build and Push']
-    branches: [development, release/*]
+    branches: [development]
     types: [completed]
 
 # Never cancel an in-progress deploy — always let it finish

@@ -76,11 +76,10 @@ runs:
           docker pull "${SHOP_IMAGE}"
           docker pull "${PAYMENTS_IMAGE}"
 
-          # --- Update compose files from repo ------------------------------
+          # --- Update compose files from repo (detached HEAD at build commit) -
           cd "${DEPLOY_DIR}"
           git fetch origin
-          git checkout development
-          git pull --ff-only
+          git checkout "${COMMIT_SHA}"
 
           # --- Generate image override files -------------------------------
           printf 'services:\n  payments:\n    image: "%s"\n' "${PAYMENTS_IMAGE}" \

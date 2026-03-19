@@ -77,10 +77,12 @@ runs:
           docker pull "${PAYMENTS_IMAGE}"
 
           # --- Update compose files from repo ------------------------------
+          # Checkout the exact commit SHA that produced the images — ensures
+          # compose files and images are always in sync, and makes rollbacks
+          # reliable (pointing at an older SHA gives the matching config).
           cd "${DEPLOY_DIR}"
           git fetch origin
-          git checkout main
-          git pull --ff-only
+          git checkout "${COMMIT_SHA}"
 
           # --- Generate image override files -------------------------------
           printf 'services:\n  payments:\n    image: "%s"\n' "${PAYMENTS_IMAGE}" \
