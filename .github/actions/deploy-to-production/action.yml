@@ -1,14 +1,14 @@
-name: Deploy to Stage
+name: Deploy to Production
 description: >
-  SSHs into the stage VM, pulls pre-built images from GHCR,
+  SSHs into the production VM, pulls pre-built images from GHCR,
   and brings up the payments and shop stacks via Docker Compose.
 
 inputs:
   ssh-host:
-    description: 'Hostname or IP of the stage VM'
+    description: 'Hostname or IP of the production VM'
     required: true
   ssh-user:
-    description: 'SSH username on the stage VM'
+    description: 'SSH username on the production VM'
     required: true
   ssh-private-key:
     description: 'Private SSH key for the deploy user'
@@ -64,7 +64,7 @@ runs:
           printf '%s' "${ENV_FILE_PAYMENTS}" | base64 -d > "${DEPLOY_DIR}/apps/payments/.env.production"
 
           echo "========================================"
-          echo " Stage Deploy"
+          echo " Production Deploy"
           echo " Commit:         ${COMMIT_SHA}"
           echo " Shop image:     ${SHOP_IMAGE}"
           echo " Payments image: ${PAYMENTS_IMAGE}"
@@ -76,7 +76,10 @@ runs:
           docker pull "${SHOP_IMAGE}"
           docker pull "${PAYMENTS_IMAGE}"
 
-          # --- Update compose files from repo (detached HEAD at build commit) -
+          # --- Update compose files from repo ------------------------------
+          # Checkout the exact commit SHA that produced the images — ensures
+          # compose files and images are always in sync, and makes rollbacks
+          # reliable (pointing at an older SHA gives the matching config).
           cd "${DEPLOY_DIR}"
           git fetch origin
           git checkout "${COMMIT_SHA}"
@@ -90,11 +93,10 @@ runs:
 
           # --- Deploy payments ---------------------------------------------
           echo "--- Deploying payments ---"
-          docker compose -p rd_shop_backend_payments_stage -f "${DEPLOY_DIR}/apps/payments/compose.yml" -f /tmp/payments-override.yml up -d --no-build --remove-orphans
+          docker compose -p rd_shop_backend_payments_prod -f "${DEPLOY_DIR}/apps/payments/compose.yml" -f /tmp/payments-override.yml up -d --no-build --remove-orphans
 
           # --- Deploy shop -------------------------------------------------
           echo "--- Deploying shop ---"
-          docker compose -p rd_shop_backend_shop_stage -f "${DEPLOY_DIR}/apps/shop/compose.yml" -f /tmp/shop-override.yml up -d --no-build --remove-orphans
+          docker compose -p rd_shop_backend_shop_prod -f "${DEPLOY_DIR}/apps/shop/compose.yml" -f /tmp/shop-override.yml up -d --no-build --remove-orphans
 
           docker logout ghcr.io
-          echo "--- Deploy complete ---"

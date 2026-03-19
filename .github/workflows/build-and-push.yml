@@ -4,13 +4,10 @@ on:
   push:
     branches:
       - development
-      - main
-      - release/*
 
 env:
   REGISTRY: ghcr.io
   NODE_VERSION: '24'
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 # Allow one build per commit SHA — different SHAs can run concurrently
 # since each produces an independent immutable artifact.

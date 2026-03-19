@@ -1,46 +1,53 @@
-name: Deploy — Stage
+name: Deploy — Production
 
 on:
-  # Automatically triggered when build-and-push completes on the development branch.
-  # Production deploys the same artifact manually via deploy-production.yml (workflow_dispatch).
-  workflow_run:
-    workflows: ['Build and Push']
-    branches: [development]
-    types: [completed]
+  # Manual dispatch for controlled deployments and rollbacks: supply the run-id
+  # and head SHA from any previous successful build-and-push run.
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'build-and-push run ID to deploy (find in Actions → Build and Push)'
+        required: true
+        type: number
+      sha:
+        description: 'Commit SHA that produced the above run'
+        required: true
+        type: string
 
-# Never cancel an in-progress deploy — always let it finish
+# Never cancel an in-progress production deploy
 concurrency:
-  group: deploy-stage
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy to Stage
+    name: Deploy to Production
     runs-on: ubuntu-latest
-    environment: stage # Separate env variables / secrets scoped to stage
+
+    # ⚠️  Configure this environment in GitHub → Settings → Environments:
+    #   - Add required reviewers (manual approval gate)
+    #   - Scope secrets / variables to production only
+    environment: production
 
     permissions:
       actions: read # Required to download artifacts from workflow_run
       contents: read # Standard read access
 
-    # Only proceed if the upstream build actually succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
-
     steps:
-      # ── 1. Checkout the commit that triggered this workflow ──────────────────
+      # ── 1. Checkout repository ───────────────────────────────────────────────
       # Must come first: checkout wipes the workspace, so the artifact download
       # must happen after it. Also required to resolve local actions under .github/actions/
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ inputs.sha }}
 
       # ── 2. Download the release manifest produced by build-and-push ──────────
       - name: Download release manifest
         uses: actions/download-artifact@v8
         with:
-          name: release-manifest-${{ github.event.workflow_run.head_sha }}
-          run-id: ${{ github.event.workflow_run.id }}
+          name: release-manifest-${{ inputs.sha }}
+          run-id: ${{ inputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # ── 3. Extract image references and commit info ───────────────────────────
@@ -48,21 +55,21 @@ jobs:
         id: manifest
         uses: ./.github/actions/parse-release-manifest
 
-      # ── 4. SSH into stage VM and deploy ──────────────────────────────────────
+      # ── 4. SSH into production VM and deploy ──────────────────────────────────
       #
-      # Secrets required (scoped to the `stage` GitHub Environment):
-      #   SSH_PRIVATE_KEY     — private key for the deploy user
-      #   ENV_FILE_SHOP       — base64-encoded .env file for shop app
-      #   ENV_FILE_PAYMENTS   — base64-encoded .env file for payments app
-      #   GHCR_TOKEN          — GitHub PAT with read:packages scope (for docker login on VM)
+      # Secrets required (scoped to the `production` GitHub Environment):
+      #   SSH_PRIVATE_KEY      — private key for the deploy user
+      #   GHCR_TOKEN           — GitHub PAT with read:packages scope
+      #   ENV_FILE_SHOP        — base64-encoded .env file for shop app
+      #   ENV_FILE_PAYMENTS    — base64-encoded .env file for payments app
       #
-      # Variables required (scoped to the `stage` GitHub Environment):
-      #   SSH_HOST         — hostname / IP of the stage VM
+      # Variables required (scoped to the `production` GitHub Environment):
+      #   SSH_HOST         — hostname / IP of the production VM
       #   SSH_USER         — SSH username on the VM
       #   DEPLOY_DIR       — absolute path where the repo is checked out on the VM
       #
-      - name: Deploy to stage
-        uses: ./.github/actions/deploy-to-stage
+      - name: Deploy to production
+        uses: ./.github/actions/deploy-to-production
         with:
           ssh-host: ${{ vars.SSH_HOST }}
           ssh-user: ${{ vars.SSH_USER }}
@@ -78,8 +85,8 @@ jobs:
 
       # ── 5. Post-deploy smoke test ─────────────────────────────────────────────
       #
-      # Variable required (scoped to the `stage` GitHub Environment):
-      #   BASE_URL — local URL on the VM, e.g.: http://localhost:8080
+      # Variable required (scoped to the `production` GitHub Environment):
+      #   BASE_URL — base URL of the shop app on the VM, e.g.: http://localhost:8080
       #
       - name: Smoke test — shop health check
         uses: ./.github/actions/smoke-test-shop
@@ -94,6 +101,7 @@ jobs:
         if: always()
         uses: ./.github/actions/write-deploy-summary
         with:
+          environment: production
           commit: ${{ steps.manifest.outputs.commit }}
           ref: ${{ steps.manifest.outputs.ref }}
           shop-image: ${{ steps.manifest.outputs.shop-image }}
