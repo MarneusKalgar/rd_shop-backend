@@ -3,6 +3,10 @@ description: >
   Appends a structured deploy summary table to the GitHub Actions step summary.
 
 inputs:
+  environment:
+    description: 'Deployment environment name (e.g. stage, production)'
+    required: false
+    default: stage
   commit:
     description: 'Git commit SHA'
     required: true
@@ -29,11 +33,11 @@ runs:
       shell: bash
       run: |
         {
-          echo "## Stage Deploy Summary"
+          echo "## $(echo "${{ inputs.environment }}" | sed 's/.*/\u&/') Deploy Summary"
           echo ""
           echo "| Field | Value |"
           echo "| ----- | ----- |"
-          echo "| Environment | \`stage\` |"
+          echo "| Environment | \`${{ inputs.environment }}\` |"
           echo "| Commit | \`${{ inputs.commit }}\` |"
           echo "| Ref | \`${{ inputs.ref }}\` |"
           echo "| Shop image | \`${{ inputs.shop-image }}\` |"
