@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0] - 2026-03-19
+
+### Added
+
+- **GitHub Actions CI/CD Pipeline** - Four-workflow pipeline: PR checks, build & push, deploy to stage, deploy to production (see [homework17.md](homework17.md))
+- **PR Checks Workflow** - Code quality gate on every pull request: lint, TypeScript type-check, unit tests with coverage upload, and Docker preview build for both services
+- **Build and Push Workflow** - Triggered on push to `development`; builds both service images, pushes to GHCR with immutable `sha-<full-sha>` tag, and assembles a signed release manifest artifact
+- **Deploy to Stage Workflow** - Automatically triggered after successful build; SSHs into stage VM, pulls pre-built images, runs Docker Compose, and validates deployment with three-phase smoke test (`/health`, `/ready`, `/status`)
+- **Deploy to Production Workflow** - Manual `workflow_dispatch` with `run_id` + `sha` inputs; requires production environment approval gate; supports reliable rollbacks by checking out the exact commit SHA on the target VM
+- **Release Manifest Artifact** - JSON artifact (`release-manifest-<sha>`) carrying image references and digests; 90-day retention; single source of truth for both deploy workflows
+- **Seven Reusable Composite Actions** - `install-dependencies`, `code-quality`, `parse-release-manifest`, `deploy-to-stage`, `deploy-to-production`, `smoke-test-shop`, `write-deploy-summary`
+- **Sentinel Required Check** - `All Checks Passed` job aggregates all PR check results into one branch-protection entry
+- **CI/CD Documentation** - Pipeline architecture, action dependency maps, artifact flow, secrets reference, and security considerations ([homework17.md](homework17.md))
+
+### Security
+
+- **Scoped Secrets per Environment** - `stage` and `production` GitHub Environments hold separate SSH keys, env files, and GHCR tokens; no cross-environment secret access
+- **Immutable Deployment Tags** - `sha-<full-git-sha>` image tags prevent tag mutation; digests are stored in the release manifest and logged in every step summary
+- **Production Approval Gate** - `production` environment configured with required reviewers; no unattended production deploys
+
+## [0.0.9] - 2026-03-15
+
+### Added
+
+- **Health Check System** - Three-tier health endpoints built with `@nestjs/terminus`: `/health` (liveness), `/ready` (readiness), and `/status` (full status dashboard)
+- **Liveness Probe** - `GET /health` returns `200` immediately with no I/O; used by process supervisors and Kubernetes liveness checks to confirm the process is alive
+- **Readiness Probe** - `GET /ready` checks hard dependencies (PostgreSQL, RabbitMQ, MinIO); returns `503` if any are unhealthy; gates traffic at load-balancer level
+- **Full Status Endpoint** - `GET /status` checks all hard dependencies plus the payments-service gRPC `Ping` RPC; always returns `200` so monitoring dashboards can diff the body without triggering alerts on HTTP status
+- **Custom Health Indicators** - `RabbitMQHealthIndicator` (asserts `order.process` queue), `MinioHealthIndicator` (S3 `HeadBucket` call via `S3Service`), `PaymentsHealthIndicator` (gRPC `Ping` with configurable timeout via `PAYMENTS_GRPC_TIMEOUT_MS`)
+- **Payments-Service Ping RPC** - New `Ping` gRPC method on payments-service performs an internal PostgreSQL ping and returns `{ status: "ok" }`; used as a soft-dependency probe by the shop-service `/status` endpoint
+- **Bypass Global Prefix** - Health endpoints operate at root level (no `/api/v1` prefix) so infrastructure tooling can reach them without API versioning knowledge
+- **Swagger Documentation** - All three endpoints annotated with `@ApiOperation` and `@ApiResponse` describing success and failure schemas
+
+### Changed
+
+- **HealthModule** - Imports `RabbitMQModule`, `PaymentsGrpcModule`, and `FilesModule` to wire the custom indicators; `TerminusModule` registered for built-in `TypeOrmHealthIndicator`
+- **AppModule** - `HEALTH_PATHS_TO_BYPASS` excludes `/health`, `/ready`, and `/status` from the global `api` prefix and authentication guards
+
+### Security
+
+- **No Auth Required** - Health endpoints are explicitly excluded from JWT guards; they expose only binary up/down status with no business data
+
 ## [0.0.8] - 2026-03-12
 
 ### Added
@@ -265,6 +307,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Husky and lint-staged for pre-commit hooks
 - Jest testing setup
 
+[0.1.0]: https://github.com/yourusername/rd_shop/releases/tag/v0.1.0
+[0.0.9]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.9
 [0.0.8]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.8
 [0.0.7]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.7
 [0.0.6]: https://github.com/yourusername/rd_shop/releases/tag/v0.0.6
