@@ -29,6 +29,8 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **Order Worker** - Dedicated NestJS module consuming `order.process` queue, updating order status to `PROCESSED` after DB commit
 - **gRPC Payments Integration** - Independent payments-service communicating over gRPC; order worker authorizes payment after processing, updating order to `PAID` (see [homework14.md](homework14.md))
 - **GraphQL Authentication** - JWT-protected GraphQL queries via `GqlJwtAuthGuard`; user identity derived from Bearer token
+- **CI/CD Pipeline** - Four-workflow GitHub Actions pipeline with PR quality gates, immutable image build, automatic stage deploy, and manual production deploy with approval gate (see [homework17.md](homework17.md))
+- **Health Check System** - Three-tier health endpoints (`/health`, `/ready`, `/status`) built with `@nestjs/terminus`; custom indicators for PostgreSQL, RabbitMQ, MinIO, and payments-service gRPC; liveness/readiness/full-status probes with Kubernetes-compatible semantics
 
 ## 🛠️ Technology Stack
 
@@ -239,14 +241,41 @@ cd apps/shop && npm run docker:start:prod
 
 ### Available Endpoints
 
-| Service          | Endpoint                        | Description            |
-| ---------------- | ------------------------------- | ---------------------- |
-| shop-service     | `http://localhost:8080/api/v1`  | REST API               |
-| shop-service     | `http://localhost:8080/graphql` | GraphQL Playground     |
-| shop-service     | `http://localhost:15672`        | RabbitMQ Management UI |
-| payments-service | `grpc://localhost:5001`         | gRPC (internal only)   |
+| Service          | Endpoint                        | Description             |
+| ---------------- | ------------------------------- | ----------------------- |
+| shop-service     | `http://localhost:8080/api/v1`  | REST API                |
+| shop-service     | `http://localhost:8080/graphql` | GraphQL Playground      |
+| shop-service     | `http://localhost:8080/health`  | Liveness probe          |
+| shop-service     | `http://localhost:8080/ready`   | Readiness probe         |
+| shop-service     | `http://localhost:8080/status`  | Full status (soft deps) |
+| shop-service     | `http://localhost:15672`        | RabbitMQ Management UI  |
+| payments-service | `grpc://localhost:5001`         | gRPC (internal only)    |
 
 For comprehensive Docker documentation, see [homework10.md](homework10.md).
+
+## 🏥 Health Checks
+
+Three dedicated endpoints expose runtime health information without requiring authentication or a versioned URL prefix:
+
+| Endpoint  | Probe type  | Hard deps checked           | Soft deps checked | Failure response |
+| --------- | ----------- | --------------------------- | ----------------- | ---------------- |
+| `/health` | Liveness    | —                           | —                 | —                |
+| `/ready`  | Readiness   | PostgreSQL, RabbitMQ, MinIO | —                 | 503              |
+| `/status` | Full status | PostgreSQL, RabbitMQ, MinIO | payments-service  | always 200       |
+
+**Probe semantics:**
+
+- **`/health`** — Lightweight liveness probe. Returns `200 { status: "ok" }` as long as the Node.js process is running. No I/O performed.
+- **`/ready`** — Readiness probe. Checks hard dependencies (PostgreSQL via `TypeOrmHealthIndicator.pingCheck`, RabbitMQ by asserting the `order.process` queue, and MinIO via an S3 `HeadBucket` call). Returns `503` if any check fails — used by load balancers and Kubernetes to gate traffic.
+- **`/status`** — Full status dashboard. Runs all hard-dep checks plus the gRPC `Ping` RPC to payments-service. Always returns `200` so monitoring systems can diff the body without alerting on the HTTP status; soft-dependency failures appear in the `error` key of the response.
+
+**Custom health indicators (`@nestjs/terminus`):**
+
+- `RabbitMQHealthIndicator` — verifies the AMQP channel is open and the `order.process` queue is reachable
+- `MinioHealthIndicator` — calls `S3Service.healthCheck()` which issues an S3 `HeadBucket` request
+- `PaymentsHealthIndicator` — fires a gRPC `Ping` RPC with the configured `PAYMENTS_GRPC_TIMEOUT_MS`; soft dependency only
+
+The payments-service exposes a `Ping` gRPC method that in turn runs its own PostgreSQL ping check, making the `/status` endpoint a single call that reflects the health of the entire service graph.
 
 ## 🐇 Asynchronous Order Processing (RabbitMQ)
 
@@ -684,7 +713,30 @@ Ensure the following are set in your production environment:
 - `PORT=<your-port>`
 - `APP_LOG_LEVEL=log` (or appropriate level)
 
-## 🔄 Graceful Shutdown
+## � CI/CD Pipeline
+
+The project ships a four-workflow GitHub Actions pipeline. A single immutable Docker image is built once on every push to `development` and promoted through environments without rebuilding.
+
+### Workflow overview
+
+| Workflow                | Trigger                                  | Purpose                                                                 |
+| ----------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
+| **PR Checks**           | `pull_request` → dev / main / release/\* | Lint, type-check, unit tests, Docker preview build                      |
+| **Build and Push**      | `push` → `development`                   | Build + push both service images to GHCR, produce release manifest      |
+| **Deploy — Stage**      | `workflow_run` (build success)           | Pull pre-built images, SSH deploy to stage VM, smoke test               |
+| **Deploy — Production** | `workflow_dispatch` (manual)             | Pull pre-built images, SSH deploy to prod VM, approval gate, smoke test |
+
+### Key design decisions
+
+- **Build once, deploy many** — images tagged `sha-<full-sha>` (immutable) are the deployment unit; no rebuilds during promotion.
+- **Release manifest** — a JSON artifact carrying image references and digests is the handoff contract between build and deploy workflows.
+- **Rollback** — re-running the production workflow with a past `run_id` / `sha` restores both images and compose configuration in sync.
+- **Sentinel check** — `All Checks Passed` job aggregates all PR results into one required status check entry in branch protection.
+- **Seven reusable composite actions** encapsulate install, code-quality, manifest parsing, deployment, smoke testing, and summary writing.
+
+For full pipeline architecture, action dependency maps, artifact flow diagrams, secrets reference, and security notes see [homework17.md](homework17.md).
+
+## �🔄 Graceful Shutdown
 
 The application handles graceful shutdown automatically:
 
@@ -706,8 +758,9 @@ See [TODO.md](TODO.md) for planned features:
 - [x] RabbitMQ async order processing with retry and DLQ (see [homework12.md](homework12.md))
 - [x] gRPC payments integration with independent payments-service (see [homework14.md](homework14.md))
 - [x] Authentication & Authorization (JWT) for REST and GraphQL
+- [x] CI/CD pipeline with GitHub Actions (PR checks, build & push, stage/production deploy) (see [homework17.md](homework17.md))
 - [ ] Complete service layer implementation (CRUD operations)
-- [ ] Health check endpoint
+- [x] Health check endpoint (`/health`, `/ready`, `/status` with custom Terminus indicators)
 - [ ] Rate limiting
 - [ ] Redis caching
 - [ ] API documentation (Swagger)
