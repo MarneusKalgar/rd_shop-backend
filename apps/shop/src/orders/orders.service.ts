@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -210,7 +212,8 @@ export class OrdersService {
    * @returns Promise resolving to payment details (paymentId and status)
    * @throws {NotFoundException} If order doesn't exist - HTTP 404
    * @throws {BadRequestException} If order has no associated payment - HTTP 400
-   * @throws {Error} If payment service is unavailable - HTTP 500
+   * @throws {HttpException} If payment service returns an error (mapped from gRPC) - HTTP 4xx/5xx
+   * @throws {ServiceUnavailableException} If payment service is unavailable - HTTP 503
    */
   async getOrderPayment(
     userId: string,
@@ -228,8 +231,12 @@ export class OrdersService {
       const paymentStatus = await this.paymentsGrpcService.getPaymentStatus(order.paymentId);
       return paymentStatus;
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
       this.logger.error(`Failed to fetch payment status for order ${orderId}`, error);
-      throw new Error('Failed to retrieve payment information');
+      throw new ServiceUnavailableException('Failed to retrieve payment information');
     }
   }
 

@@ -69,7 +69,7 @@ export class PaymentsService {
 
     if (!payment) {
       throw new RpcException({
-        code: GrpcStatus.NOT_FOUND,
+        code: GrpcStatus.DEADLINE_EXCEEDED,
         message: `Payment ${paymentId} not found`,
       });
     }
