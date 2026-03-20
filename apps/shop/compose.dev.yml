@@ -21,7 +21,7 @@ services:
       [
         'sh',
         '-c',
-        'mkdir -p /app/apps/shop/src/proto && cp /app/proto/payments.proto /app/apps/shop/src/proto/payments.proto && echo "Proto copied:" && ls /app/apps/shop/src/proto/ && cd apps/shop && npm run start:dev',
+        'mkdir -p /app/apps/shop/src/proto && cp /app/proto/payments.proto /app/apps/shop/src/proto/payments.proto && ls /app/apps/shop/src/proto/ && cd apps/shop && npm run start:dev',
       ]
     networks:
       - shop-dev-network

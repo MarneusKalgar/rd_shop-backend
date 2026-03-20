@@ -171,7 +171,6 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      ALLOW_SEED_IN_PRODUCTION: ${ALLOW_SEED_IN_PRODUCTION:-false}
       APP: shop
     env_file:
       - .env.production

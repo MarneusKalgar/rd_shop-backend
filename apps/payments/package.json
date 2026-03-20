@@ -4,9 +4,9 @@
   "description": "Backend for RD Shop Payments service",
   "main": "index.js",
   "scripts": {
-    "start:dev": "cd ../.. && cross-env NODE_ENV=development APP=payments nest start payments --watch",
+    "start:dev": "cd ../.. && NODE_ENV=development APP=payments nest start payments --watch",
     "start:prod": "node ../../dist/apps/payments/main",
-    "typeorm": "cross-env NODE_ENV=development APP=payments TS_NODE_PROJECT=tsconfig.app.json ts-node -r tsconfig-paths/register ../../node_modules/typeorm/cli.js",
+    "typeorm": "NODE_ENV=development APP=payments TS_NODE_PROJECT=tsconfig.app.json ts-node -r tsconfig-paths/register ../../node_modules/typeorm/cli.js",
     "db:generate": "npm run typeorm -- migration:generate -d ./src/data-source.ts",
     "db:migrate:dev": "npm run typeorm -- migration:run -d ./src/data-source.ts",
     "db:migrate:prod": "NODE_ENV=production APP=payments node ../../node_modules/typeorm/cli.js migration:run -d ../../dist/apps/payments/data-source.js",
