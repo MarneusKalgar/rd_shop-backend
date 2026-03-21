@@ -85,8 +85,8 @@ describe('GraphQL orders pagination', () => {
     //    The NestJS TypeORM module uses getModuleOptions() which strips migrations
     //    (migrationsRun: false is set there), so we must apply the schema here
     //    before the app boots.
-    //    __dirname == apps/shop/test/orders → the glob resolves to an absolute path,
-    //    unaffected by process.cwd().
+    //    MIGRATIONS_GLOB is built with join(__dirname, …) inside @test/paths, so it
+    //    resolves to an absolute path unaffected by process.cwd().
     const migrationDs = new DataSource({
       entities: [FileRecord, Order, OrderItem, ProcessedMessage, Product, User],
       migrations: [MIGRATIONS_GLOB],
@@ -188,20 +188,31 @@ describe('GraphQL orders pagination', () => {
   }, 90_000 /* allow 90 s — first Docker pull can take longer on a slow connection */);
 
   afterAll(async () => {
-    // Remove test rows in FK-safe order.
-    await dataSource.query(`DELETE FROM order_items WHERE id = ANY($1::uuid[])`, [
-      ordersMockData.itemIds,
-    ]);
-    await dataSource.query(`DELETE FROM orders     WHERE id = ANY($1::uuid[])`, [
-      ordersMockData.orderIds,
-    ]);
-    await dataSource.query(`DELETE FROM products   WHERE id = $1::uuid`, [
-      ordersMockData.productId,
-    ]);
-    await dataSource.query(`DELETE FROM users      WHERE id = $1::uuid`, [ordersMockData.userId]);
+    try {
+      if (dataSource) {
+        // Remove test rows in FK-safe order.
+        await dataSource.query(`DELETE FROM order_items WHERE id = ANY($1::uuid[])`, [
+          ordersMockData.itemIds,
+        ]);
+        await dataSource.query(`DELETE FROM orders     WHERE id = ANY($1::uuid[])`, [
+          ordersMockData.orderIds,
+        ]);
+        await dataSource.query(`DELETE FROM products   WHERE id = $1::uuid`, [
+          ordersMockData.productId,
+        ]);
+        await dataSource.query(`DELETE FROM users      WHERE id = $1::uuid`, [
+          ordersMockData.userId,
+        ]);
+      }
 
-    await app.close();
-    await container.stop();
+      if (app) {
+        await app.close();
+      }
+    } finally {
+      if (container) {
+        await container.stop();
+      }
+    }
   });
 
   describe('first page', () => {
