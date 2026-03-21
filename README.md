@@ -343,20 +343,57 @@ The application uses an adapter pattern for database flexibility:
 
 ## 🧪 Testing
 
+### Test Architecture
+
+The test suite follows a **three-tier pyramid**. Each tier has its own Jest config, file-name suffix, and command so that different stages of CI can run only what they need.
+
+| Tier            | Suffix                  | Config                  | Command                         | Scope                                                           |
+| --------------- | ----------------------- | ----------------------- | ------------------------------- | --------------------------------------------------------------- |
+| **Unit**        | `*.spec.ts`             | `jest.config.js`        | `npm test`                      | Single class, all deps mocked                                   |
+| **Integration** | `*.integration-spec.ts` | `jest-integration.json` | `npm run test:integration:shop` | Full `AppModule` + real Postgres (Testcontainers), infra mocked |
+| **e2e**         | `*.e2e-spec.ts`         | `jest-e2e.json`         | `npm run test:e2e:shop`         | _(TBD)_ Full deployed stack, zero mocks                         |
+
+#### Unit tests (`src/**/*.spec.ts`)
+
+Test a single class in complete isolation. External dependencies (database repositories, queue clients, gRPC stubs) are replaced with `jest.fn()` mocks injected via `Test.createTestingModule`. No containers, no I/O — sub-second feedback.
+
+Location: `apps/shop/src/` and `apps/payments/src/`
+
+#### Integration tests (`test/integration/**/*.integration-spec.ts`)
+
+Boot the full NestJS `AppModule` against a **real Postgres 16** container spun up by `@testcontainers/postgresql`. Migrations are applied inside `beforeAll` via a dedicated `DataSource` before the app initialises. Infrastructure that is not under test (RabbitMQ, gRPC payments-service) is overridden with no-op providers so the suite runs without external services.
+
+Location: `apps/shop/test/integration/`
+
+Path aliases available in every spec file (depth-independent):
+
+| Alias     | Resolves to        |
+| --------- | ------------------ |
+| `@/*`     | `apps/shop/src/*`  |
+| `@test/*` | `apps/shop/test/*` |
+
+The `@test/paths` module exports the `MIGRATIONS_GLOB` constant anchored to the test root, so migration paths never contain `../` traversals regardless of how deeply nested a spec file is.
+
+#### e2e tests (TBD)
+
+Will test the complete deployed stack with zero mocks — all services running as Docker containers. The `jest-e2e.json` config and `test/e2e/` directory are reserved; the `npm run test:e2e:shop` script is wired but no specs exist yet.
+
+### Commands
+
 ```bash
-# Run unit tests
+# Run unit tests (shop + payments)
 npm test
 
-# Run tests in watch mode
+# Run unit tests in watch mode
 npm run test:watch
 
-# Generate test coverage
+# Generate unit test coverage
 npm run test:cov
 
-# Run e2e tests
-npm run test:e2e
+# Run integration tests — requires Docker (Testcontainers)
+npm run test:integration:shop
 
-# Debug tests
+# Debug unit tests
 npm run test:debug
 ```
 
