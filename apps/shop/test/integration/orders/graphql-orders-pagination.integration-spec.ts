@@ -12,8 +12,8 @@ import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
+import { MIGRATIONS_GLOB } from '@test/paths';
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { join } from 'node:path';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
@@ -89,7 +89,7 @@ describe('GraphQL orders pagination', () => {
     //    unaffected by process.cwd().
     const migrationDs = new DataSource({
       entities: [FileRecord, Order, OrderItem, ProcessedMessage, Product, User],
-      migrations: [join(__dirname, '../../src/db/migrations/*{.ts,.js}')],
+      migrations: [MIGRATIONS_GLOB],
       ssl: false,
       synchronize: false,
       type: 'postgres',
