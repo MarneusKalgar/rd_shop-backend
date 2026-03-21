@@ -20,8 +20,11 @@ import { DataSource } from 'typeorm';
 
 import { AppModule } from '@/app.module';
 import { FileRecord } from '@/files/file-record.entity';
+import { PaymentsHealthIndicator } from '@/health/indicators/payments.health';
 import { OrderItem } from '@/orders/order-item.entity';
 import { Order } from '@/orders/order.entity';
+import { PAYMENTS_GRPC_CLIENT } from '@/payments/constants';
+import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { Product } from '@/products/product.entity';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
@@ -97,7 +100,11 @@ describe('GraphQL orders pagination', () => {
     await migrationDs.destroy();
 
     // 4. Build the full application module.
-    //    RabbitMQService is the only service that connects eagerly in onModuleInit.
+    //    RabbitMQService connects eagerly in onModuleInit (AMQP).
+    //    PAYMENTS_GRPC_CLIENT resolves the .proto file at provider-creation time — the file
+    //    lives in apps/shop/src/proto/ which is gitignored (build artefact), so it is absent
+    //    on CI. PaymentsGrpcService.onModuleInit calls client.getService() on the real client.
+    //    All three are replaced with no-ops; gRPC payments are not under test here.
     const moduleFixture = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(RabbitMQService)
       .useValue({
@@ -106,6 +113,17 @@ describe('GraphQL orders pagination', () => {
         connection: null,
         consume: jest.fn().mockResolvedValue({ consumerTag: 'test-consumer' }),
         publish: jest.fn(),
+      })
+      .overrideProvider(PAYMENTS_GRPC_CLIENT)
+      .useValue({})
+      .overrideProvider(PaymentsGrpcService)
+      .useValue({
+        authorize: jest.fn(),
+        getPaymentStatus: jest.fn(),
+      })
+      .overrideProvider(PaymentsHealthIndicator)
+      .useValue({
+        check: jest.fn().mockResolvedValue({ payments: { status: 'up' } }),
       })
       .compile();
 
