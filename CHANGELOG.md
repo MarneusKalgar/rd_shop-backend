@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-03-21
+
+### Added
+
+- **Integration Test Infrastructure** - Dedicated `apps/shop/test/integration/` directory with `jest-integration.json` config and `.integration-spec.ts` suffix; cleanly separated from the future true e2e tier (`jest-e2e.json` / `test/e2e/`)
+- **`@test/*` Path Alias** - TypeScript `paths` entry and Jest `moduleNameMapper` resolving `@test/*` to `apps/shop/test/*`; enables depth-independent imports from any nested spec file
+- **`test/paths.ts`** - Centralized `MIGRATIONS_GLOB` constant anchored to `apps/shop/test/`; eliminates `../../../` relative traversals regardless of how deeply a spec file is nested
+- **Testing Architecture Documentation** - README `🧪 Testing` section expanded with three-tier pyramid description (Unit / Integration / e2e TBD), per-tier scope explanation, alias reference table, and updated commands
+
 ## [0.1.0] - 2026-03-19
 
 ### Added
