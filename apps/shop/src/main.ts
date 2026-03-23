@@ -1,6 +1,7 @@
 import { INestApplication, Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 // import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
+import cookieParser from 'cookie-parser';
 
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
@@ -31,6 +32,8 @@ async function bootstrap() {
     app.setGlobalPrefix('api', {
       exclude: [...HEALTH_PATHS_TO_BYPASS, '/'],
     });
+
+    app.use(cookieParser());
 
     app.useGlobalFilters(new GlobalExceptionFilter());
 

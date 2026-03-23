@@ -128,12 +128,12 @@ Custom validator: `@Match('password')` or validation in service layer — `passw
 
 ### 1.5 Endpoints
 
-| Endpoint             | Method  | Auth          | Cookie                 | Response body           |
-| -------------------- | ------- | ------------- | ---------------------- | ----------------------- |
-| `POST /auth/signin`  | updated | none          | Sets `refreshToken`    | `{ accessToken, user }` |
-| `POST /auth/signup`  | updated | none          | Sets `refreshToken`    | `{ accessToken, user }` |
-| `POST /auth/refresh` | new     | none (cookie) | Rotates `refreshToken` | `{ accessToken }`       |
-| `POST /auth/logout`  | new     | JwtAuth       | Clears `refreshToken`  | 204                     |
+| Endpoint             | Method  | Auth          | Cookie                                                                  | Response body            |
+| -------------------- | ------- | ------------- | ----------------------------------------------------------------------- | ------------------------ |
+| `POST /auth/signin`  | updated | none          | Sets `refreshToken`                                                     | `{ accessToken, user }`  |
+| `POST /auth/signup`  | updated | none          | None _(no tokens on signup — intentional deviation from original plan)_ | `{ id, email, message }` |
+| `POST /auth/refresh` | new     | none (cookie) | Rotates `refreshToken`                                                  | `{ accessToken }`        |
+| `POST /auth/logout`  | new     | JwtAuth       | Clears `refreshToken`                                                   | 204                      |
 
 ### 1.6 Env vars
 
@@ -143,18 +143,18 @@ JWT_REFRESH_EXPIRES_IN=7d    # refresh token TTL (default: 7d)
 
 ### 1.7 Tasks
 
-- [ ] Create `TokenService` — encapsulate all JWT + refresh token logic
-- [ ] Create `RefreshToken` entity (ManyToOne → User)
-- [ ] Generate migration: `npm run db:generate -- src/db/migrations/CreateRefreshTokens`
-- [ ] Install `cookie-parser`, configure in `main.ts`
-- [ ] Update `POST /auth/signin` — generate token pair, set refresh cookie, return `{ accessToken, user }`
-- [ ] Update `POST /auth/signup` — add `confirmedPassword` field + validation, issue tokens + cookie
-- [ ] Update `SignupDto` with `confirmedPassword`
-- [ ] Update `SigninResponseDto` (no `refreshToken` in body)
-- [ ] Implement `POST /auth/refresh` — read cookie, rotate token, set new cookie
-- [ ] Implement `POST /auth/logout` — revoke token, clear cookie
-- [ ] Register `TokenService` in `AuthModule`
-- [ ] Refactor `AuthService.generateAuthResponse()` to delegate to `TokenService`
+- [x] Create `TokenService` — encapsulate all JWT + refresh token logic
+- [x] Create `RefreshToken` entity (ManyToOne → User)
+- [x] Generate migration: `npm run db:generate -- src/db/migrations/CreateRefreshTokens`
+- [x] Install `cookie-parser`, configure in `main.ts`
+- [x] Update `POST /auth/signin` — generate token pair, set refresh cookie, return `{ accessToken, user }`
+- [x] Update `POST /auth/signup` — add `confirmedPassword` field + validation _(intentional deviation: tokens not issued on signup — user must sign in explicitly)_
+- [x] Update `SignupDto` with `confirmedPassword`
+- [x] Update `SigninResponseDto` (no `refreshToken` in body)
+- [x] Implement `POST /auth/refresh` — read cookie, rotate token, set new cookie
+- [x] Implement `POST /auth/logout` — revoke token, clear cookie
+- [x] Register `TokenService` in `AuthModule`
+- [x] Refactor `AuthService.generateAuthResponse()` to delegate to `TokenService`
 
 ---
 

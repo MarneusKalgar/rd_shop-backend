@@ -57,3 +57,11 @@ Detailed architecture notes live in `docs/architecture/`. Read the relevant file
 - `files-s3.md` — 3-step presigned upload flow, FileRecord lifecycle, S3Service, env vars
 - `docker-compose.md` — multi-stage Dockerfile, all compose services, networks, dev vs. prod
 - `ci-pipeline.md` — 4 workflows, job graph, 7 composite actions, image tag strategy
+
+## Notes
+
+- Do not fix import ordering or formatting issues. This will be handled by ESLint and Prettier. Focus on functionality and architecture.
+- Do not try to launch type-check and test scripts. These are expected to fail until the relevant code is implemented. Focus on writing the implementation code, and we will address type-check and test issues in a later step.
+- If you create new TypeORM entity - do not add the migration file - this will be generated later by running appropriate npm script. Focus on defining the entity and its relations correctly, and we will handle the migration generation in a later step. Also register in the `apps/shop/src/config/typeORM.ts` or `apps/payments/src/config/typeORM.ts` depending on the service.
+- Newer throw from controllers, throw from service layer.
+- each new env var should be added to `apps/shop/.env.example` or `apps/payments/.env.example` with a default value and register in the `apps/shop/src/core/environment/schema.ts` or `apps/payments/src/core/environment/schema.ts` depending on the service.

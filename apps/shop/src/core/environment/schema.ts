@@ -62,6 +62,10 @@ export class EnvironmentVariables {
   @IsString()
   JWT_ACCESS_SECRET: string;
 
+  @IsOptional()
+  @IsString()
+  JWT_REFRESH_EXPIRES_IN?: string;
+
   @IsNumber()
   @IsOptional()
   MINIO_CONSOLE_PORT?: number;
