@@ -44,7 +44,7 @@ export class TokenService {
 
   /**
    * Revokes all active tokens for the user and issues a new one.
-   * Used at signin / signup (single-session model).
+   * Used at signin (single-session model). Signup does not issue tokens.
    * Returns the cookie value: `${tokenId}:${rawSecret}`.
    */
   async issueRefreshToken(userId: string): Promise<string> {
