@@ -11,17 +11,20 @@ import { Repository } from 'typeorm';
 import { User } from '@/users/user.entity';
 
 import { EmailVerificationToken } from './email-verification-token.entity';
+import { PasswordResetToken } from './password-reset-token.entity';
 import { RefreshToken } from './refresh-token.entity';
 import { JwtPayload } from './types';
 import { parseOpaqueToken } from './utils';
 
 @Injectable()
 export class TokenService {
+  /** Returns the refresh token TTL in milliseconds. */
   get ttlMs(): number {
     return this.ttl;
   }
-  private readonly saltRounds: number;
+  private passwordResetTtlMs: number;
 
+  private readonly saltRounds: number;
   private ttl: number;
   private verificationTtlMs: number;
 
@@ -32,12 +35,16 @@ export class TokenService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(EmailVerificationToken)
     private readonly emailVerificationTokenRepository: Repository<EmailVerificationToken>,
+    @InjectRepository(PasswordResetToken)
+    private readonly passwordResetTokenRepository: Repository<PasswordResetToken>,
   ) {
     this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10);
     this.setTtl();
     this.setVerificationTtl();
+    this.setPasswordResetTtl();
   }
 
+  /** Signs and returns a short-lived JWT access token for the given user. */
   async generateAccessToken(user: User): Promise<string> {
     const payload: JwtPayload = {
       email: user.email,
@@ -46,6 +53,25 @@ export class TokenService {
       sub: user.id,
     };
     return this.jwtService.signAsync(payload);
+  }
+
+  /**
+   * Issues a password reset token: persists the hashed record and returns
+   * the raw `${tokenId}:${rawSecret}` string to embed in the reset link.
+   */
+  async issuePasswordResetToken(userId: string): Promise<string> {
+    const expiresAt = new Date(Date.now() + this.passwordResetTtlMs);
+    const { rawSecret, tokenHash } = await this.createOpaqueToken(32);
+
+    const record = this.passwordResetTokenRepository.create({
+      expiresAt,
+      tokenHash,
+      usedAt: null,
+      userId,
+    });
+    await this.passwordResetTokenRepository.save(record);
+
+    return `${record.id}:${rawSecret}`;
   }
 
   /**
@@ -77,6 +103,7 @@ export class TokenService {
     return `${record.id}:${rawSecret}`;
   }
 
+  /** Marks all non-revoked refresh tokens for a user as revoked. */
   async revokeAllUserTokens(userId: string): Promise<void> {
     await this.refreshTokenRepository
       .createQueryBuilder()
@@ -87,6 +114,7 @@ export class TokenService {
       .execute();
   }
 
+  /** Marks a single refresh token as revoked by its ID. */
   async revokeRefreshToken(tokenId: string): Promise<void> {
     await this.refreshTokenRepository.update(tokenId, { revokedAt: new Date() });
   }
@@ -124,28 +152,38 @@ export class TokenService {
     return { accessToken, cookieValue: newCookieValue };
   }
 
+  setPasswordResetTtl() {
+    this.passwordResetTtlMs = this.parseTtl('PASSWORD_RESET_EXPIRES_IN', '1h');
+  }
+
   setTtl() {
-    const ttlConfig = (this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ??
-      '7d') as StringValue;
-    const parsed = ms(ttlConfig);
-    if (!parsed || !Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error(
-        `Invalid JWT_REFRESH_EXPIRES_IN value: "${ttlConfig}". Must be a positive duration string (e.g. "7d", "1h").`,
-      );
-    }
-    this.ttl = parsed;
+    this.ttl = this.parseTtl('JWT_REFRESH_EXPIRES_IN', '7d');
   }
 
   setVerificationTtl() {
-    const ttlConfig = (this.configService.get<string>('EMAIL_VERIFICATION_EXPIRES_IN') ??
-      '24h') as StringValue;
-    const parsed = ms(ttlConfig);
-    if (!parsed || !Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error(
-        `Invalid EMAIL_VERIFICATION_EXPIRES_IN value: "${ttlConfig}". Must be a positive duration string (e.g. "24h", "7d").`,
-      );
-    }
-    this.verificationTtlMs = parsed;
+    this.verificationTtlMs = this.parseTtl('EMAIL_VERIFICATION_EXPIRES_IN', '24h');
+  }
+
+  /**
+   * Parses and validates a password reset token value (`${id}:${rawSecret}`).
+   * Returns the stored record so the caller can mark it as used.
+   */
+  async validatePasswordResetToken(rawToken: string): Promise<PasswordResetToken> {
+    const parsed = parseOpaqueToken(rawToken);
+    if (!parsed) throw new BadRequestException('Invalid token');
+
+    const { rawSecret, tokenId } = parsed;
+
+    const storedToken = await this.passwordResetTokenRepository.findOne({
+      where: { id: tokenId },
+    });
+
+    if (!storedToken?.isUsable) throw new BadRequestException('Invalid or expired token');
+
+    const isValid = await bcrypt.compare(rawSecret, storedToken.tokenHash);
+    if (!isValid) throw new BadRequestException('Invalid or expired token');
+
+    return storedToken;
   }
 
   /**
@@ -204,6 +242,7 @@ export class TokenService {
     return { rawSecret, tokenHash };
   }
 
+  /** Creates, persists, and returns a new refresh token cookie value for the given user. */
   private async createRefreshToken(userId: string): Promise<string> {
     const expiresAt = new Date(Date.now() + this.ttl);
     const { rawSecret, tokenHash } = await this.createOpaqueToken();
@@ -217,5 +256,20 @@ export class TokenService {
     await this.refreshTokenRepository.save(token);
 
     return `${token.id}:${rawSecret}`;
+  }
+
+  /**
+   * Reads a duration string from config (falling back to `defaultValue`), parses it with `ms`,
+   * and throws if the result is not a positive finite number.
+   */
+  private parseTtl(envKey: string, defaultValue: StringValue): number {
+    const ttlConfig = (this.configService.get<string>(envKey) ?? defaultValue) as StringValue;
+    const parsed = ms(ttlConfig);
+    if (!parsed || !Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(
+        `Invalid ${envKey} value: "${ttlConfig}". Must be a positive duration string (e.g. "7d", "1h").`,
+      );
+    }
+    return parsed;
   }
 }

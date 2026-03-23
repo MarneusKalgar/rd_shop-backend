@@ -93,6 +93,10 @@ export class EnvironmentVariables {
   @IsString()
   NODE_HOSTNAME?: string;
 
+  @IsOptional()
+  @IsString()
+  PASSWORD_RESET_EXPIRES_IN?: string;
+
   @IsString()
   PAYMENTS_GRPC_HOST: string;
 

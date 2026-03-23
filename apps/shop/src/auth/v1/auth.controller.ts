@@ -10,8 +10,12 @@ import {
 } from '../constants';
 import { CurrentUser } from '../decorators';
 import {
+  ForgotPasswordDto,
+  ForgotPasswordResponseDto,
   RefreshResponseDto,
   ResendVerificationResponseDto,
+  ResetPasswordDto,
+  ResetPasswordResponseDto,
   SigninDto,
   SigninResponseDto,
   SignupDto,
@@ -30,6 +34,18 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly tokenService: TokenService,
   ) {}
+
+  @ApiOperation({ summary: 'Request a password reset link (always returns 200)' })
+  @ApiResponse({
+    description: 'Reset email sent if account exists',
+    status: HttpStatus.OK,
+    type: ForgotPasswordResponseDto,
+  })
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto> {
+    return this.authService.forgotPassword(dto);
+  }
 
   @ApiOperation({ summary: 'Sign out and revoke refresh token' })
   @ApiResponse({ description: 'Successfully signed out', status: HttpStatus.NO_CONTENT })
@@ -81,6 +97,20 @@ export class AuthController {
     @CurrentUser() currentUser: AuthUser,
   ): Promise<ResendVerificationResponseDto> {
     return this.authService.resendVerification(currentUser.sub);
+  }
+
+  @ApiOperation({ summary: 'Reset password using token received via email' })
+  @ApiResponse({
+    description: 'Password reset successfully',
+    status: HttpStatus.OK,
+    type: ResetPasswordResponseDto,
+  })
+  @ApiResponse({ description: 'Invalid or expired token', status: HttpStatus.BAD_REQUEST })
+  @ApiResponse({ description: 'Passwords do not match', status: HttpStatus.BAD_REQUEST })
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<ResetPasswordResponseDto> {
+    return this.authService.resetPassword(dto);
   }
 
   @ApiOperation({ summary: 'Sign in with email and password' })

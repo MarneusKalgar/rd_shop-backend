@@ -8,6 +8,7 @@ import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { isProduction } from '@/utils/env';
 
 import { EmailVerificationToken } from '../auth/email-verification-token.entity';
+import { PasswordResetToken } from '../auth/password-reset-token.entity';
 import { RefreshToken } from '../auth/refresh-token.entity';
 import { FileRecord } from '../files/file-record.entity';
 import { OrderItem } from '../orders/order-item.entity';
@@ -55,6 +56,7 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
       ProcessedMessage,
       RefreshToken,
       EmailVerificationToken,
+      PasswordResetToken,
     ],
     logger: new CustomTypeOrmLogger(),
   } as TypeOrmModuleOptions;
