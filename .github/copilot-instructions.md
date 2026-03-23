@@ -63,5 +63,5 @@ Detailed architecture notes live in `docs/architecture/`. Read the relevant file
 - Do not fix import ordering or formatting issues. This will be handled by ESLint and Prettier. Focus on functionality and architecture.
 - Do not try to launch type-check and test scripts. These are expected to fail until the relevant code is implemented. Focus on writing the implementation code, and we will address type-check and test issues in a later step.
 - If you create new TypeORM entity - do not add the migration file - this will be generated later by running appropriate npm script. Focus on defining the entity and its relations correctly, and we will handle the migration generation in a later step. Also register in the `apps/shop/src/config/typeORM.ts` or `apps/payments/src/config/typeORM.ts` depending on the service.
-- Newer throw from controllers, throw from service layer.
+- Never throw from controllers; throw from the service layer instead.
 - each new env var should be added to `apps/shop/.env.example` or `apps/payments/.env.example` with a default value and register in the `apps/shop/src/core/environment/schema.ts` or `apps/payments/src/core/environment/schema.ts` depending on the service.

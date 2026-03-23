@@ -15,10 +15,11 @@ const BASE_COOKIE_OPTIONS: CookieOptions = {
   secure: isProduction(),
 };
 
-export const REFRESH_COOKIE_OPTIONS: CookieOptions = {
+/** Build cookie options using the TTL derived from `TokenService.ttlMs` to keep DB expiry and cookie lifetime in sync. */
+export const buildRefreshCookieOptions = (maxAge: number): CookieOptions => ({
   ...BASE_COOKIE_OPTIONS,
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-};
+  maxAge,
+});
 
 /** Used when clearing the cookie — path must match the set options */
 export const REFRESH_COOKIE_CLEAR_OPTIONS: CookieOptions = {

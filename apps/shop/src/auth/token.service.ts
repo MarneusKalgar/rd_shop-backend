@@ -15,7 +15,11 @@ import { JwtPayload } from './types';
 
 @Injectable()
 export class TokenService {
+  get ttlMs(): number {
+    return this.ttl;
+  }
   private readonly saltRounds: number;
+
   private ttl: number;
 
   constructor(
@@ -53,8 +57,8 @@ export class TokenService {
       .createQueryBuilder()
       .update(RefreshToken)
       .set({ revokedAt: new Date() })
-      .where('userId = :userId', { userId })
-      .andWhere('revokedAt IS NULL')
+      .where('user_id = :userId', { userId })
+      .andWhere('revoked_at IS NULL')
       .execute();
   }
 
@@ -63,8 +67,11 @@ export class TokenService {
   }
 
   /**
-   * Validates the cookie value, revokes the old token, and issues a new pair.
-   * Used at the /refresh endpoint.
+   * Validates the cookie value, atomically revokes the old token, and issues a new pair.
+   *
+   * The revocation uses UPDATE … WHERE id = :id AND revokedAt IS NULL, so concurrent
+   * refresh requests racing on the same token will see 0 affected rows on the second
+   * attempt and receive 401 instead of being issued a second new token.
    */
   async rotateRefreshToken(cookieValue: string): Promise<{
     accessToken: string;
@@ -72,10 +79,22 @@ export class TokenService {
   }> {
     const storedToken = await this.validateRefreshToken(cookieValue);
 
-    await this.revokeRefreshToken(storedToken.id);
+    const result = await this.refreshTokenRepository
+      .createQueryBuilder()
+      .update(RefreshToken)
+      .set({ revokedAt: new Date() })
+      .where('id = :id', { id: storedToken.id })
+      .andWhere('revoked_at IS NULL')
+      .execute();
 
-    const accessToken = await this.generateAccessToken(storedToken.user);
-    const newCookieValue = await this.createRefreshToken(storedToken.userId);
+    if (!result.affected) {
+      throw new UnauthorizedException('Refresh token already used or revoked');
+    }
+
+    const [accessToken, newCookieValue] = await Promise.all([
+      this.generateAccessToken(storedToken.user),
+      this.createRefreshToken(storedToken.userId),
+    ]);
 
     return { accessToken, cookieValue: newCookieValue };
   }
@@ -83,7 +102,13 @@ export class TokenService {
   setTtl() {
     const ttlConfig = (this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ??
       '7d') as StringValue;
-    this.ttl = ms(ttlConfig);
+    const parsed = ms(ttlConfig);
+    if (!parsed || !Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(
+        `Invalid JWT_REFRESH_EXPIRES_IN value: "${ttlConfig}". Must be a positive duration string (e.g. "7d", "1h").`,
+      );
+    }
+    this.ttl = parsed;
   }
 
   /**

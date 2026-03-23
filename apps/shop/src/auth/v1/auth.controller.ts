@@ -4,9 +4,9 @@ import { Request, Response } from 'express';
 
 import { AuthService } from '../auth.service';
 import {
+  buildRefreshCookieOptions,
   REFRESH_COOKIE_CLEAR_OPTIONS,
   REFRESH_COOKIE_NAME,
-  REFRESH_COOKIE_OPTIONS,
 } from '../constants/cookie';
 import {
   RefreshResponseDto,
@@ -16,11 +16,15 @@ import {
   SignupResponseDto,
 } from '../dto';
 import { JwtAuthGuard } from '../guards';
+import { TokenService } from '../token.service';
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: '1' })
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly tokenService: TokenService,
+  ) {}
 
   @ApiOperation({ summary: 'Sign out and revoke refresh token' })
   @ApiResponse({ description: 'Successfully signed out', status: HttpStatus.NO_CONTENT })
@@ -49,7 +53,11 @@ export class AuthController {
     const cookieValue = req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
     const { accessToken, cookieValue: newCookieValue } =
       await this.authService.refresh(cookieValue);
-    res.cookie(REFRESH_COOKIE_NAME, newCookieValue, REFRESH_COOKIE_OPTIONS);
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      newCookieValue,
+      buildRefreshCookieOptions(this.tokenService.ttlMs),
+    );
     return { accessToken };
   }
 
@@ -68,7 +76,11 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<SigninResponseDto> {
     const { accessToken, cookieValue, user } = await this.authService.signin(signinDto);
-    res.cookie(REFRESH_COOKIE_NAME, cookieValue, REFRESH_COOKIE_OPTIONS);
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      cookieValue,
+      buildRefreshCookieOptions(this.tokenService.ttlMs),
+    );
     return { accessToken, user };
   }
 
