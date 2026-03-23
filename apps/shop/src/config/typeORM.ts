@@ -7,6 +7,7 @@ import { CustomTypeOrmLogger } from '@/db/logger';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { isProduction } from '@/utils/env';
 
+import { EmailVerificationToken } from '../auth/email-verification-token.entity';
 import { RefreshToken } from '../auth/refresh-token.entity';
 import { FileRecord } from '../files/file-record.entity';
 import { OrderItem } from '../orders/order-item.entity';
@@ -45,7 +46,16 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
 
   return {
     ...baseConfig,
-    entities: [User, Order, OrderItem, Product, FileRecord, ProcessedMessage, RefreshToken],
+    entities: [
+      User,
+      Order,
+      OrderItem,
+      Product,
+      FileRecord,
+      ProcessedMessage,
+      RefreshToken,
+      EmailVerificationToken,
+    ],
     logger: new CustomTypeOrmLogger(),
   } as TypeOrmModuleOptions;
 };

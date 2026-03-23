@@ -1,14 +1,34 @@
-import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
 
 import { UserEmailExistsError } from '@/common/errors';
+import { MailService } from '@/mail/mail.service';
 import { User } from '@/users/user.entity';
 
-import { AuthResult, RefreshResponseDto, SigninDto, SignupDto, SignupResponseDto } from './dto';
+import {
+  AuthResult,
+  RefreshResponseDto,
+  ResendVerificationResponseDto,
+  SigninDto,
+  SignupDto,
+  SignupResponseDto,
+  VerifyEmailResponseDto,
+} from './dto';
+import { EmailVerificationToken } from './email-verification-token.entity';
 import { TokenService } from './token.service';
+import { parseOpaqueToken } from './utils';
 
 @Injectable()
 export class AuthService {
@@ -18,17 +38,19 @@ export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(EmailVerificationToken)
+    private readonly emailVerificationTokenRepository: Repository<EmailVerificationToken>,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
     private readonly tokenService: TokenService,
   ) {
     this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10);
   }
 
   async logout(cookieValue: string): Promise<void> {
-    const colonIndex = cookieValue.indexOf(':');
-    if (colonIndex === -1) return;
-    const tokenId = cookieValue.substring(0, colonIndex);
-    await this.tokenService.revokeRefreshToken(tokenId);
+    const parsed = parseOpaqueToken(cookieValue);
+    if (!parsed) return;
+    await this.tokenService.revokeRefreshToken(parsed.tokenId);
   }
 
   async refresh(
@@ -39,6 +61,32 @@ export class AuthService {
     const { accessToken, cookieValue: newCookieValue } =
       await this.tokenService.rotateRefreshToken(cookieValue);
     return { accessToken, cookieValue: newCookieValue };
+  }
+
+  async resendVerification(userId: string): Promise<ResendVerificationResponseDto> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.isEmailVerified) {
+      throw new ConflictException('Email is already verified');
+    }
+
+    const oneMinuteAgo = new Date(Date.now() - 60_000);
+    const recentToken = await this.emailVerificationTokenRepository.findOne({
+      order: { createdAt: 'DESC' },
+      where: { userId },
+    });
+
+    if (recentToken && recentToken.createdAt > oneMinuteAgo) {
+      throw new HttpException(
+        'Please wait before requesting another verification email',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    await this.issueAndSendVerificationToken(user);
+
+    return { message: 'Verification email sent' };
   }
 
   async signin(signinDto: SigninDto): Promise<AuthResult> {
@@ -91,11 +139,26 @@ export class AuthService {
 
     this.logger.log(`New user registered: ${user.email}`);
 
+    await this.issueAndSendVerificationToken(user);
+
     return {
       email: user.email,
       id: user.id,
       message: 'User successfully registered. Please sign in to continue.',
     };
+  }
+
+  async verifyEmail(token: string): Promise<VerifyEmailResponseDto> {
+    const storedToken = await this.tokenService.validateVerificationToken(token);
+
+    await Promise.all([
+      this.emailVerificationTokenRepository.update(storedToken.id, { usedAt: new Date() }),
+      this.userRepository.update(storedToken.userId, { isEmailVerified: true }),
+    ]);
+
+    this.logger.log(`Email verified for user: ${storedToken.userId}`);
+
+    return { message: 'Email successfully verified' };
   }
 
   private async buildAuthResult(user: User): Promise<AuthResult> {
@@ -110,5 +173,10 @@ export class AuthService {
       cookieValue,
       user: { email, id, roles, scopes },
     };
+  }
+
+  private async issueAndSendVerificationToken(user: User): Promise<void> {
+    const rawToken = await this.tokenService.issueVerificationToken(user.id);
+    await this.mailService.sendVerificationEmail(user.email, rawToken);
   }
 }

@@ -7,16 +7,21 @@ import {
   buildRefreshCookieOptions,
   REFRESH_COOKIE_CLEAR_OPTIONS,
   REFRESH_COOKIE_NAME,
-} from '../constants/cookie';
+} from '../constants';
+import { CurrentUser } from '../decorators';
 import {
   RefreshResponseDto,
+  ResendVerificationResponseDto,
   SigninDto,
   SigninResponseDto,
   SignupDto,
   SignupResponseDto,
+  VerifyEmailDto,
+  VerifyEmailResponseDto,
 } from '../dto';
 import { JwtAuthGuard } from '../guards';
 import { TokenService } from '../token.service';
+import { AuthUser } from '../types';
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: '1' })
@@ -61,6 +66,23 @@ export class AuthController {
     return { accessToken };
   }
 
+  @ApiOperation({ summary: 'Resend verification email (rate limited: 1 per minute)' })
+  @ApiResponse({
+    description: 'Verification email sent',
+    status: HttpStatus.OK,
+    type: ResendVerificationResponseDto,
+  })
+  @ApiResponse({ description: 'Email already verified', status: HttpStatus.CONFLICT })
+  @ApiResponse({ description: 'Too many requests', status: HttpStatus.TOO_MANY_REQUESTS })
+  @HttpCode(HttpStatus.OK)
+  @Post('resend-verification')
+  @UseGuards(JwtAuthGuard)
+  async resendVerification(
+    @CurrentUser() currentUser: AuthUser,
+  ): Promise<ResendVerificationResponseDto> {
+    return this.authService.resendVerification(currentUser.sub);
+  }
+
   @ApiOperation({ summary: 'Sign in with email and password' })
   @ApiResponse({
     description: 'User successfully signed in',
@@ -95,5 +117,18 @@ export class AuthController {
   @Post('signup')
   async signup(@Body() signupDto: SignupDto): Promise<SignupResponseDto> {
     return this.authService.signup(signupDto);
+  }
+
+  @ApiOperation({ summary: 'Verify email address using token received via email' })
+  @ApiResponse({
+    description: 'Email successfully verified',
+    status: HttpStatus.OK,
+    type: VerifyEmailResponseDto,
+  })
+  @ApiResponse({ description: 'Invalid or expired token', status: HttpStatus.BAD_REQUEST })
+  @HttpCode(HttpStatus.OK)
+  @Post('verify-email')
+  async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto): Promise<VerifyEmailResponseDto> {
+    return this.authService.verifyEmail(verifyEmailDto.token);
   }
 }

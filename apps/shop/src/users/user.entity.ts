@@ -22,6 +22,9 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ default: false, name: 'is_email_verified', type: 'boolean' })
+  isEmailVerified: boolean;
+
   @OneToMany(() => Order, (order) => order.user)
   orders: Order[];
 

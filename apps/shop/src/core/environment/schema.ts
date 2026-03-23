@@ -13,6 +13,10 @@ export class EnvironmentVariables {
   @IsString()
   APP_LOG_LEVEL?: string;
 
+  @IsOptional()
+  @IsString()
+  APP_URL?: string;
+
   @IsString()
   AWS_ACCESS_KEY_ID: string;
 
@@ -45,6 +49,10 @@ export class EnvironmentVariables {
   @IsString()
   AWS_SECRET_ACCESS_KEY: string;
 
+  @IsOptional()
+  @IsString()
+  AWS_SES_REGION?: string;
+
   @IsNumber()
   @IsOptional()
   BCRYPT_SALT_ROUNDS?: number;
@@ -54,6 +62,10 @@ export class EnvironmentVariables {
 
   @IsString()
   DATABASE_URL: string;
+
+  @IsOptional()
+  @IsString()
+  EMAIL_VERIFICATION_EXPIRES_IN?: string;
 
   @IsOptional()
   @IsString()
@@ -145,4 +157,8 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   RABBITMQ_VHOST?: string;
+
+  @IsOptional()
+  @IsString()
+  SES_FROM_ADDRESS?: string;
 }

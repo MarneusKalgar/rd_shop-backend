@@ -92,7 +92,7 @@ Virtual getter: `get isActive(): boolean` — `revokedAt === null && expiresAt >
 
 ## Cookie constants
 
-`apps/shop/src/auth/constants/cookie.ts`
+`apps/shop/src/auth/constants/index.ts`
 
 ```typescript
 REFRESH_COOKIE_NAME = 'refreshToken';

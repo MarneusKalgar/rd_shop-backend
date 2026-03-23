@@ -8,6 +8,7 @@ const mockUser = {
   email: 'john@example.com',
   firstName: 'John',
   id: '1',
+  isEmailVerified: false,
   lastName: 'Doe',
   orders: [],
   password: 'hashedpassword123',

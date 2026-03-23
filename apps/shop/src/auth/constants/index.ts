@@ -3,6 +3,7 @@ import { CookieOptions } from 'express';
 import { isProduction } from '@/utils';
 
 export const REFRESH_COOKIE_NAME = 'refreshToken';
+export const UUID_LENGTH = 36;
 
 const API_PREFIX = 'api';
 const DEFAULT_VERSION = '1';
