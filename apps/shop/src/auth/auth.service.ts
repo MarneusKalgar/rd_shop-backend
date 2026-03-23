@@ -1,6 +1,5 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
@@ -8,8 +7,8 @@ import { Repository } from 'typeorm';
 import { UserEmailExistsError } from '@/common/errors';
 import { User } from '@/users/user.entity';
 
-import { SigninDto, SigninResponseDto, SignupDto, SignupResponseDto } from './dto';
-import { JwtPayload } from './types';
+import { AuthResult, RefreshResponseDto, SigninDto, SignupDto, SignupResponseDto } from './dto';
+import { TokenService } from './token.service';
 
 @Injectable()
 export class AuthService {
@@ -19,16 +18,30 @@ export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly tokenService: TokenService,
   ) {
     this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10);
   }
 
-  /**
-   * Sign in existing user
-   */
-  async signin(signinDto: SigninDto): Promise<SigninResponseDto> {
+  async logout(cookieValue: string): Promise<void> {
+    const colonIndex = cookieValue.indexOf(':');
+    if (colonIndex === -1) return;
+    const tokenId = cookieValue.substring(0, colonIndex);
+    await this.tokenService.revokeRefreshToken(tokenId);
+  }
+
+  async refresh(
+    cookieValue: string | undefined,
+  ): Promise<RefreshResponseDto & { cookieValue: string }> {
+    if (!cookieValue) throw new UnauthorizedException('Missing refresh token');
+
+    const { accessToken, cookieValue: newCookieValue } =
+      await this.tokenService.rotateRefreshToken(cookieValue);
+    return { accessToken, cookieValue: newCookieValue };
+  }
+
+  async signin(signinDto: SigninDto): Promise<AuthResult> {
     const { email, password } = signinDto;
 
     const user = await this.userRepository
@@ -49,16 +62,15 @@ export class AuthService {
 
     this.logger.log(`User signed in: ${user.email}`);
 
-    const authResponse = await this.generateAuthResponse(user);
-
-    return authResponse;
+    return this.buildAuthResult(user);
   }
 
-  /**
-   * Register a new user
-   */
   async signup(signupDto: SignupDto): Promise<SignupResponseDto> {
-    const { email, password } = signupDto;
+    const { confirmedPassword, email, password } = signupDto;
+
+    if (password !== confirmedPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
 
     const existingUser = await this.userRepository.findOne({
       where: { email },
@@ -86,27 +98,17 @@ export class AuthService {
     };
   }
 
-  /**
-   * Generate JWT token and auth response
-   */
-  private async generateAuthResponse(user: User): Promise<SigninResponseDto> {
-    const payload: JwtPayload = {
-      email: user.email,
-      roles: user.roles,
-      scopes: user.scopes,
-      sub: user.id,
-    };
-
-    const accessToken = await this.jwtService.signAsync(payload);
+  private async buildAuthResult(user: User): Promise<AuthResult> {
+    const [accessToken, cookieValue] = await Promise.all([
+      this.tokenService.generateAccessToken(user),
+      this.tokenService.issueRefreshToken(user.id),
+    ]);
+    const { email, id, roles, scopes } = user;
 
     return {
       accessToken,
-      user: {
-        email: user.email,
-        id: user.id,
-        roles: user.roles,
-        scopes: user.scopes,
-      },
+      cookieValue,
+      user: { email, id, roles, scopes },
     };
   }
 }

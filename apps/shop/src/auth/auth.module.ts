@@ -9,13 +9,15 @@ import { User } from '@/users/user.entity';
 
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { RefreshToken } from './refresh-token.entity';
+import { TokenService } from './token.service';
 import { AuthController as AuthControllerV1 } from './v1/auth.controller';
 
 @Module({
   controllers: [AuthControllerV1],
   exports: [AuthService, JwtModule],
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, RefreshToken]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -33,6 +35,6 @@ import { AuthController as AuthControllerV1 } from './v1/auth.controller';
       },
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, TokenService],
 })
 export class AuthModule {}
