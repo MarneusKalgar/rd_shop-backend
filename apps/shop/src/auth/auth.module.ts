@@ -18,7 +18,7 @@ import { AuthController as AuthControllerV1 } from './v1/auth.controller';
 
 @Module({
   controllers: [AuthControllerV1],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, JwtModule, TokenService],
   imports: [
     TypeOrmModule.forFeature([User, RefreshToken, EmailVerificationToken, PasswordResetToken]),
     MailModule,
