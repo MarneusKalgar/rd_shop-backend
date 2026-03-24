@@ -68,11 +68,11 @@ export class AuthService {
 
     // TODO: Remove this DB-based rate limit once @nestjs/throttler is implemented with a
     // custom UserEmailThrottleGuard that keys by req.body.email (observability plan Phase 2).
-    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentTokens = await this.passwordResetTokenRepository
       .createQueryBuilder('t')
       .where('t.user_id = :userId', { userId: user.id })
-      .andWhere('t.created_at > :since', { since: threeHoursAgo })
+      .andWhere('t.created_at > :since', { since: oneHourAgo })
       .getCount();
 
     if (recentTokens >= 3) return SAFE_RESPONSE;

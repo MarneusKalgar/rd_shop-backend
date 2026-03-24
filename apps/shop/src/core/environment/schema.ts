@@ -1,5 +1,7 @@
 import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 
+import { NodeEnvironment } from '@/utils/env';
+
 export class EnvironmentVariables {
   @IsOptional()
   @IsString()
@@ -86,8 +88,8 @@ export class EnvironmentVariables {
   @IsOptional()
   MINIO_PORT?: number;
 
-  @IsString()
-  NODE_ENV: string;
+  @IsEnum(NodeEnvironment)
+  NODE_ENV: NodeEnvironment;
 
   @IsOptional()
   @IsString()

@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, ParseUUIDPipe, Patch, UseGuards } from '@nestjs/common';
 
 import { UserRole } from '@/auth/constants';
 import { Roles } from '@/auth/decorators';
@@ -14,7 +14,10 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Patch('users/:userId/permissions')
-  updateUserPermissions(@Param('userId') userId: string, @Body() dto: UpdateUserPermissionsDto) {
+  updateUserPermissions(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() dto: UpdateUserPermissionsDto,
+  ) {
     return this.adminService.updateUserPermissions(userId, dto);
   }
 }

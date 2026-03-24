@@ -64,7 +64,7 @@ Detailed architecture notes live in `docs/architecture/`. Read the relevant file
 - Focus on writing the implementation code, do not:
   - Do not fix import ordering or formatting issues. This will be handled by ESLint and Prettier.
   - Do not try to launch type-check and test scripts. These are expected to fail until the relevant code is implemented.
-  - Do not add the migration file if you create new TypeORM entity. Focus on defining the entity and its relations correctly. Also register it in the `apps/shop/src/config/typeORM.ts` or `apps/payments/src/config/typeORM.ts` depending on the service.
+  - Do not try to generate a migration file if you create new TypeORM entity. Focus on defining the entity and its relations correctly. Also register it in the `apps/shop/src/config/typeORM.ts` or `apps/payments/src/config/typeORM.ts` depending on the service.
 - Never throw from controllers; throw from the service layer instead.
 - Each new env var should be added to `apps/shop/.env.example`/`apps/shop/.env.development` or `apps/payments/.env.example`/`apps/payments/.env.development` with a default value and register in the `apps/shop/src/core/environment/schema.ts` or `apps/payments/src/core/environment/schema.ts` depending on the service.
 - If you need to create constants - create `constants/index.ts` file in the relevant domain and export them from there. Do not create multiple constants files unless there is a very good reason to do so.
