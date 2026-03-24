@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -22,6 +23,7 @@ import { AuthUser } from '@/auth/types';
 import {
   ChangePasswordDto,
   FindUsersDto,
+  SetAvatarDto,
   UpdateProfileDto,
   UserResponseDto,
   UsersListResponseDto,
@@ -80,6 +82,28 @@ export class UsersController {
   @UseGuards(RolesGuard)
   async getUsers(@Query() dto: FindUsersDto): Promise<UsersListResponseDto> {
     return this.usersService.findAll(dto);
+  }
+
+  @ApiOperation({ summary: 'Remove own avatar' })
+  @ApiResponse({ description: 'Avatar removed', status: HttpStatus.NO_CONTENT })
+  @Delete('me/avatar')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeAvatar(@CurrentUser() user: AuthUser): Promise<void> {
+    return this.usersService.removeAvatar(user.sub);
+  }
+
+  @ApiOperation({ summary: 'Set own avatar' })
+  @ApiResponse({
+    description: 'Updated profile with avatar',
+    status: HttpStatus.OK,
+    type: UserResponseDto,
+  })
+  @Put('me/avatar')
+  async setAvatar(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SetAvatarDto,
+  ): Promise<UserResponseDto> {
+    return this.usersService.setAvatar(user.sub, dto);
   }
 
   @ApiOperation({ summary: 'Update own profile' })

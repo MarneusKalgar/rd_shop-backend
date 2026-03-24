@@ -76,8 +76,8 @@ export class FilesController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Post('presigned-upload')
-  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
-  @Scopes(UserScope.PRODUCTS_IMAGES_WRITE)
+  // @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  // @Scopes(UserScope.PRODUCTS_IMAGES_WRITE)
   async createPresignedUpload(
     @CurrentUser() user: AuthUser,
     @Body() body: CreatePresignedUploadDto,

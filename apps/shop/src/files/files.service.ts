@@ -174,6 +174,51 @@ export class FilesService {
   }
 
   /**
+   * Get presigned download URL for a file by ID (used by external services, e.g. UserService for avatar)
+   */
+  async getPresignedUrlForFileId(fileId: string): Promise<null | string> {
+    const fileRecord = await this.fileRecordRepository.findOne({ where: { id: fileId } });
+
+    if (!fileRecord) return null;
+
+    const { downloadUrl } = await this.s3Service.getPresignedDownloadUrl(fileRecord.key);
+    return downloadUrl;
+  }
+
+  /**
+   * Verify file ownership + S3 existence, mark READY if PENDING.
+   * Returns { fileId, presignedUrl } for use by entity-specific services (e.g. avatar).
+   */
+  async prepareFileForEntity(
+    userId: string,
+    fileId: string,
+  ): Promise<{ fileId: string; presignedUrl: string }> {
+    const fileRecord = await this.findFileRecordOrFail(fileId);
+
+    this.checkIsOwner(fileRecord, userId);
+
+    const fileExistsInS3 = await this.s3Service.checkFileExists(fileRecord.key);
+
+    if (!fileExistsInS3) {
+      throw new BadRequestException(
+        'File not found in S3. Please upload the file first using the presigned URL.',
+      );
+    }
+
+    if (fileRecord.status === FileStatus.PENDING) {
+      fileRecord.status = FileStatus.READY;
+      fileRecord.completedAt = new Date();
+      await this.fileRecordRepository.save(fileRecord);
+    }
+
+    const { downloadUrl: presignedUrl } = await this.s3Service.getPresignedDownloadUrl(
+      fileRecord.key,
+    );
+
+    return { fileId: fileRecord.id, presignedUrl };
+  }
+
+  /**
    * Associate file with entity (Product, User, etc.)
    */
   private async associateFileWithEntity(
@@ -183,10 +228,6 @@ export class FilesService {
     switch (entityType) {
       case 'product':
         await this.productsService.associateMainImage(fileRecord.entityId!, fileRecord.id);
-        break;
-      case 'user':
-        // TODO: Implement user avatar association
-        this.logger.log(`User avatar association not yet implemented for ${fileRecord.id}`);
         break;
       default:
         this.logger.warn(`Unknown entity type: ${entityType as string}`);

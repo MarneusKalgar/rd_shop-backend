@@ -11,9 +11,11 @@ import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
 
 import { TokenService } from '../auth/token.service';
+import { FilesService } from '../files/files.service';
 import {
   ChangePasswordDto,
   FindUsersDto,
+  SetAvatarDto,
   UpdateProfileDto,
   UserResponseDto,
   UsersListResponseDto,
@@ -29,6 +31,7 @@ export class UsersService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly configService: ConfigService,
+    private readonly filesService: FilesService,
     private readonly tokenService: TokenService,
   ) {
     this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10);
@@ -104,7 +107,9 @@ export class UsersService {
       throw new NotFoundException(`User with ID "${id}" not found`);
     }
 
-    return UserResponseDto.fromEntity(user);
+    const dto = UserResponseDto.fromEntity(user);
+    dto.avatarUrl = await this.resolveAvatarUrl(user.avatarId);
+    return dto;
   }
 
   async getProfile(userId: string): Promise<UserResponseDto> {
@@ -114,7 +119,9 @@ export class UsersService {
       throw new NotFoundException(`User with ID "${userId}" not found`);
     }
 
-    return UserResponseDto.fromEntity(user);
+    const dto = UserResponseDto.fromEntity(user);
+    dto.avatarUrl = await this.resolveAvatarUrl(user.avatarId);
+    return dto;
   }
 
   async remove(id: string): Promise<void> {
@@ -132,6 +139,30 @@ export class UsersService {
     this.logger.log(`Soft-deleted user: ${id}`);
   }
 
+  async removeAvatar(userId: string): Promise<void> {
+    await this.userRepository.update(userId, { avatarId: null });
+    this.logger.log(`Removed avatar for user: ${userId}`);
+  }
+
+  async setAvatar(userId: string, dto: SetAvatarDto): Promise<UserResponseDto> {
+    const { fileId, presignedUrl } = await this.filesService.prepareFileForEntity(
+      userId,
+      dto.fileId,
+    );
+
+    await this.userRepository.update(userId, { avatarId: fileId });
+
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    const response = UserResponseDto.fromEntity(user);
+    response.avatarUrl = presignedUrl;
+    return response;
+  }
+
   async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserResponseDto> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
 
@@ -141,6 +172,13 @@ export class UsersService {
 
     Object.assign(user, dto);
     const updated = await this.userRepository.save(user);
-    return UserResponseDto.fromEntity(updated);
+    const response = UserResponseDto.fromEntity(updated);
+    response.avatarUrl = await this.resolveAvatarUrl(updated.avatarId);
+    return response;
+  }
+
+  private async resolveAvatarUrl(avatarId: null | string): Promise<null | string> {
+    if (!avatarId) return null;
+    return this.filesService.getPresignedUrlForFileId(avatarId);
   }
 }

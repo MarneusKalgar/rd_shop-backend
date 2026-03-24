@@ -2,6 +2,7 @@ import { User } from '../user.entity';
 
 export class UserResponseDto {
   avatarId: null | string;
+  avatarUrl: null | string;
   city: null | string;
   country: null | string;
   createdAt: Date;
@@ -26,6 +27,7 @@ export class UserResponseDto {
     dto.country = user.country;
     dto.postcode = user.postcode;
     dto.avatarId = user.avatarId;
+    dto.avatarUrl = null;
     dto.roles = user.roles;
     dto.scopes = user.scopes;
     dto.isEmailVerified = user.isEmailVerified;
