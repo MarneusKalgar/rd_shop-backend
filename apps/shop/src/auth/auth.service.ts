@@ -139,26 +139,25 @@ export class AuthService {
   }
 
   /**
-   * Completes the password reset flow: validates the reset token, hashes the new password,
-   * and atomically updates the user record, marks the token as used, and revokes all
-   * existing refresh tokens.
+   * Completes the password reset flow: atomically consumes the reset token (preventing
+   * replay under concurrent requests), hashes the new password, and revokes all existing
+   * refresh tokens for the user.
    */
   async resetPassword(dto: ResetPasswordDto): Promise<ResetPasswordResponseDto> {
     if (dto.newPassword !== dto.confirmedPassword) {
       throw new BadRequestException('Passwords do not match');
     }
 
-    const storedToken = await this.tokenService.validatePasswordResetToken(dto.token);
+    const userId = await this.tokenService.consumePasswordResetToken(dto.token);
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, this.saltRounds);
 
     await Promise.all([
-      this.userRepository.update(storedToken.userId, { password: hashedPassword }),
-      this.passwordResetTokenRepository.update(storedToken.id, { usedAt: new Date() }),
-      this.tokenService.revokeAllUserTokens(storedToken.userId),
+      this.userRepository.update(userId, { password: hashedPassword }),
+      this.tokenService.revokeAllUserTokens(userId),
     ]);
 
-    this.logger.log(`Password reset for user: ${storedToken.userId}`);
+    this.logger.log(`Password reset for user: ${userId}`);
 
     return { message: 'Password reset successfully' };
   }
@@ -233,14 +232,11 @@ export class AuthService {
 
   /** Validates the email verification token and marks the user's email as verified. */
   async verifyEmail(token: string): Promise<VerifyEmailResponseDto> {
-    const storedToken = await this.tokenService.validateVerificationToken(token);
+    const userId = await this.tokenService.consumeVerificationToken(token);
 
-    await Promise.all([
-      this.emailVerificationTokenRepository.update(storedToken.id, { usedAt: new Date() }),
-      this.userRepository.update(storedToken.userId, { isEmailVerified: true }),
-    ]);
+    await this.userRepository.update(userId, { isEmailVerified: true });
 
-    this.logger.log(`Email verified for user: ${storedToken.userId}`);
+    this.logger.log(`Email verified for user: ${userId}`);
 
     return { message: 'Email successfully verified' };
   }

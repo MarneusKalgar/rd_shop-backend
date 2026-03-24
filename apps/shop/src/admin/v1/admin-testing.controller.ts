@@ -5,7 +5,6 @@ import { CreateVerifiedAdminDto, CreateVerifiedAdminResponseDto } from '../testi
 
 /**
  * Testing-only controller — no auth guards.
- * All handlers throw `ForbiddenException` in production (enforced at the service layer).
  */
 @Controller('admin-testing')
 export class AdminTestingController {

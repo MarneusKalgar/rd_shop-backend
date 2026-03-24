@@ -4,6 +4,7 @@ import { isProduction } from '@/utils';
 
 export { UserRole, UserScope } from '../permissions/constants';
 
+export const MIN_RAW_SECRET_LENGTH = 64;
 export const REFRESH_COOKIE_NAME = 'refreshToken';
 export const UUID_LENGTH = 36;
 

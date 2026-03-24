@@ -44,6 +44,62 @@ export class TokenService {
     this.setPasswordResetTtl();
   }
 
+  /**
+   * Validates a password reset token and atomically marks it as used.
+   *
+   * The mark-as-used step uses UPDATE … WHERE id = :id AND used_at IS NULL, so
+   * concurrent requests racing on the same token will see 0 affected rows on the
+   * second attempt and receive 400 instead of resetting the password twice.
+   *
+   * Returns the `userId` of the token owner.
+   */
+  async consumePasswordResetToken(rawToken: string): Promise<string> {
+    const storedToken = await this.validatePasswordResetToken(rawToken);
+
+    const result = await this.passwordResetTokenRepository
+      .createQueryBuilder()
+      .update(PasswordResetToken)
+      .set({ usedAt: new Date() })
+      .where('id = :id', { id: storedToken.id })
+      .andWhere('used_at IS NULL')
+      .execute();
+
+    if (!result.affected) {
+      throw new BadRequestException('Token has already been used');
+    }
+
+    return storedToken.userId;
+  }
+
+  /**
+   * Validates an email verification token and atomically marks it as used.
+   *
+   * The mark-as-used step uses UPDATE … WHERE id = :id AND used_at IS NULL AND
+   * expires_at > NOW(), so concurrent requests racing on the same token will see
+   * 0 affected rows on the second attempt and receive 400 instead of verifying
+   * the email twice.
+   *
+   * Returns the `userId` of the token owner.
+   */
+  async consumeVerificationToken(rawToken: string): Promise<string> {
+    const storedToken = await this.validateVerificationToken(rawToken);
+
+    const result = await this.emailVerificationTokenRepository
+      .createQueryBuilder()
+      .update(EmailVerificationToken)
+      .set({ usedAt: new Date() })
+      .where('id = :id', { id: storedToken.id })
+      .andWhere('used_at IS NULL')
+      .andWhere('expires_at > NOW()')
+      .execute();
+
+    if (!result.affected) {
+      throw new BadRequestException('Token has already been used');
+    }
+
+    return storedToken.userId;
+  }
+
   /** Signs and returns a short-lived JWT access token for the given user. */
   async generateAccessToken(user: User): Promise<string> {
     const payload: JwtPayload = {

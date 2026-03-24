@@ -1,6 +1,6 @@
 import { isUUID } from 'class-validator';
 
-import { UUID_LENGTH } from '../constants';
+import { MIN_RAW_SECRET_LENGTH, UUID_LENGTH } from '../constants';
 
 const DELIMITER = ':';
 
@@ -11,8 +11,8 @@ export function parseOpaqueToken(token: string): null | { rawSecret: string; tok
   const tokenId = token.substring(0, UUID_LENGTH);
   if (!isUUID(tokenId)) return null;
 
-  return {
-    rawSecret: token.substring(UUID_LENGTH + 1),
-    tokenId,
-  };
+  const rawSecret = token.substring(UUID_LENGTH + 1);
+  if (rawSecret.length < MIN_RAW_SECRET_LENGTH) return null;
+
+  return { rawSecret, tokenId };
 }
