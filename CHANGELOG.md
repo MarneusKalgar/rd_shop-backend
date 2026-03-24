@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-03-24
+
+### Added
+
+- **Refresh Tokens** — `TokenService` encapsulates all JWT and refresh-token operations; `RefreshToken` entity (UUID PK, `tokenHash`, `expiresAt`, `revokedAt`, `isActive` virtual getter); single-session model revokes any existing token on each sign-in or refresh
+- **Cookie-Based Refresh Token** — `cookie-parser` installed and wired in `main.ts`; `Set-Cookie: refreshToken` is `HttpOnly`, `Secure` (prod), `SameSite=Strict`, scoped to the auth path prefix; token never appears in response body
+- **`POST /auth/refresh`** — rotates the refresh token, sets a new cookie, returns `{ accessToken }`
+- **`POST /auth/logout`** — revokes the refresh token, clears the cookie; uses `JwtAuthGuard`
+- **Email Verification** — `isEmailVerified` boolean column added to `User` entity (default `false`); `EmailVerificationToken` entity (UUID PK, `tokenHash`, `expiresAt`, `usedAt`, FK → users CASCADE)
+- **`POST /auth/verify-email`** — validates the token and marks the user's email as verified (unauthenticated)
+- **`POST /auth/resend-verification`** — re-issues and resends the verification email; requires JWT; DB-based 1-per-minute cooldown (TODO: replace with `@nestjs/throttler`)
+- **`MailModule` + `MailService`** — sends transactional email via AWS SES (`@aws-sdk/client-sesv2`); dev-mode fallback logs email content to console when `AWS_SES_REGION` is not set; supports `sendVerificationEmail`, `sendPasswordResetEmail`
+- **Password Reset** — `PasswordResetToken` entity (UUID PK, `tokenHash`, `expiresAt` 1h, `usedAt`, FK → users CASCADE)
+- **`POST /auth/forgot-password`** — always returns `200` (prevents user enumeration); sends reset link if account exists and rate limit (3 requests per hour per email) has not been exceeded; DB-based guard (TODO: replace with `@nestjs/throttler`)
+- **`POST /auth/reset-password`** — validates token, hashes new password, marks token used, revokes all refresh tokens for the user (force re-login)
+- **`UserRole` / `UserScope` Enums** — canonical string enums in `auth/permissions/constants.ts` replacing untyped `string[]`; all decorators, guards, seed data, and DTOs now use enum values
+- **`UserPermissions` Factory** — deeply-frozen `UserPermissions` object (`NewUser`, `Admin`, `Support`) groups roles and scopes by persona; used in signup and `AdminTestingService`
+- **Default Roles & Scopes on Signup** — new users automatically receive `USER` role and `orders:read`, `orders:write`, `files:write`, `products:read` scopes
+- **Admin Permissions Endpoint** — `PATCH /api/v1/admin/users/:userId/permissions` (admin-only) for assigning/revoking roles and scopes; `userId` validated with `ParseUUIDPipe`
+- **`AdminTestingController`** — `POST /api/v1/admin-testing/verified-admin` creates a verified admin user for non-production environments; controller and service are conditionally registered (not mounted in production via module-level `isProduction()` check)
+- **`NodeEnvironment` Enum** — `NODE_ENV` now validated as a strict enum (`development | production | test`) in the env schema; misconfigured values (e.g. `prod`) fail at startup
+
+### Changed
+
+- **`POST /auth/signup`** — `confirmedPassword` field added to `SignupDto`; password-match validation in service layer; emails a verification link after registration; no tokens issued on signup (user must sign in explicitly)
+- **`POST /auth/signin`** — now issues a refresh token pair and sets the `refreshToken` cookie in addition to returning `{ accessToken, user }`
+- **`@Roles()` / `@Scopes()` Decorators** — parameter types narrowed from `string` to `UserRole` / `UserScope`
+- **Seed Data** — all hardcoded role/scope strings normalized to `resource:action` convention using enum values
+
+### Security
+
+- **`parseOpaqueToken()` Hardened** — validates the `:` delimiter at position 36 and checks the UUID segment with `isUUID()` from `class-validator` before any DB lookup; malformed tokens now return `null` (→ 401) instead of bubbling a Postgres `invalid uuid syntax` 500
+- **`ParseUUIDPipe` on `:orderId`** — `GET /orders/:orderId` and `GET /orders/:orderId/payment` now reject non-UUID values with 400 before reaching TypeORM
+- **Production Guard at Module Level** — `AdminTestingController` and its service are absent from the DI container in production; no runtime `ForbiddenException` needed
+- **`NODE_ENV` Enum Validation** — prevents a misconfigured `NODE_ENV=prod` from silently bypassing the production guard
+
 ## [0.1.1] - 2026-03-21
 
 ### Added

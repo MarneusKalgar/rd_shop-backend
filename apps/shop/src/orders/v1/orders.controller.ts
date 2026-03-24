@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '@/auth/decorators/current-user';
@@ -70,7 +80,7 @@ export class OrdersController {
   })
   @Get(':orderId')
   async getOrderById(
-    @Param('orderId') orderId: string,
+    @Param('orderId', ParseUUIDPipe) orderId: string,
     @CurrentUser() user: AuthUser,
   ): Promise<GetOrderByIdResponseDto> {
     const order = await this.ordersService.getOrderById(user.sub, orderId);
@@ -97,7 +107,7 @@ export class OrdersController {
   })
   @Get(':orderId/payment')
   async getOrderPayment(
-    @Param('orderId') orderId: string,
+    @Param('orderId', ParseUUIDPipe) orderId: string,
     @CurrentUser() user: AuthUser,
   ): Promise<GetOrderPaymentResponseDto> {
     const payment = await this.ordersService.getOrderPayment(user.sub, orderId);

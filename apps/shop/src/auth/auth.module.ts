@@ -5,10 +5,13 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StringValue } from 'ms';
 
+import { MailModule } from '@/mail/mail.module';
 import { User } from '@/users/user.entity';
 
 import { AuthService } from './auth.service';
+import { EmailVerificationToken } from './email-verification-token.entity';
 import { JwtStrategy } from './jwt.strategy';
+import { PasswordResetToken } from './password-reset-token.entity';
 import { RefreshToken } from './refresh-token.entity';
 import { TokenService } from './token.service';
 import { AuthController as AuthControllerV1 } from './v1/auth.controller';
@@ -17,7 +20,8 @@ import { AuthController as AuthControllerV1 } from './v1/auth.controller';
   controllers: [AuthControllerV1],
   exports: [AuthService, JwtModule],
   imports: [
-    TypeOrmModule.forFeature([User, RefreshToken]),
+    TypeOrmModule.forFeature([User, RefreshToken, EmailVerificationToken, PasswordResetToken]),
+    MailModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

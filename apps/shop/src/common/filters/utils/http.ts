@@ -2,6 +2,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { Request } from 'express';
 
 import { REQUEST_ID_HEADER } from '@/common/constants';
+import { BaseError } from '@/common/errors';
 
 /**
  * Extracts the error message or response object from the exception.
@@ -15,6 +16,7 @@ export function extractMessage(exception: unknown): object | string {
       ? (response as { message: string | string[] }).message
       : response;
   }
+  if (exception instanceof BaseError) return exception.message;
   return 'Internal server error';
 }
 
@@ -33,9 +35,9 @@ export function extractRequestId(request: Request): string | undefined {
  * @returns The HTTP status code
  */
 export function extractStatus(exception: unknown): number {
-  return exception instanceof HttpException
-    ? exception.getStatus()
-    : HttpStatus.INTERNAL_SERVER_ERROR;
+  if (exception instanceof HttpException) return exception.getStatus();
+  if (exception instanceof BaseError) return exception.httpStatus;
+  return HttpStatus.INTERNAL_SERVER_ERROR;
 }
 
 /**

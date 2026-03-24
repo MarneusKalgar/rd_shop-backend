@@ -18,9 +18,11 @@ export interface SeedProduct {
   title: string;
 }
 
+import { UserRole, UserScope } from '@/auth/permissions';
+
 export interface SeedUser {
   email: string;
   id?: string;
-  roles?: string[];
-  scopes?: string[];
+  roles?: UserRole[];
+  scopes?: UserScope[];
 }

@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 // import { GracefulShutdownModule } from '@tygra/nestjs-graceful-shutdown';
 
+import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { QueryLoggerMiddleware, RequestIdMiddleware } from './common/middlewares';
 import { /*getGracefulShutdownConfig,*/ getTypeOrmModuleOptions } from './config';
@@ -31,6 +32,7 @@ import { UsersModule } from './users/users.module';
     // TODO: Uncomment when resolve problem with graphql module
     // GracefulShutdownModule.forRoot(getGracefulShutdownConfig()),
     AuthModule,
+    AdminModule,
     UsersModule,
     OrdersModule,
     ProductsModule,

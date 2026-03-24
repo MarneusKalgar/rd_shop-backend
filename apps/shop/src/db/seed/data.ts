@@ -1,3 +1,5 @@
+import { UserRole, UserScope } from '@/auth/permissions';
+
 import { SeedOrder, SeedProduct, SeedUser } from './types';
 
 /**
@@ -6,35 +8,50 @@ import { SeedOrder, SeedProduct, SeedUser } from './types';
 export const seedUsers: SeedUser[] = [
   {
     email: 'john.doe@example.com',
-    roles: ['admin'],
+    roles: [UserRole.ADMIN],
     scopes: [
-      'read:orders',
-      'write:orders',
-      'read:products',
-      'write:products',
-      'products:images:write',
-      'products:images:read',
+      UserScope.ORDERS_READ,
+      UserScope.ORDERS_WRITE,
+      UserScope.PRODUCTS_READ,
+      UserScope.PRODUCTS_WRITE,
+      UserScope.PRODUCTS_IMAGES_WRITE,
+      UserScope.PRODUCTS_IMAGES_READ,
     ],
   },
   {
     email: 'jane.smith@example.com',
-    roles: ['support'],
-    scopes: ['orders:read', 'payments:read', 'payments:write', 'products:images:write'],
+    roles: [UserRole.SUPPORT],
+    scopes: [
+      UserScope.ORDERS_READ,
+      UserScope.PAYMENTS_READ,
+      UserScope.PAYMENTS_WRITE,
+      UserScope.PRODUCTS_IMAGES_WRITE,
+    ],
   },
   {
     email: 'bob.wilson@example.com',
-    roles: ['user'],
-    scopes: ['orders:read', 'orders:write', 'files:write', 'products:images:read'],
+    roles: [UserRole.USER],
+    scopes: [
+      UserScope.ORDERS_READ,
+      UserScope.ORDERS_WRITE,
+      UserScope.FILES_WRITE,
+      UserScope.PRODUCTS_IMAGES_READ,
+    ],
   },
   {
     email: 'alice.brown@example.com',
-    roles: ['support'],
-    scopes: ['orders:read', 'payments:read', 'payments:write'],
+    roles: [UserRole.SUPPORT],
+    scopes: [UserScope.ORDERS_READ, UserScope.PAYMENTS_READ, UserScope.PAYMENTS_WRITE],
   },
   {
     email: 'charlie.davis@example.com',
-    roles: ['user'],
-    scopes: ['orders:read', 'orders:write', 'files:write', 'products:images:read'],
+    roles: [UserRole.USER],
+    scopes: [
+      UserScope.ORDERS_READ,
+      UserScope.ORDERS_WRITE,
+      UserScope.FILES_WRITE,
+      UserScope.PRODUCTS_IMAGES_READ,
+    ],
   },
 ];
 

@@ -121,6 +121,25 @@ Custom stricter limits on auth endpoints:
 - `/auth/forgot-password`: 3 per hour per email
 - `/auth/refresh`: 10 per minute
 
+> **Important:** `@nestjs/throttler` rate-limits by IP by default. The auth endpoints
+> `forgot-password` (3/hour per email) and `resend-verification` (1/min per userId)
+> must rate-limit by **user identity**, not IP, to prevent abuse across proxies.
+> This requires a custom `ThrottlerGuard` that extracts the key from the request body
+> or JWT payload:
+>
+> ```typescript
+> @Injectable()
+> export class UserEmailThrottleGuard extends ThrottlerGuard {
+>   protected async getTracker(req: Request): Promise<string> {
+>     return req.body?.email ?? req.ip;
+>   }
+> }
+> ```
+>
+> When these guards are in place, remove the manual DB-based rate-limit queries
+> (`threeHoursAgo` / `oneMinuteAgo`) from `AuthService.forgotPassword()` and
+> `AuthService.resendVerification()`.
+
 ### 2.4 Tasks
 
 - [ ] Install + configure Helmet
