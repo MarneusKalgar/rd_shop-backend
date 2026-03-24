@@ -228,15 +228,15 @@ APP_URL=http://localhost:3000   # for building verification/reset links
 
 ### 2.6 Tasks
 
-- [ ] Add `isEmailVerified` to User entity
-- [ ] Create `EmailVerificationToken` entity (ManyToOne → User)
-- [ ] Generate migration: `npm run db:generate -- src/db/migrations/AddEmailVerification`
-- [ ] Create `MailModule` + `MailService` (with dev-mode console fallback)
-- [ ] Configure AWS SES client in `MailModule` (dev fallback: console logger when `AWS_SES_REGION` is not set)
-- [ ] Update signup flow — generate verification token + send email after user creation
-- [ ] Implement `POST /auth/verify-email` — validate token, mark user verified
-- [ ] Implement `POST /auth/resend-verification` — generate new token + send
-- [ ] Rate limiting on resend-verification
+- [x] Add `isEmailVerified` to User entity
+- [x] Create `EmailVerificationToken` entity (ManyToOne → User)
+- [x] Generate migration: `npm run db:generate -- src/db/migrations/AddEmailVerification`
+- [x] Create `MailModule` + `MailService` (with dev-mode console fallback)
+- [x] Configure AWS SES client in `MailModule` (dev fallback: console logger when `AWS_SES_REGION` is not set)
+- [x] Update signup flow — generate verification token + send email after user creation
+- [x] Implement `POST /auth/verify-email` — validate token, mark user verified
+- [x] Implement `POST /auth/resend-verification` — generate new token + send
+- [x] Rate limiting on resend-verification
 
 ---
 
@@ -288,12 +288,12 @@ createdAt:  timestamptz
 
 ### 3.6 Tasks
 
-- [ ] Create `PasswordResetToken` entity (ManyToOne → User)
-- [ ] Generate migration: `npm run db:generate -- src/db/migrations/CreatePasswordResetTokens`
-- [ ] Implement `POST /auth/forgot-password` — generate token, send email, always 200
-- [ ] Implement `POST /auth/reset-password` — validate token, update password, revoke refresh tokens
-- [ ] Add `sendPasswordResetEmail()` to `MailService` (scaffolded in Phase 2)
-- [ ] Rate limiting on forgot-password
+- [x] Create `PasswordResetToken` entity (ManyToOne → User)
+- [x] Generate migration: `npm run db:generate -- src/db/migrations/CreatePasswordResetTokens`
+- [x] Implement `POST /auth/forgot-password` — generate token, send email, always 200
+- [x] Implement `POST /auth/reset-password` — validate token, update password, revoke refresh tokens
+- [x] Add `sendPasswordResetEmail()` to `MailService` (scaffolded in Phase 2)
+- [x] Rate limiting on forgot-password
 
 ---
 
@@ -363,13 +363,13 @@ Admin-only. Allows assigning/revoking roles and scopes for any user.
 
 ### 4.7 Tasks
 
-- [ ] Create `UserRole` and `UserScope` enums
-- [ ] Set default role + scopes on signup
-- [ ] Fix seed data — normalize to `resource:action` convention
-- [ ] Update `@Roles()` and `@Scopes()` decorators to use enums
-- [ ] Update guards to work with enum values
-- [ ] Admin endpoint for role/scope management
-- [ ] Generate migration: `npm run db:generate -- src/db/migrations/NormalizeRolesScopes` (review generated SQL — may need manual edits for data normalization)
+- [x] Create `UserRole` and `UserScope` enums
+- [x] Set default role + scopes on signup
+- [x] Fix seed data — normalize to `resource:action` convention
+- [x] Update `@Roles()` and `@Scopes()` decorators to use enums
+- [x] Update guards to work with enum values
+- [x] Admin endpoint for role/scope management
+- [x] Generate migration: `npm run db:generate -- src/db/migrations/NormalizeRolesScopes` (review generated SQL — may need manual edits for data normalization)
 
 ---
 

@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@
 import { Reflector } from '@nestjs/core';
 
 import { SCOPES_KEY } from '../decorators';
+import { UserScope } from '../permissions/constants';
 import { AuthUser, RequestWithUser } from '../types';
 
 @Injectable()
@@ -9,7 +10,7 @@ export class ScopesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredScopes = this.reflector.getAllAndOverride<string[]>(SCOPES_KEY, [
+    const requiredScopes = this.reflector.getAllAndOverride<UserScope[]>(SCOPES_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);

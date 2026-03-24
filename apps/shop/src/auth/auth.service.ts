@@ -32,6 +32,7 @@ import {
 } from './dto';
 import { EmailVerificationToken } from './email-verification-token.entity';
 import { PasswordResetToken } from './password-reset-token.entity';
+import { UserPermissions } from './permissions';
 import { TokenService } from './token.service';
 import { parseOpaqueToken } from './utils';
 
@@ -208,9 +209,13 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(password, this.saltRounds);
 
+    const { roles, scopes } = UserPermissions.NewUser;
+
     const user = this.userRepository.create({
       email,
       password: hashedPassword,
+      roles: [...roles],
+      scopes: [...scopes],
     });
 
     await this.userRepository.save(user);
