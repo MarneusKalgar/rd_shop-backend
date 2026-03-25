@@ -4,6 +4,7 @@ export class AddUserProfileFields1774373777910 implements MigrationInterface {
   name = 'AddUserProfileFields1774373777910';
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP INDEX "public"."IDX_users_avatar_id"`);
     await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT "FK_c3401836efedec3bec459c8f818"`);
     await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "postcode"`);
     await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "phone"`);
@@ -27,5 +28,6 @@ export class AddUserProfileFields1774373777910 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE "users" ADD CONSTRAINT "FK_c3401836efedec3bec459c8f818" FOREIGN KEY ("avatar_id") REFERENCES "file_records"("id") ON DELETE SET NULL ON UPDATE NO ACTION`,
     );
+    await queryRunner.query(`CREATE INDEX "IDX_users_avatar_id" ON "users" ("avatar_id") `);
   }
 }

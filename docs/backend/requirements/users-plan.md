@@ -59,10 +59,10 @@ class User {
 
 ### 1.4 Tasks
 
-- [ ] Add columns to `User` entity
-- [ ] Add `avatar` ManyToOne relation to `FileRecord` (same pattern as `Product.mainImage`)
-- [ ] Generate migration: `npm run db:generate -- src/db/migrations/AddUserProfileFields`
-- [ ] Update existing DTOs to remove firstName/lastName references that don't match (fix the mismatch)
+- [x] Add columns to `User` entity
+- [x] Add `avatar` ManyToOne relation to `FileRecord` (same pattern as `Product.mainImage`)
+- [x] Generate migration: `npm run db:generate -- src/db/migrations/AddUserProfileFields`
+- [x] Update existing DTOs to remove firstName/lastName references that don't match (fix the mismatch)
 
 ---
 
@@ -179,17 +179,17 @@ User profile fields (`city`, `country`, `postcode`, `phone`, `firstName`, `lastN
 
 ### 2.6 Tasks
 
-- [ ] Implement `getProfile()` in `UsersService`
-- [ ] Implement `updateProfile()` in `UsersService`
-- [ ] Implement `findAll()` with cursor pagination
-- [ ] Implement `findById()`
-- [ ] Implement `remove()` — handle cascade (user with orders cannot be hard-deleted)
-- [ ] Implement `changePassword()` with current password verification
-- [ ] Add auth guards to `UsersController` (`JwtAuthGuard`, `RolesGuard`)
-- [ ] Add `GET /users/me` and `PATCH /users/me` endpoints
-- [ ] Add `PATCH /users/me/password` endpoint
-- [ ] Create DTOs: `UpdateProfileDto`, `ChangePasswordDto`, `UserResponseDto`
-- [ ] Ensure `password` is never included in any response
+- [x] Implement `getProfile()` in `UsersService`
+- [x] Implement `updateProfile()` in `UsersService`
+- [x] Implement `findAll()` with cursor pagination
+- [x] Implement `findById()`
+- [x] Implement `remove()` — handle cascade (user with orders cannot be hard-deleted)
+- [x] Implement `changePassword()` with current password verification
+- [x] Add auth guards to `UsersController` (`JwtAuthGuard`, `RolesGuard`)
+- [x] Add `GET /users/me` and `PATCH /users/me` endpoints
+- [x] Add `PATCH /users/me/password` endpoint
+- [x] Create DTOs: `UpdateProfileDto`, `ChangePasswordDto`, `UserResponseDto`
+- [x] Ensure `password` is never included in any response
 
 ---
 
@@ -240,11 +240,11 @@ async removeAvatar(userId: string): Promise<void> {
 
 ### 3.6 Tasks
 
-- [ ] Implement `setAvatar()` and `removeAvatar()` in `UsersService`
-- [ ] Add `PUT /users/me/avatar` — validate file ownership, S3 existence, mark READY, set avatarId
-- [ ] Add `DELETE /users/me/avatar` — set avatarId to null
-- [ ] Remove `'user'` case from `FilesService.associateFileWithEntity()` (keep entityType for S3 key path only)
-- [ ] Include avatar URL in `UserResponseDto` (presigned download or public URL)
+- [x] Implement `setAvatar()` and `removeAvatar()` in `UsersService`
+- [x] Add `PUT /users/me/avatar` — validate file ownership, S3 existence, mark READY, set avatarId
+- [x] Add `DELETE /users/me/avatar` — set avatarId to null
+- [x] Remove `'user'` case from `FilesService.associateFileWithEntity()` (keep entityType for S3 key path only)
+- [x] Include avatar URL in `UserResponseDto` (presigned download or public URL)
 - [ ] GraphQL: add `avatar` field on `UserType` with DataLoader
 
 ---

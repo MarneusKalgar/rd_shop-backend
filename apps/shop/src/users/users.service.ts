@@ -75,14 +75,27 @@ export class UsersService {
       .addOrderBy('user.id', 'DESC')
       .limit(limit + 1);
 
+    if (dto.search) {
+      const escaped = dto.search.replace(/[%_\\]/g, '\\$&');
+      const term = `%${escaped}%`;
+      qb.where(
+        `(user.firstName ILIKE :term ESCAPE '\\' OR user.lastName ILIKE :term ESCAPE '\\' OR user.email ILIKE :term ESCAPE '\\')`,
+        { term },
+      );
+    }
+
     if (dto.cursor) {
       const cursorUser = await this.userRepository.findOne({ where: { id: dto.cursor } });
       if (!cursorUser) {
         throw new BadRequestException(`Invalid cursor: no user found for id "${dto.cursor}"`);
       }
-      qb.where(
-        '(user.created_at < :createdAt OR (user.created_at = :createdAt AND user.id < :id))',
-        { createdAt: cursorUser.createdAt, id: cursorUser.id },
+
+      qb.andWhere(
+        '(user.createdAt < :createdAt OR (user.createdAt = :createdAt AND user.id < :id))',
+        {
+          createdAt: cursorUser.createdAt,
+          id: cursorUser.id,
+        },
       );
     }
 
@@ -101,11 +114,7 @@ export class UsersService {
   }
 
   async findById(id: string): Promise<UserResponseDto> {
-    const user = await this.userRepository.findOne({ where: { id } });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID "${id}" not found`);
-    }
+    const user = await this.findUserOrFail(id);
 
     const dto = UserResponseDto.fromEntity(user);
     dto.avatarUrl = await this.resolveAvatarUrl(user.avatarId);
@@ -113,11 +122,7 @@ export class UsersService {
   }
 
   async getProfile(userId: string): Promise<UserResponseDto> {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found`);
-    }
+    const user = await this.findUserOrFail(userId);
 
     const dto = UserResponseDto.fromEntity(user);
     dto.avatarUrl = await this.resolveAvatarUrl(user.avatarId);
@@ -125,11 +130,7 @@ export class UsersService {
   }
 
   async remove(id: string): Promise<void> {
-    const user = await this.userRepository.findOne({ where: { id } });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID "${id}" not found`);
-    }
+    await this.findUserOrFail(id);
 
     await Promise.all([
       this.userRepository.softDelete(id),
@@ -145,36 +146,39 @@ export class UsersService {
   }
 
   async setAvatar(userId: string, dto: SetAvatarDto): Promise<UserResponseDto> {
+    const user = await this.findUserOrFail(userId);
+
     const { fileId, presignedUrl } = await this.filesService.prepareFileForEntity(
       userId,
       dto.fileId,
     );
 
-    await this.userRepository.update(userId, { avatarId: fileId });
+    user.avatarId = fileId;
+    const updated = await this.userRepository.save(user);
 
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found`);
-    }
-
-    const response = UserResponseDto.fromEntity(user);
+    const response = UserResponseDto.fromEntity(updated);
     response.avatarUrl = presignedUrl;
     return response;
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserResponseDto> {
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException(`User with ID "${userId}" not found`);
-    }
+    const user = await this.findUserOrFail(userId);
 
     Object.assign(user, dto);
     const updated = await this.userRepository.save(user);
     const response = UserResponseDto.fromEntity(updated);
     response.avatarUrl = await this.resolveAvatarUrl(updated.avatarId);
     return response;
+  }
+
+  private async findUserOrFail(id: string): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID "${id}" not found`);
+    }
+
+    return user;
   }
 
   private async resolveAvatarUrl(avatarId: null | string): Promise<null | string> {

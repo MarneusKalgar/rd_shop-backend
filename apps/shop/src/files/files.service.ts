@@ -179,7 +179,7 @@ export class FilesService {
   async getPresignedUrlForFileId(fileId: string): Promise<null | string> {
     const fileRecord = await this.fileRecordRepository.findOne({ where: { id: fileId } });
 
-    if (!fileRecord) return null;
+    if (fileRecord?.status !== FileStatus.READY) return null;
 
     const { downloadUrl } = await this.s3Service.getPresignedDownloadUrl(fileRecord.key);
     return downloadUrl;
