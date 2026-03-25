@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   JoinColumn,
@@ -12,13 +13,35 @@ import {
 
 import { FileRecord } from '../files/file-record.entity';
 import { OrderItem } from '../orders/order-item.entity';
+import { ProductCategory } from './constants';
 
 @Entity('products')
 @Index('IDX_products_title_unique', ['title'], { unique: true })
 @Index('IDX_products_main_image_id', ['mainImageId'])
+@Index('IDX_products_price', ['price'])
 export class Product {
+  @Column({ length: 100, nullable: true, type: 'varchar' })
+  brand: null | string;
+
+  @Column({
+    default: ProductCategory.OTHER,
+    enum: ProductCategory,
+    enumName: 'products_category_enum',
+    type: 'enum',
+  })
+  category: ProductCategory;
+
+  @Column({ length: 2, nullable: true, type: 'varchar' })
+  country: null | string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  @DeleteDateColumn({ name: 'deleted_at', nullable: true, type: 'timestamptz' })
+  deletedAt: Date | null;
+
+  @Column({ nullable: true, type: 'text' })
+  description: null | string;
 
   @PrimaryGeneratedColumn('uuid')
   id: string;

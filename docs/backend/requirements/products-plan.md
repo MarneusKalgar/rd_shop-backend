@@ -174,14 +174,20 @@ sortBy?: 'price' | 'title' | 'createdAt' (default 'createdAt')
 sortOrder?: 'ASC' | 'DESC' (default 'DESC')
 minPrice?: string
 maxPrice?: string
-search?: string    // ILIKE on title
+search?: string          // ILIKE on title OR description
+brand?: string           // exact match (case-insensitive)
+country?: string         // ISO 3166-1 alpha-2 exact match
+category?: ProductCategory
 ```
 
 ### 2.4 Tasks
 
 - [ ] Add `sortBy` + `sortOrder` to query builder
 - [ ] Add `minPrice` / `maxPrice` to `FindProductsQueryDto`
-- [ ] Add `search` filter (ILIKE on title)
+- [ ] Add `search` filter (ILIKE on title OR description)
+- [ ] Add `brand` filter (ILIKE on brand)
+- [ ] Add `country` filter (exact match)
+- [ ] Add `category` filter (enum exact match)
 - [ ] Add price index (migration or manual SQL)
 
 ---
@@ -278,16 +284,21 @@ New: Keep `mainImageId` + add `Product.images` (1:N via `FileRecord.entityId`)
 
 FileRecord already has `entityId` column — just filter by `entityId = productId` + `status = READY`.
 
-### 4.2 Endpoints
+### 4.2 Public endpoint
 
-- `GET /api/v1/products/:id/images` — list all images for product
+`GET /api/v1/products/:id` — include `images` array in the product response (all `READY` FileRecords for the product). No separate endpoint needed for the public shop; images are loaded as part of the product detail.
+
+### 4.3 Admin endpoints (all require JwtAuth + Roles(admin))
+
+- `GET /api/v1/products/:id/images` — list all images (useful for image management UI)
 - `DELETE /api/v1/products/:id/images/:fileId` — remove image association
 - `PATCH /api/v1/products/:id/images/:fileId/main` — set as main image
 
-### 4.3 Tasks
+### 4.4 Tasks
 
-- [ ] Add `images` field resolution (query `file_records WHERE entityId = productId AND status = READY`)
-- [ ] REST endpoints for image management
+- [ ] Add `images` relation/field resolution (query `file_records WHERE entityId = productId AND status = READY`)
+- [ ] Include `images` in `GET /api/v1/products/:id` response DTO
+- [ ] Admin REST endpoints for image management (`GET`, `DELETE`, `PATCH /main`)
 
 ---
 

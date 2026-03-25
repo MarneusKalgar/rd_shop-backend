@@ -8,12 +8,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { ProductsService } from '@/products/products.service';
-
 import { CreatePresignedUploadDto } from './dto';
 import { FileRecord, FileStatus, FileVisibility } from './file-record.entity';
 import { S3Service } from './s3.service';
-import { CompleteUploadResponse, EntityFileAssociation, FileUploadResponse } from './types';
+import { CompleteUploadResponse, FileUploadResponse } from './types';
 import { getObjectKey } from './utils';
 
 // TODO add public URL generation logic
@@ -25,7 +23,6 @@ export class FilesService {
     @InjectRepository(FileRecord)
     private readonly fileRecordRepository: Repository<FileRecord>,
     private readonly s3Service: S3Service,
-    private readonly productsService: ProductsService,
   ) {}
 
   checkIsOwner(fileRecord: FileRecord, userId: string) {
@@ -39,11 +36,7 @@ export class FilesService {
   /**
    * Complete file upload - verify file exists in S3 and update record status
    */
-  async completeUpload(
-    userId: string,
-    fileId: string,
-    entityType: EntityFileAssociation,
-  ): Promise<CompleteUploadResponse> {
+  async completeUpload(userId: string, fileId: string): Promise<CompleteUploadResponse> {
     const fileRecord = await this.findFileRecordOrFail(fileId);
 
     this.checkIsOwner(fileRecord, userId);
@@ -64,10 +57,6 @@ export class FilesService {
     fileRecord.status = FileStatus.READY;
     fileRecord.completedAt = new Date();
     await this.fileRecordRepository.save(fileRecord);
-
-    if (fileRecord.entityId) {
-      await this.associateFileWithEntity(fileRecord, entityType);
-    }
 
     this.logger.log(`File upload completed for record: ${fileRecord.id}`);
 
@@ -216,22 +205,6 @@ export class FilesService {
     );
 
     return { fileId: fileRecord.id, presignedUrl };
-  }
-
-  /**
-   * Associate file with entity (Product, User, etc.)
-   */
-  private async associateFileWithEntity(
-    fileRecord: FileRecord,
-    entityType: EntityFileAssociation,
-  ): Promise<void> {
-    switch (entityType) {
-      case 'product':
-        await this.productsService.associateMainImage(fileRecord.entityId!, fileRecord.id);
-        break;
-      default:
-        this.logger.warn(`Unknown entity type: ${entityType as string}`);
-    }
   }
 
   /**

@@ -1,3 +1,5 @@
+import { UserRole, UserScope } from '@/auth/permissions';
+import { ProductCategory } from '@/products/constants';
 export interface SeedOrder {
   id: string;
   items: SeedOrderItem[];
@@ -11,14 +13,16 @@ export interface SeedOrderItem {
 }
 
 export interface SeedProduct {
+  brand: string;
+  category: ProductCategory;
+  country: string;
+  description: string;
   id: string;
   isActive: boolean;
   price: string;
   stock: number;
   title: string;
 }
-
-import { UserRole, UserScope } from '@/auth/permissions';
 
 export interface SeedUser {
   email: string;
