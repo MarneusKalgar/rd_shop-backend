@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-03-25
+
+### Added
+
+- **Users CRUD** — Full implementation replacing all mock service methods: `getProfile`, `updateProfile`, `findAll`, `findById`, `remove`, `changePassword`
+- **User Profile Fields** — `firstName`, `lastName`, `phone`, `city`, `country` (ISO 3166-1 alpha-2), `postcode` columns added to `User` entity; `AddUserProfileFields` migration
+- **User Avatar** — `avatarId` UUID FK → `file_records` (ON DELETE SET NULL, indexed); `PUT /users/me/avatar` validates file ownership + S3 existence, marks READY, sets `avatarId`; `DELETE /users/me/avatar` clears the association
+- **Password Change** — `PATCH /users/me/password` verifies current password via bcrypt, hashes new password, revokes all refresh tokens (forces re-login)
+- **Cursor Pagination + Search** — `GET /users` (admin) supports cursor-based pagination (`createdAt DESC, id DESC`) and optional `search` query param with ILIKE on `firstName`, `lastName`, `email`; LIKE wildcards (`%`, `_`, `\`) escaped with `ESCAPE '\'` clause; `@MaxLength(100)` on search input
+- **Soft-Delete** — `DELETE /users/:id` (admin) sets `deletedAt` via `@DeleteDateColumn`; TypeORM auto-filters deleted users from all queries; all refresh tokens revoked on deletion
+- **Auth Guards on Users Controller** — `JwtAuthGuard` at class level; `RolesGuard` + `@Roles(ADMIN)` on admin-only endpoints (`GET /users`, `GET /users/:id`, `DELETE /users/:id`)
+- **DTOs** — `UpdateProfileDto`, `ChangePasswordDto`, `SetAvatarDto`, `FindUsersDto`, `UserResponseDto`, `UsersListResponseDto`
+- **GraphQL UserType** — Added `firstName`, `lastName`, `phone`, `city`, `country`, `postcode`, `avatarId`, `avatarUrl`, `isEmailVerified`, `roles` fields to `UserType` schema
+- **Architecture Documentation** — `docs/backend/architecture/users.md` covering entity, endpoints, service methods, pagination, avatar flow, soft-delete, DTOs, GraphQL, security
+
+### Changed
+
+- **`UsersResolver`** — Temporarily dropped (REST API is the current focus); `UserLoader` remains active for `OrdersResolver.user()` field resolution
+- **`FilesService.getPresignedUrlForFileId`** — Now returns `null` for non-READY files (previously returned presigned URLs for PENDING files)
+- **S3 Presigned URLs** — Two `S3Client` instances: `client` (internal Docker endpoint for API operations) and `presignClient` (public endpoint for browser-accessible presigned URLs); fixes `SignatureDoesNotMatch` when MinIO internal hostname differs from browser-accessible host
+- **`findUserOrFail` Helper** — Extracted repeated `findOne` + 404 pattern into private method; used by `findById`, `getProfile`, `remove`, `setAvatar`, `updateProfile`
+- **`setAvatar` Ordering** — User existence check now happens before `prepareFileForEntity` to prevent orphaned READY files on missing user
+- **Migration `down()` Fix** — `DROP INDEX` moved before `DROP COLUMN "avatar_id"` in `AddUserProfileFields` migration (PostgreSQL auto-drops the index with the column, so the explicit drop must come first)
+
+### Security
+
+- **No User-to-User Access** — Self-service endpoints always derive `userId` from JWT (`user.sub`), never from request params
+- **Password Never Exposed** — `select: false` on entity column; `UserResponseDto.fromEntity()` never maps `password`
+- **Search Input Sanitization** — LIKE wildcard characters escaped before query execution; parameterized queries prevent SQL injection
+- **File Status Guard** — `getPresignedUrlForFileId` only returns URLs for `READY` files, preventing exposure of unverified uploads
+
 ## [0.1.2] - 2026-03-24
 
 ### Added

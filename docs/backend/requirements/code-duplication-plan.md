@@ -298,6 +298,81 @@ Ensure `libs/common/src/` is included in lint scope.
 
 ---
 
+## Phase 6 — Orphaned file cleanup
+
+### 6.1 Problem statement
+
+When `FileRecord` entities are replaced or removed (e.g., user updates avatar, product main image changes), the old file remains in both S3 and the database. Over time, this accumulates orphaned storage that costs money and clutters the bucket.
+
+**Current behavior:**
+
+- `UsersService.removeAvatar()` — sets `user.avatarId = null`, leaves `FileRecord` and S3 object
+- `UsersService.setAvatar()` — replaces `avatarId`, old file becomes orphaned
+- `ProductsService.associateMainImage()` — replaces `product.mainImageId`, old file orphaned
+
+### 6.2 Solution: Scheduled cleanup with `@nestjs/schedule`
+
+Use a cron job that periodically scans for orphaned `FileRecord` rows and deletes them from S3 + database.
+
+**Advantages:**
+
+- Simple implementation, no new infrastructure
+- Decoupled from request path (no risk of partial failure affecting user)
+- Configurable grace period prevents accidental deletions
+- Works well for low-to-medium traffic (< 100 orphans/day)
+
+**Trade-offs:**
+
+- Polling overhead (runs even if no orphans exist)
+- Delayed cleanup (files sit in storage until next cron run)
+- Not suitable for high-scale (use queue-based approach for > 1k orphans/day)
+
+### 6.3 High-level design
+
+- `ScheduleModule.forRoot()` enabled in `AppModule`
+- New `FileCleanupService` in `files/` domain with a `@Cron(EVERY_DAY_AT_3AM)` method
+- New `S3Service.deleteObject()` method for S3 object removal
+- Configurable grace period via `FILE_CLEANUP_GRACE_PERIOD_HOURS` env var (default: 24)
+
+#### Orphan detection strategy
+
+**Phase A — simple:** Find `FileRecord` rows where `entityId IS NULL`, `status = READY`, and `completedAt` older than the grace period.
+
+**Phase B — entity-aware:** Use `LEFT JOIN` against `users.avatar_id` and `products.main_image_id` to find files that are no longer referenced by any entity, even if `entityId` was originally set.
+
+#### Deletion order
+
+1. Delete S3 object first
+2. Delete DB record after successful S3 deletion
+3. On S3 failure: log error, skip DB deletion, continue to next file
+
+### 6.4 Testing strategy
+
+- **Unit:** Mock repository + S3, verify correct files are deleted, verify error handling per-file
+- **Integration:** Seed orphaned `FileRecord` rows, manually trigger cleanup method, verify DB cleanup (S3 mocked)
+
+### 6.5 Tasks
+
+- [ ] Install `@nestjs/schedule` package
+- [ ] Enable `ScheduleModule.forRoot()` in `AppModule`
+- [ ] Create `FileCleanupService` with `@Cron()` method
+- [ ] Add `deleteObject()` to `S3Service`
+- [ ] Register `FileCleanupService` in `FilesModule`
+- [ ] Add `FILE_CLEANUP_GRACE_PERIOD_HOURS` to env schema + `.env.example` / `.env.development`
+- [ ] Write unit tests for cleanup logic
+- [ ] Write integration test (manual trigger, mocked S3)
+- [ ] Add logging for cleanup summary (deleted/failed counts)
+- [ ] Document cleanup behavior in `docs/architecture/files-s3.md`
+
+### 6.6 Future enhancements
+
+- **Soft-delete with grace period:** Add `markedForDeletionAt` column, support file recovery
+- **Queue-based cleanup:** Switch to RabbitMQ for event-driven cleanup at high scale
+- **Admin endpoint:** Manual trigger for on-demand cleanup
+- **Stale PENDING cleanup:** Delete `FileRecord` rows stuck in `PENDING` beyond a threshold (upload never completed)
+
+---
+
 ## What NOT to share
 
 | Item                        | Reason to keep separate                         |
@@ -325,10 +400,20 @@ Phase 3 (App-specific ext.)     ← Clean separation of common vs. specific
 Phase 4 (Shared DTOs)           ← Builds on library, used by future features
   ↓
 Phase 5 (CI/build validation)   ← Final verification, catches regressions
+  ↓
+Phase 6 (Orphaned file cleanup) ← Independent feature, can be done anytime after libs/common
 ```
 
 ## Estimated reduction
 
+**Code duplication (Phases 1-5):**
+
 - **~15 files** removed across both apps (replaced by single shared source)
 - **~600-800 lines** of duplicated code eliminated
 - Future features (products CRUD, users CRUD) get pagination/base entity for free
+
+**Operational improvements (Phase 6):**
+
+- Prevents orphaned file accumulation in S3 (cost savings)
+- Automated cleanup reduces manual intervention
+- Configurable grace period prevents accidental deletions

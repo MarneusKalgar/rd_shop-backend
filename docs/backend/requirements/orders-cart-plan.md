@@ -50,9 +50,87 @@ Inside a transaction:
 
 ---
 
-## Phase 2 — Shopping cart (persistent, server-side)
+## Phase 2 — Shipping address on orders
 
-### 2.1 Entities
+Integrates address fields from the user profile (see [users-plan.md §2.5](users-plan.md)) into the order flow. The address is **snapshotted** at creation time so future profile edits don't affect past orders.
+
+### 2.1 Order entity changes
+
+Add shipping address columns to `Order`:
+
+```typescript
+@Column({ length: 50, name: 'shipping_first_name', nullable: true, type: 'varchar' })
+shippingFirstName: string | null;
+
+@Column({ length: 50, name: 'shipping_last_name', nullable: true, type: 'varchar' })
+shippingLastName: string | null;
+
+@Column({ length: 20, name: 'shipping_phone', nullable: true, type: 'varchar' })
+shippingPhone: string | null;
+
+@Column({ length: 100, name: 'shipping_city', nullable: true, type: 'varchar' })
+shippingCity: string | null;
+
+@Column({ length: 2, name: 'shipping_country', nullable: true, type: 'varchar' })
+shippingCountry: string | null;
+
+@Column({ length: 20, name: 'shipping_postcode', nullable: true, type: 'varchar' })
+shippingPostcode: string | null;
+```
+
+All nullable — backward-compatible with existing orders.
+
+### 2.2 CreateOrderDto changes
+
+Add an optional nested `shipping` object to `CreateOrderDto`:
+
+```typescript
+class ShippingAddressDto {
+  @IsOptional() @IsString() @MaxLength(50) firstName?: string;
+  @IsOptional() @IsString() @MaxLength(50) lastName?: string;
+  @IsOptional() @IsString() @MaxLength(20) phone?: string;
+  @IsOptional() @IsString() @MaxLength(100) city?: string;
+  @IsOptional() @IsString() @MaxLength(2) country?: string; // ISO 3166-1 alpha-2
+  @IsOptional() @IsString() @MaxLength(20) postcode?: string;
+}
+```
+
+```typescript
+// inside CreateOrderDto
+@IsOptional()
+@ValidateNested()
+@Type(() => ShippingAddressDto)
+shipping?: ShippingAddressDto;
+```
+
+### 2.3 Resolution logic in `createOrder()`
+
+For each shipping field:
+
+1. If provided in `dto.shipping` → use it (explicit override)
+2. Otherwise → copy from the `user` entity (already loaded via `validateUser`)
+3. Store the resolved values on the `Order` entity
+
+This means the user's profile acts as a **default** — clients can skip `shipping` entirely if the profile is filled in, or override individual fields per order.
+
+### 2.4 Cart checkout
+
+`POST /cart/checkout` (Phase 3) should accept the same optional `shipping` object and forward it to `OrdersService.createOrder`.
+
+### 2.5 Tasks
+
+- [ ] Add shipping columns to `Order` entity (see 2.1)
+- [ ] Migration: add 6 nullable shipping columns to `orders` table
+- [ ] Create `ShippingAddressDto` with validation
+- [ ] Extend `CreateOrderDto` with optional `shipping` field
+- [ ] Update `createOrder()` — resolve shipping from DTO / user profile fallback
+- [ ] Update cart checkout DTO to include optional `shipping` (Phase 3)
+
+---
+
+## Phase 3 — Shopping cart (persistent, server-side)
+
+### 3.1 Entities
 
 **Cart** (1:1 with User):
 
@@ -82,7 +160,7 @@ class CartItem {
 
 Unique constraint: `(cartId, productId)` — one row per product, update quantity instead of duplicating.
 
-### 2.2 Endpoints
+### 3.2 Endpoints
 
 | Method   | Path                         | Description                                               |
 | -------- | ---------------------------- | --------------------------------------------------------- |
@@ -93,27 +171,29 @@ Unique constraint: `(cartId, productId)` — one row per product, update quantit
 | `DELETE` | `/api/v1/cart`               | Clear entire cart                                         |
 | `POST`   | `/api/v1/cart/checkout`      | Convert cart → order (reuses `OrdersService.createOrder`) |
 
-### 2.3 Cart → Order conversion
+### 3.3 Cart → Order conversion
 
 `POST /cart/checkout`:
 
 1. Load cart with items
 2. Validate cart is non-empty
 3. Map `CartItem[]` → `CreateOrderItemDto[]`
-4. Call `OrdersService.createOrder(userId, { items, idempotencyKey? })`
+4. Call `OrdersService.createOrder(userId, { items, idempotencyKey?, shipping? })`
 5. On success: clear cart
 6. Return created order
 
+The optional `shipping` object from the checkout request body is forwarded to `createOrder()`. If omitted, the user's profile address is used as the default (see Phase 2).
+
 This preserves all existing order creation logic (stock reservation, idempotency, RabbitMQ publish).
 
-### 2.4 Stock validation at cart level
+### 3.4 Stock validation at cart level
 
 Cart itself does NOT reserve stock. Stock check happens only at checkout (order creation). However:
 
 - `GET /cart` should show `product.stock` alongside each item so the UI can warn about low stock
 - `POST /cart/items` should reject if product doesn't exist or `stock === 0`
 
-### 2.5 DTOs
+### 3.5 DTOs
 
 ```
 AddCartItemDto {
@@ -126,27 +206,28 @@ UpdateCartItemDto {
 }
 ```
 
-### 2.6 Tasks
+### 3.6 Tasks
 
 - [ ] Create `Cart` and `CartItem` entities
 - [ ] Migration: `carts` and `cart_items` tables
 - [ ] `CartService` with CRUD + checkout
 - [ ] `CartController` with 6 endpoints
-- [ ] DTOs: `AddCartItemDto`, `UpdateCartItemDto` (see 2.5)
+- [ ] DTOs: `AddCartItemDto`, `UpdateCartItemDto` (see 3.5)
 - [ ] Auto-create cart on first `GET /cart` (lazy initialization)
 - [ ] Checkout: delegate to `OrdersService.createOrder`, clear cart on success
+- [ ] Checkout DTO: include optional `shipping` (forwarded to order creation)
 
 ---
 
-## Phase 3 — Email notifications
+## Phase 4 — Email notifications
 
-### 3.1 Infrastructure — shared MailService
+### 4.1 Infrastructure — shared MailService
 
 Reuses the `MailModule` + `MailService` created in auth Phase 2 (see [auth-plan.md](auth-plan.md#23-mailservice-shared)). The same `MailService` wraps AWS SES and provides methods for both auth emails (verification, password reset) and order emails (confirmation, paid, cancelled).
 
 No additional mail dependencies needed — just import `MailModule` and add order-specific email templates.
 
-### 3.2 Event emitter + listeners
+### 4.2 Event emitter + listeners
 
 ```
 npm install @nestjs/event-emitter
@@ -165,7 +246,7 @@ async handleOrderCreated(event: OrderCreatedEvent) {
 }
 ```
 
-### 3.3 Email templates
+### 4.3 Email templates
 
 Simple HTML templates (inline or handlebars). Each template receives order data (items, total, status):
 
@@ -173,7 +254,7 @@ Simple HTML templates (inline or handlebars). Each template receives order data 
 - `order-paid` — "Payment confirmed for order #X"
 - `order-cancelled` — "Order #X has been cancelled"
 
-### 3.4 Tasks
+### 4.4 Tasks
 
 - [ ] Install `@nestjs/event-emitter` (MailModule already exists from auth Phase 2)
 - [ ] Add order email methods to shared `MailService` (if not already present)
@@ -185,9 +266,9 @@ Simple HTML templates (inline or handlebars). Each template receives order data 
 
 ---
 
-## Phase 4 — Advanced order features (deferred)
+## Phase 5 — Advanced order features (deferred)
 
-### 4.1 Order receipts / invoices
+### 5.1 Order receipts / invoices
 
 Server-side PDF generation — triggered on `PAID` status:
 
@@ -203,7 +284,7 @@ Frontend simply opens the link — no client-side PDF generation.
 
 **AWS Lambda option:** If receipt generation is infrequent, a dedicated Lambda is cheaper than keeping a worker running. The Lambda receives the order payload, generates PDF, uploads to S3, and writes the FileRecord. Invoked via SQS or direct Lambda invoke from the NestJS service.
 
-### 4.2 Re-order
+### 5.2 Re-order
 
 - `POST /api/v1/orders/:orderId/reorder` — creates a new order with the same items
 - Validates current stock availability
@@ -214,13 +295,15 @@ Frontend simply opens the link — no client-side PDF generation.
 ## Implementation order
 
 ```
-Phase 1 (Cancellation)       ← Most requested missing feature, builds on existing code
+Phase 1 (Cancellation)        ← Most requested missing feature, builds on existing code
   ↓
-Phase 2 (Shopping cart)       ← Independent new domain, reuses order creation
+Phase 2 (Shipping address)    ← Snapshot user address fields on orders; prerequisite for cart checkout
   ↓
-Phase 3 (Email notifications) ← AWS SES emails on order status transitions
+Phase 3 (Shopping cart)       ← Independent new domain, reuses order creation
   ↓
-Phase 4 (Advanced)            ← Deferred, evaluate per feature
+Phase 4 (Email notifications) ← AWS SES emails on order status transitions
+  ↓
+Phase 5 (Advanced)            ← Deferred, evaluate per feature
 ```
 
 ---
@@ -234,6 +317,7 @@ Deferred to dedicated testing plan. Key areas to cover:
 - Payment void/refund on cancellation
 - Cart CRUD + quantity upsert
 - Cart checkout → order creation integration
+- Shipping address resolution: explicit DTO → user profile fallback
 - Stock validation at cart level (reject zero-stock products)
 - Email sending on status transitions (mock SES in tests)
 

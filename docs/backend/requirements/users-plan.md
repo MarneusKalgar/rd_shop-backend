@@ -59,10 +59,10 @@ class User {
 
 ### 1.4 Tasks
 
-- [ ] Add columns to `User` entity
-- [ ] Add `avatar` ManyToOne relation to `FileRecord` (same pattern as `Product.mainImage`)
-- [ ] Generate migration: `npm run db:generate -- src/db/migrations/AddUserProfileFields`
-- [ ] Update existing DTOs to remove firstName/lastName references that don't match (fix the mismatch)
+- [x] Add columns to `User` entity
+- [x] Add `avatar` ManyToOne relation to `FileRecord` (same pattern as `Product.mainImage`)
+- [x] Generate migration: `npm run db:generate -- src/db/migrations/AddUserProfileFields`
+- [x] Update existing DTOs to remove firstName/lastName references that don't match (fix the mismatch)
 
 ---
 
@@ -179,64 +179,72 @@ User profile fields (`city`, `country`, `postcode`, `phone`, `firstName`, `lastN
 
 ### 2.6 Tasks
 
-- [ ] Implement `getProfile()` in `UsersService`
-- [ ] Implement `updateProfile()` in `UsersService`
-- [ ] Implement `findAll()` with cursor pagination
-- [ ] Implement `findById()`
-- [ ] Implement `remove()` — handle cascade (user with orders cannot be hard-deleted)
-- [ ] Implement `changePassword()` with current password verification
-- [ ] Add auth guards to `UsersController` (`JwtAuthGuard`, `RolesGuard`)
-- [ ] Add `GET /users/me` and `PATCH /users/me` endpoints
-- [ ] Add `PATCH /users/me/password` endpoint
-- [ ] Create DTOs: `UpdateProfileDto`, `ChangePasswordDto`, `UserResponseDto`
-- [ ] Ensure `password` is never included in any response
+- [x] Implement `getProfile()` in `UsersService`
+- [x] Implement `updateProfile()` in `UsersService`
+- [x] Implement `findAll()` with cursor pagination
+- [x] Implement `findById()`
+- [x] Implement `remove()` — handle cascade (user with orders cannot be hard-deleted)
+- [x] Implement `changePassword()` with current password verification
+- [x] Add auth guards to `UsersController` (`JwtAuthGuard`, `RolesGuard`)
+- [x] Add `GET /users/me` and `PATCH /users/me` endpoints
+- [x] Add `PATCH /users/me/password` endpoint
+- [x] Create DTOs: `UpdateProfileDto`, `ChangePasswordDto`, `UserResponseDto`
+- [x] Ensure `password` is never included in any response
 
 ---
 
 ## Phase 3 — User avatar
 
-### 3.1 Reuse existing file upload pattern
+### 3.1 Upload flow
 
-The 3-step presigned upload flow already supports `entityType: 'user'` (with a TODO stub in `FilesService.associateFileWithEntity`). Implementation:
+Steps 1–2 of the presigned upload flow remain the same (get presigned URL, upload to S3). Step 3 changes — instead of completing via the generic files endpoint with `entityType=user`, the client calls a **dedicated user endpoint** to associate the avatar:
 
 1. **`POST /api/v1/files/presigned-upload`** — create upload URL with `entityType: 'user'`, `entityId: userId`
 2. **Client uploads to S3** via presigned PUT URL
-3. **`POST /api/v1/files/:fileId/complete?entityType=user`** — verify + associate
+3. **`PUT /api/v1/users/me/avatar`** — verify file in S3, mark as READY, associate with user
 
-### 3.2 Implement avatar association
+### 3.2 Endpoints
 
-In `FilesService.associateFileWithEntity()`, replace the TODO:
+| Method   | Path                      | Guards  | Description                                                                                         |
+| -------- | ------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `PUT`    | `/api/v1/users/me/avatar` | JwtAuth | Body: `{ fileId: string }`. Validates ownership, checks S3, marks file READY, sets `user.avatarId`. |
+| `DELETE` | `/api/v1/users/me/avatar` | JwtAuth | Sets `avatarId = null` on user. Does **not** delete the FileRecord or S3 object.                    |
 
-```typescript
-case 'user':
-  await this.usersService.associateAvatar(fileRecord.entityId!, fileRecord.id);
-  break;
+### 3.3 `PUT /users/me/avatar` logic
+
+```
+1. Load FileRecord by fileId — 404 if not found
+2. Verify fileRecord.ownerId === currentUser.id — 403 if not
+3. Verify file exists in S3 (S3Service.checkFileExists) — 400 if not
+4. If fileRecord.status === PENDING:
+     - Mark fileRecord.status = READY, set completedAt
+5. Update user.avatarId = fileRecord.id
+6. Return updated user profile (with avatar URL)
 ```
 
-In `UsersService`:
+### 3.4 Remove `entityType=user` workaround from FilesService
+
+The `'user'` case in `FilesService.associateFileWithEntity()` should be removed along with the TODO stub. The `entityType` field on `CreatePresignedUploadDto` / `CompleteUploadDto` keeps `'user'` as a valid value only for S3 key generation (`users/{ownerId}/avatars/{fileId}.ext`), but the files `complete-upload` endpoint should **not** perform avatar association. If `entityType=user` is passed to `complete-upload`, it marks the file as READY without any entity association.
+
+### 3.5 `UsersService` methods
 
 ```typescript
-async associateAvatar(userId: string, fileRecordId: string): Promise<void> {
+async setAvatar(userId: string, fileRecordId: string): Promise<void> {
   await this.userRepository.update(userId, { avatarId: fileRecordId });
+}
+
+async removeAvatar(userId: string): Promise<void> {
+  await this.userRepository.update(userId, { avatarId: null });
 }
 ```
 
-### 3.3 Dedicated endpoint (convenience)
+### 3.6 Tasks
 
-```
-PUT /api/v1/users/me/avatar     body: { fileId: string }
-DELETE /api/v1/users/me/avatar
-```
-
-`PUT` — sets `avatarId` after file upload is complete (alternative to the `entityType` flow).
-`DELETE` — sets `avatarId = null`.
-
-### 3.4 Tasks
-
-- [ ] Implement `associateAvatar()` in `UsersService`
-- [ ] Wire up `'user'` case in `FilesService.associateFileWithEntity()`
-- [ ] Add `PUT /users/me/avatar` and `DELETE /users/me/avatar` endpoints
-- [ ] Include avatar URL in `UserResponseDto` (presigned download or public URL)
+- [x] Implement `setAvatar()` and `removeAvatar()` in `UsersService`
+- [x] Add `PUT /users/me/avatar` — validate file ownership, S3 existence, mark READY, set avatarId
+- [x] Add `DELETE /users/me/avatar` — set avatarId to null
+- [x] Remove `'user'` case from `FilesService.associateFileWithEntity()` (keep entityType for S3 key path only)
+- [x] Include avatar URL in `UserResponseDto` (presigned download or public URL)
 - [ ] GraphQL: add `avatar` field on `UserType` with DataLoader
 
 ---

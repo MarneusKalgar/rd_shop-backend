@@ -48,6 +48,10 @@ export class EnvironmentVariables {
   @IsOptional()
   AWS_S3_PRESIGNED_URL_EXPIRATION?: number;
 
+  @IsOptional()
+  @IsString()
+  AWS_S3_PUBLIC_ENDPOINT?: string;
+
   @IsString()
   AWS_SECRET_ACCESS_KEY: string;
 

@@ -1,54 +1,192 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import * as bcrypt from 'bcrypt';
+import { Repository } from 'typeorm';
 
-import { CreateUserDto, UpdateUserDto } from './dto';
+import { TokenService } from '../auth/token.service';
+import { FilesService } from '../files/files.service';
+import {
+  ChangePasswordDto,
+  FindUsersDto,
+  SetAvatarDto,
+  UpdateProfileDto,
+  UserResponseDto,
+  UsersListResponseDto,
+} from './dto';
 import { User } from './user.entity';
-
-const mockUser = {
-  createdAt: new Date(),
-  email: 'john@example.com',
-  firstName: 'John',
-  id: '1',
-  isEmailVerified: false,
-  lastName: 'Doe',
-  orders: [],
-  password: 'hashedpassword123',
-  roles: ['user'],
-  scopes: ['read:products'],
-  updatedAt: new Date(),
-};
 
 @Injectable()
 export class UsersService {
-  async create(createUserDto: CreateUserDto): Promise<User> {
-    // TODO: Implement user creation logic
-    return await Promise.resolve({
-      ...mockUser,
-      ...createUserDto,
+  private readonly logger = new Logger(UsersService.name);
+  private readonly saltRounds: number;
+
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    private readonly configService: ConfigService,
+    private readonly filesService: FilesService,
+    private readonly tokenService: TokenService,
+  ) {
+    this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
+    if (dto.newPassword !== dto.confirmedPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const user = await this.userRepository.findOne({
+      select: ['id', 'password'],
+      where: { id: userId },
     });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    if (!user.password) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, this.saltRounds);
+
+    await Promise.all([
+      this.userRepository.update(userId, { password: hashedPassword }),
+      this.tokenService.revokeAllUserTokens(userId),
+    ]);
+
+    this.logger.log(`Password changed for user: ${userId}`);
   }
 
-  async findAll(): Promise<User[]> {
-    // TODO: Implement fetching all users
-    return await Promise.resolve([mockUser]);
+  async findAll(dto: FindUsersDto = {}): Promise<UsersListResponseDto> {
+    const limit = dto.limit ?? 10;
+
+    const qb = this.userRepository
+      .createQueryBuilder('user')
+      .orderBy('user.createdAt', 'DESC')
+      .addOrderBy('user.id', 'DESC')
+      .limit(limit + 1);
+
+    if (dto.search) {
+      const escaped = dto.search.replace(/[%_\\]/g, '\\$&');
+      const term = `%${escaped}%`;
+      qb.where(
+        `(user.firstName ILIKE :term ESCAPE '\\' OR user.lastName ILIKE :term ESCAPE '\\' OR user.email ILIKE :term ESCAPE '\\')`,
+        { term },
+      );
+    }
+
+    if (dto.cursor) {
+      const cursorUser = await this.userRepository.findOne({ where: { id: dto.cursor } });
+      if (!cursorUser) {
+        throw new BadRequestException(`Invalid cursor: no user found for id "${dto.cursor}"`);
+      }
+
+      qb.andWhere(
+        '(user.createdAt < :createdAt OR (user.createdAt = :createdAt AND user.id < :id))',
+        {
+          createdAt: cursorUser.createdAt,
+          id: cursorUser.id,
+        },
+      );
+    }
+
+    const users = await qb.getMany();
+
+    const hasNextPage = users.length > limit;
+    const page = hasNextPage ? users.slice(0, limit) : users;
+    const nextCursor = hasNextPage ? page[page.length - 1].id : null;
+    const data = page.map((u) => UserResponseDto.fromEntity(u));
+
+    return {
+      data,
+      limit,
+      nextCursor,
+    };
   }
 
-  async findOne(id: string): Promise<User> {
-    // TODO: Implement fetching user by id
-    console.log(id);
-    return await Promise.resolve(mockUser);
+  async findById(id: string): Promise<UserResponseDto> {
+    const user = await this.findUserOrFail(id);
+
+    const dto = UserResponseDto.fromEntity(user);
+    dto.avatarUrl = await this.resolveAvatarUrl(user.avatarId);
+    return dto;
   }
 
-  async remove(id: string): Promise<{ id: string }> {
-    // TODO: Implement user deletion logic
-    return await Promise.resolve({ id });
+  async getProfile(userId: string): Promise<UserResponseDto> {
+    const user = await this.findUserOrFail(userId);
+
+    const dto = UserResponseDto.fromEntity(user);
+    dto.avatarUrl = await this.resolveAvatarUrl(user.avatarId);
+    return dto;
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
-    // TODO: Implement user update logic
-    return await Promise.resolve({
-      ...mockUser,
-      ...updateUserDto,
-      id,
-    });
+  async remove(id: string): Promise<void> {
+    await this.findUserOrFail(id);
+
+    await Promise.all([
+      this.userRepository.softDelete(id),
+      this.tokenService.revokeAllUserTokens(id),
+    ]);
+
+    this.logger.log(`Soft-deleted user: ${id}`);
+  }
+
+  async removeAvatar(userId: string): Promise<void> {
+    await this.userRepository.update(userId, { avatarId: null });
+    this.logger.log(`Removed avatar for user: ${userId}`);
+  }
+
+  async setAvatar(userId: string, dto: SetAvatarDto): Promise<UserResponseDto> {
+    const user = await this.findUserOrFail(userId);
+
+    const { fileId, presignedUrl } = await this.filesService.prepareFileForEntity(
+      userId,
+      dto.fileId,
+    );
+
+    user.avatarId = fileId;
+    const updated = await this.userRepository.save(user);
+
+    const response = UserResponseDto.fromEntity(updated);
+    response.avatarUrl = presignedUrl;
+    return response;
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserResponseDto> {
+    const user = await this.findUserOrFail(userId);
+
+    Object.assign(user, dto);
+    const updated = await this.userRepository.save(user);
+    const response = UserResponseDto.fromEntity(updated);
+    response.avatarUrl = await this.resolveAvatarUrl(updated.avatarId);
+    return response;
+  }
+
+  private async findUserOrFail(id: string): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID "${id}" not found`);
+    }
+
+    return user;
+  }
+
+  private async resolveAvatarUrl(avatarId: null | string): Promise<null | string> {
+    if (!avatarId) return null;
+    return this.filesService.getPresignedUrlForFileId(avatarId);
   }
 }

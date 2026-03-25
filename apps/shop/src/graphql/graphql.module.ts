@@ -8,7 +8,7 @@ import { UsersModule } from '@/users/users.module';
 import { isProduction } from '@/utils';
 
 import { OrderItemLoader, OrderLoader, ProductLoader, UserLoader } from './loaders';
-import { OrdersResolver, UsersResolver } from './resolvers';
+import { OrdersResolver } from './resolvers';
 import { OrderItemResolver } from './resolvers/order-item';
 
 @Module({
@@ -34,7 +34,6 @@ import { OrderItemResolver } from './resolvers/order-item';
     ProductsModule,
   ],
   providers: [
-    UsersResolver,
     OrdersResolver,
     OrderItemResolver,
     OrderLoader,
