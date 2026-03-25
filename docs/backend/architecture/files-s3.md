@@ -13,11 +13,22 @@
 2. CLIENT PUT request directly to S3 presigned URL
    (outside the API — no server involvement)
 
-3. POST /api/v1/files/complete-upload { fileId, entityType }
+3. POST /api/v1/files/complete-upload { fileId }
    → HeadObjectCommand — verify file exists in S3
    → Update FileRecord: status = READY, completedAt = now
-   → associateFileWithEntity() if entityType = 'product' → ProductsService.associateMainImage()
    → Return: { fileId, status, publicUrl, ... }
+
+--- product image association (separate calls, admin only) ---
+
+4. POST /api/v1/admin/products/:id/images/:fileId
+   → Validate product exists + file is READY + file has no entityId
+   → Set FileRecord.entityId = productId
+   → Return: 204
+
+5. PATCH /api/v1/admin/products/:id/images/:fileId/main   (optional)
+   → Validate product + file READY + file associated with product
+   → Set Product.mainImageId = fileId
+   → Return: 204
 ```
 
 ## FileRecord entity — `apps/shop/src/files/file-record.entity.ts`
@@ -80,7 +91,8 @@ MIN_FILE_SIZE_BYTES = 1;
 
 ## Auth on file endpoints
 
-All 3 endpoints: `JwtAuthGuard` + `RolesGuard(admin, support)` + `ScopesGuard(products:images:write)`  
+**Upload endpoints** (`presigned-upload`, `complete-upload`): `JwtAuthGuard` + `RolesGuard(admin, support)` + `ScopesGuard(products:images:write)`  
+**Product image management endpoints** (steps 4–5): `JwtAuthGuard` + `RolesGuard(admin)` + `ScopesGuard(products:images:write)` — live in `AdminProductsController`, not `FilesController`  
 `userId` always taken from JWT, never from request body.
 
 ## GraphQL integration

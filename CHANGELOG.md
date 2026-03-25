@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-03-25
+
+### Added
+
+- **Product Entity Extension** — `description` (text), `brand` (varchar 100), `country` (varchar 2, ISO 3166-1 alpha-2), `category` (`ProductCategory` enum, default `other`), `deletedAt` (`@DeleteDateColumn`, soft-delete) columns added to `Product` entity
+- **`ProductCategory` Enum** — 11 values: `accessories`, `audio`, `cameras`, `laptops`, `monitors`, `other`, `peripherals`, `smartphones`, `storage`, `tablets`, `wearables`; stored in `products/constants/index.ts`
+- **Public Products REST API** — `GET /api/v1/products` (paginated list) and `GET /api/v1/products/:id` (detail with images + rating); no auth required
+- **Admin Products REST API** — `POST`, `PATCH`, `DELETE /api/v1/admin/products/:id` (create / partial update / soft-delete); guarded by `JwtAuthGuard + RolesGuard(admin) + ScopesGuard(products:write)`
+- **Sorting & Filtering** — `FindProductsQueryDto` supports `sortBy` (`createdAt | price | title`), `sortOrder` (`ASC | DESC`), `minPrice`, `maxPrice`, `search` (ILIKE on title + description), `brand` (ILIKE), `country` (exact), `category` (enum exact), `isActive`, cursor + limit pagination
+- **`ProductsRepository`** — Custom injectable repository encapsulating all QueryBuilder logic: cursor keyset pagination, multi-field sorting, price range, ILIKE search, brand/country/category filters; also provides `findByIds` and `findByIdsWithLock` (pessimistic write, used by order stock deduction)
+- **Price Index** — `IDX_products_price` index added to `Product` entity to support price-based sorting at scale
+- **Multiple Product Images** — `GET /api/v1/products/:id` response includes `images[]` array (all `READY` `FileRecord`s linked to the product via `entityId`); main image URL served separately as `mainImageUrl` and excluded from `images[]` to avoid duplication
+- **Admin Image Management Endpoints** — `GET /:id/images` (list all), `POST /:id/images/:fileId` (associate a READY file), `DELETE /:id/images/:fileId` (remove association), `PATCH /:id/images/:fileId/main` (promote to main image); all behind `products:images:write` / `products:images:read` scopes
+- **`ProductReview` Entity** — table `product_reviews`; columns: `id`, `productId` (FK → products CASCADE), `userId` (FK → users CASCADE), `rating` (smallint, `CHECK ("rating" BETWEEN 1 AND 5)`), `text` (varchar 1000), `createdAt`, `updatedAt`; `UNIQUE(userId, productId)` — one review per user per product
+- **Reviews REST API** — `POST /api/v1/products/:id/reviews` (create, JWT required), `PATCH /api/v1/products/:id/reviews` (update own review, JWT required), `DELETE /api/v1/products/:id/reviews` (delete own review, JWT required), `GET /api/v1/products/:id/reviews` (paginated list, public); cursor pagination by `createdAt DESC, id DESC`
+- **Rating Enrichment** — `averageRating` (`ROUND(AVG::numeric, 2)`, null if no reviews) and `reviewsCount` (`COUNT::int`) included in all product responses; computed on-demand via raw QueryBuilder; batch variant (`getRatingInfoBatch`) issues a single grouped query for the full product list page
+- **`ReviewsService`** — Dedicated service owning all review and rating logic: `createReview`, `getReviews`, `updateReview`, `deleteReview`, `getRatingInfo`, `getRatingInfoBatch`; injects `Repository<Product>` and `Repository<ProductReview>` directly — no dependency on `ProductsService`
+- **Seed Data Expansion** — Seed data expanded from 12 to 48 products with `description`, `brand`, `country`, and `category` populated for all entries; products distributed across all `ProductCategory` values
+- **Architecture Documentation** — `docs/backend/architecture/products.md` covering entity graph, module wiring, all REST endpoints, image management flow, rating computation, and service/repository responsibilities
+
+### Changed
+
+- **`FilesService` Decoupled from `ProductsService`** — `complete-upload` (`POST /api/v1/files/complete-upload`) no longer accepts `entityType` and no longer calls `ProductsService.associateMainImage()`; file association is now an explicit client call to `POST /admin/products/:id/images/:fileId`; `FilesModule` no longer imports `ProductsModule` (circular dependency eliminated)
+- **`CompleteUploadDto`** — `entityType` field removed; body is now `{ fileId }` only
+- **`findById` Images Response** — Main image is excluded from `images[]` in the public product detail response; it is still returned in the admin `GET /:id/images` list (for image management UI)
+- **`docs/backend/architecture/files-s3.md`** — Upload flow updated to reflect 5-step process (presign → S3 PUT → complete-upload → associate → set main); auth section updated to distinguish file-upload endpoints from admin product-image endpoints
+
+### Security
+
+- **No `userId` in Review Body** — Review ownership always derived from JWT (`user.sub`); users can only create, update, or delete their own review
+- **Soft-Delete Integrity** — `DELETE /admin/products/:id` uses `softDelete()` — row is retained for FK integrity with `order_items`; TypeORM auto-filters deleted products from all queries
+
 ## [0.1.3] - 2026-03-25
 
 ### Added
