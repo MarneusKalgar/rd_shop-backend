@@ -55,6 +55,7 @@ Detailed architecture notes live in `docs/architecture/`. Read the relevant file
 - `graphql-dataloader.md` — Apollo setup, cursor pagination, 4 DataLoaders
 - `rabbitmq-async.md` — queue topology, worker flow, idempotency, mock shape
 - `files-s3.md` — 3-step presigned upload flow, FileRecord lifecycle, S3Service, env vars
+- `users.md` — User entity, profile CRUD, password change, avatar flow, cursor pagination, search, soft-delete, GraphQL
 - `docker-compose.md` — multi-stage Dockerfile, all compose services, networks, dev vs. prod
 - `ci-pipeline.md` — 4 workflows, job graph, 7 composite actions, image tag strategy
 
