@@ -51,6 +51,10 @@ export class UsersService {
       throw new NotFoundException(`User with ID "${userId}" not found`);
     }
 
+    if (!user.password) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
     const isCurrentPasswordValid = await bcrypt.compare(dto.currentPassword, user.password);
     if (!isCurrentPasswordValid) {
       throw new UnauthorizedException('Current password is incorrect');

@@ -172,7 +172,7 @@ export class AuthService {
       .where('user.email = :email', { email })
       .getOne();
 
-    if (!user) {
+    if (!user?.password) {
       throw new UnauthorizedException('Invalid credentials');
     }
 

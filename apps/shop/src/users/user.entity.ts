@@ -56,7 +56,7 @@ export class User {
   orders: Order[];
 
   @Column({ length: 255, name: 'password', nullable: true, select: false, type: 'varchar' })
-  password: string;
+  password: null | string;
 
   @Column({ length: 20, name: 'phone', nullable: true, type: 'varchar' })
   phone: null | string;
