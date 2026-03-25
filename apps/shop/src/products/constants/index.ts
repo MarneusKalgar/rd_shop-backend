@@ -26,3 +26,7 @@ export enum SortOrder {
 export const DEFAULT_PRODUCTS_LIMIT = 10;
 export const MAX_PRODUCTS_LIMIT = 50;
 export const MIN_PRODUCTS_LIMIT = 1;
+
+export const DEFAULT_REVIEWS_LIMIT = 10;
+export const MAX_REVIEWS_LIMIT = 50;
+export const MIN_REVIEWS_LIMIT = 1;

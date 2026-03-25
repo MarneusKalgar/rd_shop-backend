@@ -21,6 +21,9 @@ export class ProductImageDto {
 }
 
 export class ProductResponseDto {
+  @ApiPropertyOptional({ nullable: true, type: Number })
+  averageRating: null | number;
+
   @ApiPropertyOptional({ nullable: true, type: String })
   brand: null | string;
 
@@ -55,6 +58,9 @@ export class ProductResponseDto {
   price: string;
 
   @ApiProperty()
+  reviewsCount: number;
+
+  @ApiProperty()
   stock: number;
 
   @ApiProperty()
@@ -67,6 +73,8 @@ export class ProductResponseDto {
     product: Product,
     mainImageUrl: null | string = null,
     images?: ProductImageDto[],
+    averageRating: null | number = null,
+    reviewsCount = 0,
   ): ProductResponseDto {
     const dto = new ProductResponseDto();
     dto.id = product.id;
@@ -82,6 +90,8 @@ export class ProductResponseDto {
     dto.mainImageUrl = mainImageUrl;
     dto.createdAt = product.createdAt;
     dto.updatedAt = product.updatedAt;
+    dto.averageRating = averageRating;
+    dto.reviewsCount = reviewsCount;
     if (images !== undefined) {
       dto.images = images;
     }

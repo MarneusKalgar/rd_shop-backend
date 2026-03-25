@@ -17,6 +17,7 @@ import {
 } from './dto';
 import { Product } from './product.entity';
 import { ProductsRepository } from './product.repository';
+import { ReviewsService } from './reviews.service';
 import { omitUndefined } from './utils';
 
 const UNIQUE_VIOLATION_CODE = '23505';
@@ -31,6 +32,7 @@ export class ProductsService {
     private readonly productsRepository: ProductsRepository,
     @InjectRepository(FileRecord)
     private readonly fileRecordRepository: Repository<FileRecord>,
+    private readonly reviewsService: ReviewsService,
     private readonly s3Service: S3Service,
   ) {}
 
@@ -98,7 +100,17 @@ export class ProductsService {
     const hasNextPage = products.length > limit;
     const page = hasNextPage ? products.slice(0, limit) : products;
     const nextCursor = hasNextPage ? page[page.length - 1].id : null;
-    const data = page.map((p) => ProductResponseDto.fromEntity(p));
+    const ratingMap = await this.reviewsService.getRatingInfoBatch(page.map((p) => p.id));
+    const data = page.map((p) => {
+      const rating = ratingMap.get(p.id) ?? { averageRating: null, reviewsCount: 0 };
+      return ProductResponseDto.fromEntity(
+        p,
+        null,
+        undefined,
+        rating.averageRating,
+        rating.reviewsCount,
+      );
+    });
 
     return { data, limit, nextCursor };
   }
@@ -106,9 +118,10 @@ export class ProductsService {
   async findById(id: string): Promise<ProductDataResponseDto> {
     const product = await this.findProductOrFail(id);
 
-    const [mainImageUrl, imageRecords] = await Promise.all([
+    const [mainImageUrl, imageRecords, ratingInfo] = await Promise.all([
       this.resolveMainImageUrl(product.mainImageId),
       this.fileRecordRepository.find({ where: { entityId: id, status: FileStatus.READY } }),
+      this.reviewsService.getRatingInfo(id),
     ]);
 
     const images = await Promise.all(
@@ -126,7 +139,15 @@ export class ProductsService {
         }),
     );
 
-    return { data: ProductResponseDto.fromEntity(product, mainImageUrl, images) };
+    return {
+      data: ProductResponseDto.fromEntity(
+        product,
+        mainImageUrl,
+        images,
+        ratingInfo.averageRating,
+        ratingInfo.reviewsCount,
+      ),
+    };
   }
 
   async listImages(productId: string): Promise<ProductImagesDataResponseDto> {

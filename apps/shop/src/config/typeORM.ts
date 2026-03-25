@@ -13,6 +13,7 @@ import { RefreshToken } from '../auth/refresh-token.entity';
 import { FileRecord } from '../files/file-record.entity';
 import { OrderItem } from '../orders/order-item.entity';
 import { Order } from '../orders/order.entity';
+import { ProductReview } from '../products/product-review.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 
@@ -52,6 +53,7 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
       Order,
       OrderItem,
       Product,
+      ProductReview,
       FileRecord,
       ProcessedMessage,
       RefreshToken,
