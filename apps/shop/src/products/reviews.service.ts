@@ -13,7 +13,7 @@ import {
 } from './dto';
 import { ProductReview } from './product-review.entity';
 import { Product } from './product.entity';
-import { omitUndefined } from './utils';
+import { omitUndefined, throwOnUniqueViolation } from './utils';
 
 @Injectable()
 export class ReviewsService {
@@ -44,16 +44,21 @@ export class ReviewsService {
       text: dto.text,
       userId,
     });
-    await this.reviewRepository.save(review);
 
-    const saved = await this.reviewRepository.findOne({
+    try {
+      await this.reviewRepository.save(review);
+    } catch (error) {
+      throwOnUniqueViolation(error, 'You have already reviewed this product');
+    }
+
+    const saved = await this.reviewRepository.findOneOrFail({
       relations: ['user'],
       where: { id: review.id },
     });
 
     this.logger.log(`User ${userId} created review for product ${productId}`);
 
-    return { data: ReviewResponseDto.fromEntity(saved!) };
+    return { data: ReviewResponseDto.fromEntity(saved) };
   }
 
   async deleteReview(userId: string, productId: string): Promise<void> {
@@ -121,7 +126,7 @@ export class ReviewsService {
 
     if (query.cursor) {
       const cursorReview = await this.reviewRepository.findOne({
-        where: { id: query.cursor },
+        where: { id: query.cursor, productId },
       });
       if (cursorReview) {
         qb.andWhere(

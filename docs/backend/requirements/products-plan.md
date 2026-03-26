@@ -175,7 +175,7 @@ sortOrder?: 'ASC' | 'DESC' (default 'DESC')
 minPrice?: string
 maxPrice?: string
 search?: string          // ILIKE on title OR description
-brand?: string           // exact match (case-insensitive)
+brand?: string           // partial match (case-insensitive ILIKE)
 country?: string         // ISO 3166-1 alpha-2 exact match
 category?: ProductCategory
 ```

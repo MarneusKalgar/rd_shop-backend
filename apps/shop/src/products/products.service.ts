@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { FileRecord, FileStatus } from '../files/file-record.entity';
 import { S3Service } from '../files/s3.service';
@@ -18,9 +18,7 @@ import {
 import { Product } from './product.entity';
 import { ProductsRepository } from './product.repository';
 import { ReviewsService } from './reviews.service';
-import { omitUndefined } from './utils';
-
-const UNIQUE_VIOLATION_CODE = '23505';
+import { omitUndefined, throwOnUniqueViolation } from './utils';
 
 @Injectable()
 export class ProductsService {
@@ -47,19 +45,21 @@ export class ProductsService {
       throw new NotFoundException(`File with ID "${fileId}" not found or not ready`);
     }
 
+    if (fileRecord.entityId !== null && fileRecord.entityId !== productId) {
+      throw new ConflictException(
+        `File with ID "${fileId}" is already associated with another entity`,
+      );
+    }
+
+    if (fileRecord.entityId === productId) {
+      this.logger.warn(`Image ${fileId} is already associated with product ${productId}, skipping`);
+      return;
+    }
+
     fileRecord.entityId = productId;
     await this.fileRecordRepository.save(fileRecord);
 
     this.logger.log(`Associated image ${fileId} with product ${productId}`);
-  }
-
-  async associateMainImage(productId: string, fileId: string): Promise<void> {
-    const product = await this.findProductOrFail(productId);
-
-    product.mainImageId = fileId;
-    await this.productRepository.save(product);
-
-    this.logger.log(`Associated file ${fileId} with product ${productId} as main image`);
   }
 
   async create(dto: CreateProductDto): Promise<ProductDataResponseDto> {
@@ -79,8 +79,7 @@ export class ProductsService {
       this.logger.log(`Created product: ${saved.id}`);
       return { data: ProductResponseDto.fromEntity(saved) };
     } catch (error) {
-      this.handleUniqueViolation(error, dto.title);
-      throw error;
+      throwOnUniqueViolation(error, `Product with title "${dto.title}" already exists`);
     }
   }
 
@@ -217,13 +216,20 @@ export class ProductsService {
     Object.assign(product, definedFields);
 
     try {
-      const saved = await this.productRepository.save(product);
-      const mainImageUrl = await this.resolveMainImageUrl(saved.mainImageId);
-      return { data: ProductResponseDto.fromEntity(saved, mainImageUrl) };
+      await this.productRepository.save(product);
+      return await this.findById(id);
     } catch (error) {
-      this.handleUniqueViolation(error, dto.title);
-      throw error;
+      throwOnUniqueViolation(error, `Product with title "${dto.title}" already exists`);
     }
+  }
+
+  private async associateMainImage(productId: string, fileId: string): Promise<void> {
+    const product = await this.findProductOrFail(productId);
+
+    product.mainImageId = fileId;
+    await this.productRepository.save(product);
+
+    this.logger.log(`Associated file ${fileId} with product ${productId} as main image`);
   }
 
   private async findProductOrFail(id: string): Promise<Product> {
@@ -232,15 +238,6 @@ export class ProductsService {
       throw new NotFoundException(`Product with ID "${id}" not found`);
     }
     return product;
-  }
-
-  private handleUniqueViolation(error: unknown, title: string | undefined): void {
-    if (
-      error instanceof QueryFailedError &&
-      (error as { code?: string }).code === UNIQUE_VIOLATION_CODE
-    ) {
-      throw new ConflictException(`Product with title "${title}" already exists`);
-    }
   }
 
   private async resolveFileUrl(fileRecord: FileRecord): Promise<null | string> {

@@ -176,7 +176,7 @@ export class ProductsRepository {
       [ProductSortBy.TITLE]: 'product.title',
     };
 
-    qb.orderBy(sortColumnMap[sortBy], sortOrder).addOrderBy('product.id', 'DESC').take(limit);
+    qb.orderBy(sortColumnMap[sortBy], sortOrder).addOrderBy('product.id', sortOrder).take(limit);
 
     return qb.getMany();
   }

@@ -28,7 +28,7 @@
 5. PATCH /api/v1/admin/products/:id/images/:fileId/main   (optional)
    → Validate product + file READY + file associated with product
    → Set Product.mainImageId = fileId
-   → Return: 204
+   → Return: 200 ProductDataResponseDto (updated product with new mainImageUrl)
 ```
 
 ## FileRecord entity — `apps/shop/src/files/file-record.entity.ts`
