@@ -1,5 +1,10 @@
 import { User } from '../user.entity';
 
+export class UserDataResponseDto {
+  data: UserResponseDto;
+  message?: string;
+}
+
 export class UserResponseDto {
   avatarId: null | string;
   avatarUrl: null | string;

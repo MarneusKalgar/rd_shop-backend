@@ -37,48 +37,53 @@ Soft-delete via `@DeleteDateColumn` — TypeORM automatically adds `WHERE delete
 `apps/shop/src/users/users.module.ts`
 
 ```
-imports:  TypeOrmModule.forFeature([User]), ConfigModule, AuthModule, FilesModule
-exports:  UsersService, TypeOrmModule
+imports:     TypeOrmModule.forFeature([User]), ConfigModule, AuthModule, FilesModule
+exports:     UsersService, TypeOrmModule
+controllers: UsersController (v1), AdminUsersController (v1)
 ```
 
 Dependencies: `AuthModule` (for `TokenService`), `FilesModule` (for `FilesService`). `ConfigModule` provides `BCRYPT_SALT_ROUNDS`.
 
 ## REST Endpoints
 
-All endpoints live under `api/v1/users`. `JwtAuthGuard` is applied at the controller class level.
+### Self-service — `UsersController` (`/api/v1/users`)
 
-### Self-service (authenticated user)
+`JwtAuthGuard` applied at class level. No role check — all authenticated users may access.
 
-| Method | Path                 | Body / Query        | Returns           | Notes                    |
-| ------ | -------------------- | ------------------- | ----------------- | ------------------------ |
-| GET    | `/users/me`          | —                   | `UserResponseDto` | Own profile + avatar URL |
-| PATCH  | `/users/me`          | `UpdateProfileDto`  | `UserResponseDto` | Partial update           |
-| PATCH  | `/users/me/password` | `ChangePasswordDto` | 204               | Revokes all tokens       |
-| PUT    | `/users/me/avatar`   | `SetAvatarDto`      | `UserResponseDto` | See avatar flow below    |
-| DELETE | `/users/me/avatar`   | —                   | 204               | Sets `avatarId = null`   |
+| Method | Path                 | Body / Query        | Returns               | Notes                    |
+| ------ | -------------------- | ------------------- | --------------------- | ------------------------ |
+| GET    | `/users/me`          | —                   | `UserDataResponseDto` | Own profile + avatar URL |
+| PATCH  | `/users/me`          | `UpdateProfileDto`  | `UserDataResponseDto` | Partial update           |
+| PATCH  | `/users/me/password` | `ChangePasswordDto` | 204                   | Revokes all tokens       |
+| PUT    | `/users/me/avatar`   | `SetAvatarDto`      | `UserDataResponseDto` | See avatar flow below    |
+| DELETE | `/users/me/avatar`   | —                   | 204                   | Sets `avatarId = null`   |
 
-### Admin-only (`RolesGuard` + `@Roles(ADMIN)`)
+### Admin — `AdminUsersController` (`/api/v1/admin/users`)
 
-| Method | Path         | Body / Query   | Returns                | Notes       |
-| ------ | ------------ | -------------- | ---------------------- | ----------- |
-| GET    | `/users`     | `FindUsersDto` | `UsersListResponseDto` | Paginated   |
-| GET    | `/users/:id` | —              | `UserResponseDto`      | By UUID     |
-| DELETE | `/users/:id` | —              | 204                    | Soft-delete |
+Class-level: `@Roles(UserRole.ADMIN)`, `@UseGuards(JwtAuthGuard, RolesGuard, ScopesGuard)`.
+
+| Method | Path                           | Scope         | Body / Query               | Returns                            | Notes                    |
+| ------ | ------------------------------ | ------------- | -------------------------- | ---------------------------------- | ------------------------ |
+| GET    | `/admin/users`                 | `USERS_READ`  | `FindUsersDto`             | `UsersListResponseDto`             | Paginated                |
+| GET    | `/admin/users/:id`             | `USERS_READ`  | —                          | `UserDataResponseDto`              | By UUID                  |
+| DELETE | `/admin/users/:id`             | `USERS_WRITE` | —                          | 204                                | Soft-delete              |
+| PATCH  | `/admin/users/:id/permissions` | `USERS_WRITE` | `UpdateUserPermissionsDto` | `UpdateUserPermissionsResponseDto` | Overwrite roles + scopes |
 
 ## Service Methods
 
 `apps/shop/src/users/users.service.ts`
 
-| Method           | Access | Key logic                                                                                                                      |
-| ---------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `getProfile`     | Self   | `findUserOrFail` → `UserResponseDto.fromEntity` → resolve avatar presigned URL                                                 |
-| `updateProfile`  | Self   | `findUserOrFail` → `Object.assign(user, dto)` → save → resolve avatar URL                                                      |
-| `changePassword` | Self   | Verify `newPassword === confirmedPassword` → bcrypt compare current → hash new → update + revoke all tokens via `TokenService` |
-| `setAvatar`      | Self   | `findUserOrFail` first (prevents orphaned files) → `filesService.prepareFileForEntity` → save `avatarId`                       |
-| `removeAvatar`   | Self   | Blind `update(userId, { avatarId: null })` — does not delete FileRecord or S3 object                                           |
-| `findAll`        | Admin  | QueryBuilder with cursor pagination + optional ILIKE search                                                                    |
-| `findById`       | Admin  | `findUserOrFail` → resolve avatar URL                                                                                          |
-| `remove`         | Admin  | `findUserOrFail` → soft-delete + revoke all tokens (parallel)                                                                  |
+| Method                  | Access | Key logic                                                                                                                      |
+| ----------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `getProfile`            | Self   | `findUserOrFail` → `UserResponseDto.fromEntity` → resolve avatar presigned URL → wrap in `{ data }`                            |
+| `updateProfile`         | Self   | `findUserOrFail` → `Object.assign(user, dto)` → save → resolve avatar URL → wrap in `{ data }`                                 |
+| `changePassword`        | Self   | Verify `newPassword === confirmedPassword` → bcrypt compare current → hash new → update + revoke all tokens via `TokenService` |
+| `setAvatar`             | Self   | `findUserOrFail` first (prevents orphaned files) → `filesService.prepareFileForEntity` → save `avatarId` → wrap in `{ data }`  |
+| `removeAvatar`          | Self   | Blind `update(userId, { avatarId: null })` — does not delete FileRecord or S3 object                                           |
+| `findAll`               | Admin  | QueryBuilder with cursor pagination + optional ILIKE search                                                                    |
+| `findById`              | Admin  | `findUserOrFail` → resolve avatar URL → wrap in `{ data }`                                                                     |
+| `remove`                | Admin  | `findUserOrFail` → soft-delete + revoke all tokens (parallel)                                                                  |
+| `updateUserPermissions` | Admin  | `findUserOrFail` → `update(userId, { roles, scopes })` → return `{ message }`                                                  |
 
 ### Private helpers
 
@@ -150,16 +155,19 @@ On deletion, all refresh tokens for the user are revoked in parallel via `TokenS
 
 ## DTOs
 
-| DTO                    | Purpose                                 | Key validations                                                       |
-| ---------------------- | --------------------------------------- | --------------------------------------------------------------------- |
-| `CreateUserDto`        | Auth signup (used by `AuthService`)     | `@IsEmail`, `@MaxLength(50)` names, `@MinLength(8)` password          |
-| `UpdateProfileDto`     | Self-service profile update             | All optional; `@IsISO31661Alpha2` country; `@MaxLength` on all fields |
-| `ChangePasswordDto`    | Password change                         | Three `@IsString @MinLength(8)` fields                                |
-| `SetAvatarDto`         | Set avatar by file ID                   | `@IsUUID` fileId                                                      |
-| `FindUsersDto`         | Admin user listing                      | `@IsUUID` cursor, `@Max(100)` limit, `@MaxLength(100)` search         |
-| `UserResponseDto`      | All user responses                      | Maps from entity via `fromEntity()`; **never includes `password`**    |
-| `UsersListResponseDto` | Paginated list wrapper                  | `data: UserResponseDto[]`, `limit`, `nextCursor`                      |
-| `UpdateUserDto`        | Legacy admin update (not actively used) | Optional email, firstName, lastName, password                         |
+| DTO                                | Purpose                                 | Key validations                                                              |
+| ---------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------- |
+| `CreateUserDto`                    | Auth signup (used by `AuthService`)     | `@IsEmail`, `@MaxLength(50)` names, `@MinLength(8)` password                 |
+| `UpdateProfileDto`                 | Self-service profile update             | All optional; `@IsISO31661Alpha2` country; `@MaxLength` on all fields        |
+| `ChangePasswordDto`                | Password change                         | Three `@IsString @MinLength(8)` fields                                       |
+| `SetAvatarDto`                     | Set avatar by file ID                   | `@IsUUID` fileId                                                             |
+| `FindUsersDto`                     | Admin user listing                      | `@IsUUID` cursor, `@Max(100)` limit, `@MaxLength(100)` search                |
+| `UserResponseDto`                  | Inner user payload                      | Maps from entity via `fromEntity()`; **never includes `password`**           |
+| `UserDataResponseDto`              | Single-user response wrapper            | `{ data: UserResponseDto, message?: string }`                                |
+| `UsersListResponseDto`             | Paginated list wrapper                  | `data: UserResponseDto[]`, `limit`, `nextCursor`                             |
+| `UpdateUserPermissionsDto`         | Admin — overwrite roles and/or scopes   | `roles?` and `scopes?` — at least one required; each validated as enum array |
+| `UpdateUserPermissionsResponseDto` | Permissions update confirmation         | `{ message: string }`                                                        |
+| `UpdateUserDto`                    | Legacy admin update (not actively used) | Optional email, firstName, lastName, password                                |
 
 ## GraphQL
 
@@ -182,9 +190,9 @@ Request-scoped DataLoader. Batches `userIds` → `repository.find({ id: In(ids) 
 
 ## Security
 
-- **Authentication:** `JwtAuthGuard` on entire controller — all endpoints require valid JWT
-- **Authorization:** Admin endpoints additionally guarded by `RolesGuard` + `@Roles(ADMIN)`
-- **No user-to-user access:** Self-service endpoints always use `userId` from JWT (`user.sub`), never from request params
+- **Authentication:** `JwtAuthGuard` on both controllers — all endpoints require valid JWT
+- **Authorization (self-service):** No role check — `userId` always derived from JWT `user.sub`, never from request params
+- **Authorization (admin):** `AdminUsersController` enforces `@Roles(ADMIN)` + `RolesGuard` + `ScopesGuard` at class level; each endpoint requires a specific scope (`USERS_READ` or `USERS_WRITE`)
 - **Password safety:** `select: false` on entity column; never mapped in `UserResponseDto.fromEntity()`
 - **Input validation:** `ValidationPipe` with `whitelist: true` strips unknown properties
 - **Search injection:** LIKE wildcards (`%`, `_`, `\`) escaped; `ESCAPE '\'` clause in SQL; parameterized queries throughout

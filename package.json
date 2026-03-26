@@ -1,6 +1,6 @@
 {
   "name": "rd_shop-backend",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Backend for RD Shop application",
   "author": "Ihor Chernobai",
   "private": true,

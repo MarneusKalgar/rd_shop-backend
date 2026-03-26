@@ -5,29 +5,17 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Param,
-  ParseUUIDPipe,
   Patch,
   Put,
-  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '@/auth/decorators/current-user';
-import { Roles } from '@/auth/decorators/roles';
-import { JwtAuthGuard, RolesGuard } from '@/auth/guards';
-import { UserRole } from '@/auth/permissions/constants';
+import { JwtAuthGuard } from '@/auth/guards';
 import { AuthUser } from '@/auth/types';
 
-import {
-  ChangePasswordDto,
-  FindUsersDto,
-  SetAvatarDto,
-  UpdateProfileDto,
-  UserResponseDto,
-  UsersListResponseDto,
-} from '../dto';
+import { ChangePasswordDto, SetAvatarDto, UpdateProfileDto, UserDataResponseDto } from '../dto';
 import { UsersService } from '../users.service';
 
 @ApiTags('users')
@@ -47,41 +35,11 @@ export class UsersController {
     return this.usersService.changePassword(user.sub, dto);
   }
 
-  @ApiOperation({ summary: 'Delete user by ID (admin only)' })
-  @ApiResponse({ description: 'User deleted', status: HttpStatus.NO_CONTENT })
-  @ApiResponse({ description: 'User not found', status: HttpStatus.NOT_FOUND })
-  @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(UserRole.ADMIN)
-  @UseGuards(RolesGuard)
-  async deleteUser(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
-    return this.usersService.remove(id);
-  }
-
   @ApiOperation({ summary: 'Get own profile' })
-  @ApiResponse({ description: 'Profile', status: HttpStatus.OK, type: UserResponseDto })
+  @ApiResponse({ description: 'Profile', status: HttpStatus.OK, type: UserDataResponseDto })
   @Get('me')
-  async getMe(@CurrentUser() user: AuthUser): Promise<UserResponseDto> {
+  async getMe(@CurrentUser() user: AuthUser): Promise<UserDataResponseDto> {
     return this.usersService.getProfile(user.sub);
-  }
-
-  @ApiOperation({ summary: 'Get user by ID (admin only)' })
-  @ApiResponse({ description: 'User found', status: HttpStatus.OK, type: UserResponseDto })
-  @ApiResponse({ description: 'User not found', status: HttpStatus.NOT_FOUND })
-  @Get(':id')
-  @Roles(UserRole.ADMIN)
-  @UseGuards(RolesGuard)
-  async getUserById(@Param('id', ParseUUIDPipe) id: string): Promise<UserResponseDto> {
-    return this.usersService.findById(id);
-  }
-
-  @ApiOperation({ summary: 'List all users with cursor pagination (admin only)' })
-  @ApiResponse({ description: 'Users list', status: HttpStatus.OK, type: UsersListResponseDto })
-  @Get()
-  @Roles(UserRole.ADMIN)
-  @UseGuards(RolesGuard)
-  async getUsers(@Query() dto: FindUsersDto): Promise<UsersListResponseDto> {
-    return this.usersService.findAll(dto);
   }
 
   @ApiOperation({ summary: 'Remove own avatar' })
@@ -96,23 +54,23 @@ export class UsersController {
   @ApiResponse({
     description: 'Updated profile with avatar',
     status: HttpStatus.OK,
-    type: UserResponseDto,
+    type: UserDataResponseDto,
   })
   @Put('me/avatar')
   async setAvatar(
     @CurrentUser() user: AuthUser,
     @Body() dto: SetAvatarDto,
-  ): Promise<UserResponseDto> {
+  ): Promise<UserDataResponseDto> {
     return this.usersService.setAvatar(user.sub, dto);
   }
 
   @ApiOperation({ summary: 'Update own profile' })
-  @ApiResponse({ description: 'Updated profile', status: HttpStatus.OK, type: UserResponseDto })
+  @ApiResponse({ description: 'Updated profile', status: HttpStatus.OK, type: UserDataResponseDto })
   @Patch('me')
   async updateMe(
     @CurrentUser() user: AuthUser,
     @Body() dto: UpdateProfileDto,
-  ): Promise<UserResponseDto> {
+  ): Promise<UserDataResponseDto> {
     return this.usersService.updateProfile(user.sub, dto);
   }
 }
