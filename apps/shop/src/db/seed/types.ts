@@ -24,9 +24,23 @@ export interface SeedProduct {
   title: string;
 }
 
+export interface SeedReview {
+  id: string;
+  productId: string;
+  rating: number;
+  text: string;
+  userEmail: string;
+}
+
 export interface SeedUser {
+  city?: string;
+  country?: string;
   email: string;
+  firstName?: string;
   id?: string;
+  lastName?: string;
+  phone?: string;
+  postcode?: string;
   roles?: UserRole[];
   scopes?: UserScope[];
 }
