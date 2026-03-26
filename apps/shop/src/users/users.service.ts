@@ -17,7 +17,8 @@ import {
   FindUsersDto,
   SetAvatarDto,
   UpdateProfileDto,
-  UpdateUserPermissionsDto,
+  UpdateRolesDto,
+  UpdateScopesDto,
   UpdateUserPermissionsResponseDto,
   UserDataResponseDto,
   UserResponseDto,
@@ -178,13 +179,22 @@ export class UsersService {
     return { data: response };
   }
 
-  async updateUserPermissions(
+  async updateRoles(
     userId: string,
-    dto: UpdateUserPermissionsDto,
+    dto: UpdateRolesDto,
   ): Promise<UpdateUserPermissionsResponseDto> {
     await this.findUserOrFail(userId);
-    await this.userRepository.update(userId, { roles: dto.roles, scopes: dto.scopes });
-    return { message: 'User permissions updated successfully' };
+    await this.userRepository.update(userId, { roles: dto.roles });
+    return { message: 'User roles updated successfully' };
+  }
+
+  async updateScopes(
+    userId: string,
+    dto: UpdateScopesDto,
+  ): Promise<UpdateUserPermissionsResponseDto> {
+    await this.findUserOrFail(userId);
+    await this.userRepository.update(userId, { scopes: dto.scopes });
+    return { message: 'User scopes updated successfully' };
   }
 
   private async findUserOrFail(id: string): Promise<User> {

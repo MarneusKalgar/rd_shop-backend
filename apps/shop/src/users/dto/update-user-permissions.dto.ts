@@ -1,18 +1,17 @@
-import { IsArray, IsDefined, IsEnum, IsOptional, ValidateIf } from 'class-validator';
+import { IsArray, IsEnum } from 'class-validator';
 
 import { UserRole, UserScope } from '@/auth/constants';
 
-export class UpdateUserPermissionsDto {
+export class UpdateRolesDto {
   @IsArray()
-  @IsDefined({ message: 'At least one of roles or scopes must be provided' })
   @IsEnum(UserRole, { each: true })
-  @ValidateIf((o: UpdateUserPermissionsDto) => o.roles !== undefined || o.scopes === undefined)
-  roles?: UserRole[];
+  roles: UserRole[];
+}
 
+export class UpdateScopesDto {
   @IsArray()
   @IsEnum(UserScope, { each: true })
-  @IsOptional()
-  scopes?: UserScope[];
+  scopes: UserScope[];
 }
 
 export class UpdateUserPermissionsResponseDto {

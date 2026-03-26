@@ -357,7 +357,7 @@ Add `AdminUsersController` to the `controllers` array in `UsersModule`.
 - [x] Register `AdminUsersController` in `UsersModule`
 - [x] Remove `AdminController` and `AdminService` from `AdminModule`
 - [x] Update `AdminModule` — remove `TypeOrmModule.forFeature([User])` if no longer needed
-- [] Update integration tests to use new `/api/v1/admin/users` routes
+- [ ] Update integration tests to use new `/api/v1/admin/users` routes
 
 ---
 

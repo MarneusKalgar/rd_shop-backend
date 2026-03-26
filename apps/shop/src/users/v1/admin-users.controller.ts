@@ -20,7 +20,8 @@ import { UserRole, UserScope } from '@/auth/permissions/constants';
 
 import {
   FindUsersDto,
-  UpdateUserPermissionsDto,
+  UpdateRolesDto,
+  UpdateScopesDto,
   UpdateUserPermissionsResponseDto,
   UserDataResponseDto,
   UsersListResponseDto,
@@ -61,15 +62,27 @@ export class AdminUsersController {
     return this.usersService.findAll(dto);
   }
 
-  @ApiOperation({ summary: 'Update roles and scopes for a user' })
+  @ApiOperation({ summary: 'Set roles for a user' })
   @ApiResponse({ status: HttpStatus.OK, type: UpdateUserPermissionsResponseDto })
   @ApiResponse({ description: 'User not found', status: HttpStatus.NOT_FOUND })
-  @Patch(':id/permissions')
+  @Patch(':id/roles')
   @Scopes(UserScope.USERS_WRITE)
-  async updateUserPermissions(
+  async updateRoles(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateUserPermissionsDto,
+    @Body() dto: UpdateRolesDto,
   ): Promise<UpdateUserPermissionsResponseDto> {
-    return this.usersService.updateUserPermissions(id, dto);
+    return this.usersService.updateRoles(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Set scopes for a user' })
+  @ApiResponse({ status: HttpStatus.OK, type: UpdateUserPermissionsResponseDto })
+  @ApiResponse({ description: 'User not found', status: HttpStatus.NOT_FOUND })
+  @Patch(':id/scopes')
+  @Scopes(UserScope.USERS_WRITE)
+  async updateScopes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateScopesDto,
+  ): Promise<UpdateUserPermissionsResponseDto> {
+    return this.usersService.updateScopes(id, dto);
   }
 }
