@@ -134,16 +134,16 @@ Expand from 12 to ~48 products. Add `description`, `brand`, `country`, `category
 
 ### 1.9 Tasks
 
-- [ ] Add `description`, `brand`, `country`, `category`, `deletedAt` columns to `Product` entity
-- [ ] Create `ProductCategory` enum
+- [x] Add `description`, `brand`, `country`, `category`, `deletedAt` columns to `Product` entity
+- [x] Create `ProductCategory` enum
 - [ ] Generate migration: `npm run db:generate -- src/db/migrations/ExtendProductEntity`
-- [ ] Create `apps/shop/src/products/v1/products.controller.ts`
-- [ ] Create DTOs: `create-product.dto.ts`, `update-product.dto.ts`, `find-products.dto.ts`, `product-response.dto.ts`
-- [ ] Add service methods: `create`, `findAll`, `findById`, `update`, `remove` (soft delete)
-- [ ] Add repository methods: `findWithFilters` (cursor pagination + category/brand/country filters)
-- [ ] Register controller in `ProductsModule`
-- [ ] Add Swagger decorators
-- [ ] Expand seed data to ~48 products with new fields
+- [x] Create `apps/shop/src/products/v1/products.controller.ts`
+- [x] Create DTOs: `create-product.dto.ts`, `update-product.dto.ts`, `find-products.dto.ts`, `product-response.dto.ts`
+- [x] Add service methods: `create`, `findAll`, `findById`, `update`, `remove` (soft delete)
+- [x] Add repository methods: `findWithFilters` (cursor pagination + category/brand/country filters)
+- [x] Register controller in `ProductsModule`
+- [x] Add Swagger decorators
+- [x] Expand seed data to ~48 products with new fields
 
 ---
 
@@ -174,15 +174,21 @@ sortBy?: 'price' | 'title' | 'createdAt' (default 'createdAt')
 sortOrder?: 'ASC' | 'DESC' (default 'DESC')
 minPrice?: string
 maxPrice?: string
-search?: string    // ILIKE on title
+search?: string          // ILIKE on title OR description
+brand?: string           // partial match (case-insensitive ILIKE)
+country?: string         // ISO 3166-1 alpha-2 exact match
+category?: ProductCategory
 ```
 
 ### 2.4 Tasks
 
-- [ ] Add `sortBy` + `sortOrder` to query builder
-- [ ] Add `minPrice` / `maxPrice` to `FindProductsQueryDto`
-- [ ] Add `search` filter (ILIKE on title)
-- [ ] Add price index (migration or manual SQL)
+- [x] Add `sortBy` + `sortOrder` to query builder
+- [x] Add `minPrice` / `maxPrice` to `FindProductsQueryDto`
+- [x] Add `search` filter (ILIKE on title OR description)
+- [x] Add `brand` filter (ILIKE on brand)
+- [x] Add `country` filter (exact match)
+- [x] Add `category` filter (enum exact match)
+- [x] Add price index (migration or manual SQL)
 
 ---
 
@@ -258,13 +264,13 @@ ALTER TABLE "product_reviews" ADD CONSTRAINT "CHK_product_reviews_rating" CHECK 
 
 ### 3.5 Tasks
 
-- [ ] Create `ProductReview` entity (ManyToOne → Product, ManyToOne → User, `@Check` for rating 1-5)
+- [x] Create `ProductReview` entity (ManyToOne → Product, ManyToOne → User, `@Check` for rating 1-5)
 - [ ] Generate migration: `npm run db:generate -- src/db/migrations/AddProductReviews`
 - [ ] Verify CHECK constraint in generated migration
-- [ ] DTOs: `CreateReviewDto` (`{ rating, text }` — both required), `ReviewResponseDto`
-- [ ] Service methods: `createReview`, `updateReview`, `getReviews` (paginated)
-- [ ] Add `POST /products/:id/reviews`, `PATCH /products/:id/reviews`, and `GET /products/:id/reviews` endpoints
-- [ ] Enrich `GET /products` response with `averageRating` + `reviewsCount`
+- [x] DTOs: `CreateReviewDto` (`{ rating, text }` — both required), `ReviewResponseDto`
+- [x] Service methods: `createReview`, `updateReview`, `getReviews` (paginated); `deleteReview` added beyond plan
+- [x] Add `POST /products/:id/reviews`, `PATCH /products/:id/reviews`, and `GET /products/:id/reviews` endpoints; `DELETE /products/:id/reviews` added beyond plan
+- [x] Enrich `GET /products` response with `averageRating` + `reviewsCount`
 - [ ] Enrich `GET /products/:id` response with `averageRating` + `reviewsCount` + user's own review
 
 ---
@@ -278,16 +284,21 @@ New: Keep `mainImageId` + add `Product.images` (1:N via `FileRecord.entityId`)
 
 FileRecord already has `entityId` column — just filter by `entityId = productId` + `status = READY`.
 
-### 4.2 Endpoints
+### 4.2 Public endpoint
 
-- `GET /api/v1/products/:id/images` — list all images for product
+`GET /api/v1/products/:id` — include `images` array in the product response (all `READY` FileRecords for the product). No separate endpoint needed for the public shop; images are loaded as part of the product detail.
+
+### 4.3 Admin endpoints (all require JwtAuth + Roles(admin))
+
+- `GET /api/v1/products/:id/images` — list all images (useful for image management UI)
 - `DELETE /api/v1/products/:id/images/:fileId` — remove image association
 - `PATCH /api/v1/products/:id/images/:fileId/main` — set as main image
 
-### 4.3 Tasks
+### 4.4 Tasks
 
-- [ ] Add `images` field resolution (query `file_records WHERE entityId = productId AND status = READY`)
-- [ ] REST endpoints for image management
+- [x] Add `images` relation/field resolution (query `file_records WHERE entityId = productId AND status = READY`)
+- [x] Include `images` in `GET /api/v1/products/:id` response DTO
+- [x] Admin REST endpoints for image management (`GET`, `DELETE`, `PATCH /main`); `POST /:id/images/:fileId` added beyond plan
 
 ---
 

@@ -63,7 +63,8 @@ Detailed architecture notes live in `docs/architecture/`. Read the relevant file
 
 - Newer ask to install deps. Only inform about new packages to add to `package.json` if needed.
 - Focus on writing the implementation code, do not:
-  - Do not fix import/object keys ordering or formatting issues. This will be handled by ESLint and Prettier.
+  - Do not fix import/object keys ordering or formatting issues.
+  - Do not try to fix ESLint/Prettier unless you are specifically instructed to do so.
   - Do not try to launch type-check and test scripts. These are expected to fail until the relevant code is implemented.
   - Do not try to generate a migration file if you create new TypeORM entity. Focus on defining the entity and its relations correctly. Also register it in the `apps/shop/src/config/typeORM.ts` or `apps/payments/src/config/typeORM.ts` depending on the service.
 - Never throw from controllers; throw from the service layer instead.

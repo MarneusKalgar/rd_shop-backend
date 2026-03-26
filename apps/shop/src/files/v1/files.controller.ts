@@ -57,8 +57,8 @@ export class FilesController {
     @CurrentUser() user: AuthUser,
     @Body() body: CompleteUploadDto,
   ): Promise<CompleteUploadResponseDto> {
-    const { entityType, fileId } = body;
-    return this.filesService.completeUpload(user.sub, fileId, entityType);
+    const { fileId } = body;
+    return this.filesService.completeUpload(user.sub, fileId);
   }
 
   @ApiOperation({

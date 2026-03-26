@@ -15,8 +15,6 @@ export interface CompleteUploadResponse {
   updatedAt: Date;
 }
 
-export type EntityFileAssociation = 'product' | 'user';
-
 export interface FileUploadResponse {
   contentType: string;
   expiresInSeconds: number;
