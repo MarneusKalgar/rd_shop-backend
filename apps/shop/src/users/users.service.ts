@@ -17,6 +17,10 @@ import {
   FindUsersDto,
   SetAvatarDto,
   UpdateProfileDto,
+  UpdateRolesDto,
+  UpdateScopesDto,
+  UpdateUserPermissionsResponseDto,
+  UserDataResponseDto,
   UserResponseDto,
   UsersListResponseDto,
 } from './dto';
@@ -117,20 +121,20 @@ export class UsersService {
     };
   }
 
-  async findById(id: string): Promise<UserResponseDto> {
+  async findById(id: string): Promise<UserDataResponseDto> {
     const user = await this.findUserOrFail(id);
 
     const dto = UserResponseDto.fromEntity(user);
     dto.avatarUrl = await this.resolveAvatarUrl(user.avatarId);
-    return dto;
+    return { data: dto };
   }
 
-  async getProfile(userId: string): Promise<UserResponseDto> {
+  async getProfile(userId: string): Promise<UserDataResponseDto> {
     const user = await this.findUserOrFail(userId);
 
     const dto = UserResponseDto.fromEntity(user);
     dto.avatarUrl = await this.resolveAvatarUrl(user.avatarId);
-    return dto;
+    return { data: dto };
   }
 
   async remove(id: string): Promise<void> {
@@ -149,7 +153,7 @@ export class UsersService {
     this.logger.log(`Removed avatar for user: ${userId}`);
   }
 
-  async setAvatar(userId: string, dto: SetAvatarDto): Promise<UserResponseDto> {
+  async setAvatar(userId: string, dto: SetAvatarDto): Promise<UserDataResponseDto> {
     const user = await this.findUserOrFail(userId);
 
     const { fileId, presignedUrl } = await this.filesService.prepareFileForEntity(
@@ -162,17 +166,35 @@ export class UsersService {
 
     const response = UserResponseDto.fromEntity(updated);
     response.avatarUrl = presignedUrl;
-    return response;
+    return { data: response };
   }
 
-  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserResponseDto> {
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserDataResponseDto> {
     const user = await this.findUserOrFail(userId);
 
     Object.assign(user, dto);
     const updated = await this.userRepository.save(user);
     const response = UserResponseDto.fromEntity(updated);
     response.avatarUrl = await this.resolveAvatarUrl(updated.avatarId);
-    return response;
+    return { data: response };
+  }
+
+  async updateRoles(
+    userId: string,
+    dto: UpdateRolesDto,
+  ): Promise<UpdateUserPermissionsResponseDto> {
+    await this.findUserOrFail(userId);
+    await this.userRepository.update(userId, { roles: dto.roles });
+    return { message: 'User roles updated successfully' };
+  }
+
+  async updateScopes(
+    userId: string,
+    dto: UpdateScopesDto,
+  ): Promise<UpdateUserPermissionsResponseDto> {
+    await this.findUserOrFail(userId);
+    await this.userRepository.update(userId, { scopes: dto.scopes });
+    return { message: 'User scopes updated successfully' };
   }
 
   private async findUserOrFail(id: string): Promise<User> {

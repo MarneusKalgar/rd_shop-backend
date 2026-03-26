@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-03-26
+
+### Added
+
+- **`AdminUsersController`** — New `apps/shop/src/users/v1/admin-users.controller.ts` consolidating all admin user operations; class-level `@Roles(UserRole.ADMIN)` + `@UseGuards(JwtAuthGuard, RolesGuard, ScopesGuard)`; route `/api/v1/admin/users`; 4 endpoints each with an explicit `@Scopes()` decorator
+- **`updateUserPermissions` in `UsersService`** — Absorbed from `AdminService`; uses `findUserOrFail` for consistent 404 handling; accepts `roles`, `scopes`, or both (at least one required)
+- **`UpdateUserPermissionsDto` / `UpdateUserPermissionsResponseDto`** — Moved from `admin/dto/` to `users/dto/`; `roles` and `scopes` are now both optional — at least one must be provided (`@ValidateIf` + `@IsDefined` constraint)
+- **`UserDataResponseDto`** — New single-user response wrapper `{ data: UserResponseDto, message?: string }` — matches the `{ data }` envelope used throughout the products domain
+
+### Changed
+
+- **Admin user endpoints moved to `/api/v1/admin/users`** — `GET /`, `GET /:id`, `DELETE /:id` migrated from `UsersController`; `PATCH /:id/permissions` migrated from `AdminController`; all now behind `AdminUsersController` with per-endpoint `@Scopes()` (`USERS_READ` / `USERS_WRITE`)
+- **`UsersController` self-service only** — All admin endpoints and method-level `@Roles` / `@UseGuards(RolesGuard)` removed; controller now exclusively owns `/me/*` routes
+- **Single-user responses wrapped in `{ data }`** — `getProfile`, `findById`, `updateProfile`, `setAvatar` now return `UserDataResponseDto` instead of flat `UserResponseDto`; list (`UsersListResponseDto`) and void responses unchanged
+- **`AdminModule` simplified** — `AdminController` and `AdminService` removed; module now registers only dev-only testing controllers (`AdminTestingController`, `AdminTestingService`); `AuthModule` import removed
+
 ## [0.1.4] - 2026-03-25
 
 ### Added

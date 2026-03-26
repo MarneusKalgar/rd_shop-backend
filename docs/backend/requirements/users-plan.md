@@ -249,6 +249,118 @@ async removeAvatar(userId: string): Promise<void> {
 
 ---
 
+## Phase 4 — Admin users controller alignment
+
+### Problem
+
+Admin operations on users are split across two modules:
+
+| Endpoint                                     | Controller        | Location                    | Guards                                         |
+| -------------------------------------------- | ----------------- | --------------------------- | ---------------------------------------------- |
+| `PATCH /api/admin/users/:userId/permissions` | `AdminController` | `admin/v1/admin.controller` | Class-level `JwtAuth + RolesGuard` (no Scopes) |
+| `GET /api/v1/users`                          | `UsersController` | `users/v1/users.controller` | Method-level `@Roles(ADMIN) + RolesGuard`      |
+| `GET /api/v1/users/:id`                      | `UsersController` | `users/v1/users.controller` | Method-level `@Roles(ADMIN) + RolesGuard`      |
+| `DELETE /api/v1/users/:id`                   | `UsersController` | `users/v1/users.controller` | Method-level `@Roles(ADMIN) + RolesGuard`      |
+
+Issues:
+
+- `AdminController` has no URI versioning (route is `/admin`, not `/v1/admin`)
+- `AdminController` uses `RolesGuard` but **not** `ScopesGuard` — inconsistent with `AdminProductsController`
+- Admin user operations live in two different modules and controllers
+- `UsersController` mixes self-service endpoints (`/me/*`) with admin endpoints, using method-level guards instead of class-level
+
+### Target state
+
+Follow the `AdminProductsController` pattern — a dedicated `AdminUsersController` inside the **users domain**:
+
+```
+apps/shop/src/users/v1/admin-users.controller.ts   ← NEW
+```
+
+```typescript
+@ApiTags('admin / users')
+@Controller({ path: 'admin/users', version: '1' })
+@Roles(UserRole.ADMIN)
+@UseGuards(JwtAuthGuard, RolesGuard, ScopesGuard)
+export class AdminUsersController {
+  constructor(private readonly usersService: UsersService) {}
+  // all admin user endpoints here
+}
+```
+
+Route: `/api/v1/admin/users`
+
+### 4.1 Endpoints to move into `AdminUsersController`
+
+| Method   | Path               | Scopes        | Source                                              |
+| -------- | ------------------ | ------------- | --------------------------------------------------- |
+| `GET`    | `/`                | `USERS_READ`  | Move from `UsersController.getUsers()`              |
+| `GET`    | `/:id`             | `USERS_READ`  | Move from `UsersController.getUserById()`           |
+| `DELETE` | `/:id`             | `USERS_WRITE` | Move from `UsersController.deleteUser()`            |
+| `PATCH`  | `/:id/permissions` | `USERS_WRITE` | Move from `AdminController.updateUserPermissions()` |
+
+### 4.2 Move `updateUserPermissions` logic into `UsersService`
+
+`AdminService` has a single method (`updateUserPermissions`) that operates on the `User` entity. `UsersService` already has the `userRepository` — absorb this method:
+
+```typescript
+// UsersService
+async updateUserPermissions(
+  userId: string,
+  dto: UpdateUserPermissionsDto,
+): Promise<UpdateUserPermissionsResponseDto> {
+  const user = await this.userRepository.findOne({ where: { id: userId } });
+  if (!user) throw new NotFoundException('User not found');
+  await this.userRepository.update(userId, { roles: dto.roles, scopes: dto.scopes });
+  return { message: 'User permissions updated successfully' };
+}
+```
+
+### 4.3 Move DTOs
+
+Move `UpdateUserPermissionsDto` and `UpdateUserPermissionsResponseDto` from `admin/dto/` to `users/dto/`.
+
+### 4.4 Clean up `UsersController`
+
+After extraction, `UsersController` keeps only self-service endpoints:
+
+- `GET /me` — get own profile
+- `PATCH /me` — update own profile
+- `PATCH /me/password` — change password
+- `PUT /me/avatar` — set avatar
+- `DELETE /me/avatar` — remove avatar
+
+No more method-level `@Roles(ADMIN)` or `@UseGuards(RolesGuard)` in this controller.
+
+### 4.5 Simplify `AdminModule`
+
+After moving `AdminController` + `AdminService` out:
+
+- `AdminModule` keeps only the dev-only testing controllers (`AdminTestingController`, `AdminTestingService`)
+- Remove `AdminController` and `AdminService` from `AdminModule`
+- Remove `TypeOrmModule.forFeature([User])` (no longer needed — testing service creates its own user)
+- Rename module to reflect its testing-only purpose, or keep as-is if testing controllers still need it
+
+### 4.6 Register in `UsersModule`
+
+Add `AdminUsersController` to the `controllers` array in `UsersModule`.
+
+### 4.7 Tasks
+
+- [x] Create `apps/shop/src/users/v1/admin-users.controller.ts` with class-level `@Roles(ADMIN)`, `@UseGuards(JwtAuthGuard, RolesGuard, ScopesGuard)`
+- [x] Move `GET /`, `GET /:id`, `DELETE /:id` from `UsersController` to `AdminUsersController`
+- [x] Move `PATCH /:id/permissions` from `AdminController` to `AdminUsersController`
+- [x] Add `@Scopes()` decorator to each endpoint (`USERS_READ` / `USERS_WRITE`)
+- [x] Move `updateUserPermissions` method from `AdminService` to `UsersService`
+- [x] Move `UpdateUserPermissionsDto` and `UpdateUserPermissionsResponseDto` to `users/dto/`
+- [x] Remove admin endpoints and method-level `@Roles` / `@UseGuards(RolesGuard)` from `UsersController`
+- [x] Register `AdminUsersController` in `UsersModule`
+- [x] Remove `AdminController` and `AdminService` from `AdminModule`
+- [x] Update `AdminModule` — remove `TypeOrmModule.forFeature([User])` if no longer needed
+- [ ] Update integration tests to use new `/api/v1/admin/users` routes
+
+---
+
 ## Implementation order
 
 ```
@@ -257,6 +369,8 @@ Phase 1 (Entity + profile fields)   ← Foundation — migration first
 Phase 2 (CRUD implementation)        ← Unmock all service methods, add guards
   ↓
 Phase 3 (Avatar)                     ← Builds on Phase 1 entity + existing file upload
+  ↓
+Phase 4 (Admin alignment)           ← Consolidate admin endpoints into users domain
 ```
 
 ---
