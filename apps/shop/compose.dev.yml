@@ -13,6 +13,7 @@ services:
       - '${PORT:-8080}:${PORT:-8080}'
     volumes:
       - ../../apps:/app/apps
+      - ../../libs:/app/libs
       - ../../proto:/app/proto
       - /app/node_modules
     env_file:
@@ -76,6 +77,7 @@ services:
       target: ''
     volumes:
       - ../../apps:/app/apps
+      - ../../libs:/app/libs
       - /app/node_modules
     env_file:
       - .env.development
@@ -94,6 +96,7 @@ services:
       target: ''
     volumes:
       - ../../apps:/app/apps
+      - ../../libs:/app/libs
       - /app/node_modules
     env_file:
       - .env.development

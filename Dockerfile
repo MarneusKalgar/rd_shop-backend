@@ -39,13 +39,21 @@ COPY nest-cli.json ./
 # COPY src ./src
 COPY proto ./proto
 COPY apps ./apps
+COPY libs ./libs
 
 # Copy proto file into app locations
 RUN mkdir -p apps/${APP}/src/proto && \
     cp proto/payments.proto apps/${APP}/src/proto/payments.proto
 
+# Build common lib first so @app/common declarations are available
+RUN npm run build -- common
+
 # Build the application
 RUN npm run build -- ${APP}
+
+# Create @app/common symlink for runtime module resolution
+RUN mkdir -p dist/node_modules/@app && \
+    ln -s ../../../libs/common dist/node_modules/@app/common
 
 # Copy proto file into app locations
 RUN cp proto/payments.proto dist/apps/${APP}/proto/payments.proto && \

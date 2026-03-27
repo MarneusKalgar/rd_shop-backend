@@ -1,8 +1,7 @@
 import { DataSourceOptions } from 'typeorm';
 
-import { getTypeOrmPaths } from '@/config';
-import { isDevelopment, omit } from '@/utils';
-
+import { isDevelopment, omit } from '../../utils';
+import { getTypeOrmPaths } from '../typeorm-paths';
 import { IDatabaseAdapter } from './interfaces';
 
 export abstract class BasePostgresAdapter implements IDatabaseAdapter {
@@ -26,13 +25,8 @@ export abstract class BasePostgresAdapter implements IDatabaseAdapter {
     };
   }
 
-  /**
-   * Get configuration for NestJS TypeOrmModule (without migrations)
-   */
   getModuleOptions(): Omit<DataSourceOptions, 'migrations'> {
     const options = this.getDataSourceOptions();
-    // const { migrations, ...optionsWithoutMigrations } = options;
-
     const optionsWithoutMigrations = omit(options, 'migrations');
 
     return {
@@ -74,7 +68,6 @@ export abstract class BasePostgresAdapter implements IDatabaseAdapter {
       return false;
     }
 
-    // Production: SSL enabled but don't reject self-signed certs
     return { rejectUnauthorized: true };
   }
 }
