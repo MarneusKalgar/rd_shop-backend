@@ -10,6 +10,8 @@ import { isProduction } from '@/utils/env';
 import { EmailVerificationToken } from '../auth/email-verification-token.entity';
 import { PasswordResetToken } from '../auth/password-reset-token.entity';
 import { RefreshToken } from '../auth/refresh-token.entity';
+import { CartItem } from '../cart/cart-item.entity';
+import { Cart } from '../cart/cart.entity';
 import { FileRecord } from '../files/file-record.entity';
 import { OrderItem } from '../orders/order-item.entity';
 import { Order } from '../orders/order.entity';
@@ -52,6 +54,8 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
       User,
       Order,
       OrderItem,
+      Cart,
+      CartItem,
       Product,
       ProductReview,
       FileRecord,

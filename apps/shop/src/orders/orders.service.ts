@@ -78,6 +78,70 @@ export class OrdersService {
   ) {}
 
   /**
+   * Cancels an order and restores product stock within a transaction.
+   *
+   * **Allowed statuses:** PENDING, PROCESSED, PAID
+   * **Rejected statuses:** CANCELLED (409), CREATED (400)
+   *
+   * For PROCESSED/PAID orders with a paymentId, payment void/refund integration is deferred
+   * to the payments plan. Stock is always restored.
+   *
+   * @param userId - The UUID of the requesting user (ownership check)
+   * @param orderId - The UUID of the order to cancel
+   * @returns Promise resolving to the updated Order entity
+   * @throws {NotFoundException} If order not found or doesn't belong to user — HTTP 404
+   * @throws {ConflictException} If order is already cancelled — HTTP 409
+   * @throws {BadRequestException} If order is in CREATED (legacy) state — HTTP 400
+   */
+  async cancelOrder(userId: string, orderId: string): Promise<Order> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query('SET LOCAL statement_timeout = 30000');
+      await manager.query('SET LOCAL lock_timeout = 10000');
+
+      const orderRepo = manager.getRepository(Order);
+      const order = await orderRepo.findOne({
+        relations: ['items', 'items.product'],
+        where: { id: orderId },
+      });
+
+      this.assertOrderOwnership(order, userId);
+
+      if (order.status === OrderStatus.CANCELLED) {
+        throw new ConflictException(`Order "${orderId}" is already cancelled`);
+      }
+
+      if (order.status === OrderStatus.CREATED) {
+        throw new BadRequestException(`Order "${orderId}" is in an invalid state for cancellation`);
+      }
+
+      const productIds = order.items.map((item) => item.productId);
+      const products = await this.productsRepository.findByIdsWithLock(manager, productIds);
+      const productMap = new Map(products.map((p) => [p.id, p]));
+
+      for (const item of order.items) {
+        const product = productMap.get(item.productId);
+        if (product) {
+          product.stock += item.quantity;
+        }
+      }
+
+      await this.productsRepository.saveProducts(manager, [...productMap.values()]);
+
+      order.status = OrderStatus.CANCELLED;
+      await orderRepo.save(order);
+
+      this.logger.log(`Order "${orderId}" cancelled, stock restored`);
+
+      const updatedOrder = await this.ordersRepository.findByIdWithItemRelations(orderId, manager);
+      if (!updatedOrder) {
+        throw new Error('Failed to reload cancelled order');
+      }
+
+      return updatedOrder;
+    });
+  }
+
+  /**
    * Creates a new order with idempotency support and transaction safety.
    *
    * **Concurrency Control:**
@@ -123,7 +187,6 @@ export class OrdersService {
    * @see {@link executeOrderTransaction} for transaction implementation
    * @see {@link handleOrderCreationPgErrors} for error handling
    */
-
   async createOrder(userId: string, createOrderDto: CreateOrderDto): Promise<Order> {
     const { idempotencyKey, items } = createOrderDto;
 
@@ -147,23 +210,6 @@ export class OrdersService {
     }
   }
 
-  /**
-   * Retrieves an order by its ID with all relations loaded.
-   *
-   * @param userId - The UUID of the user
-   * @param orderId - The UUID of the order to retrieve
-   * @returns Promise resolving to Order entity with items, products, and user
-   * @throws {NotFoundException} If order doesn't exist - HTTP 404
-   */
-  async getOrderById(userId: string, orderId: string): Promise<Order> {
-    const order = await this.ordersRepository.findByIdWithRelations(orderId);
-
-    this.assertOrderOwnership(order, userId);
-
-    return order;
-  }
-
-  // eslint-disable-next-line perfectionist/sort-classes
   async findOrdersWithFilters(
     userId: string,
     params: FindOrdersFilterDto,
@@ -196,12 +242,28 @@ export class OrdersService {
     const pageSlice = hasNextPage ? paginatedOrders.slice(0, limit) : paginatedOrders;
 
     const orderIds = pageSlice.map((row) => row.id);
-    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds);
+    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds, { withUser: false });
     const orders = await mainQuery.getMany();
 
     const nextCursor = hasNextPage ? orders[orders.length - 1].id : null;
 
     return { nextCursor, orders };
+  }
+
+  /**
+   * Retrieves an order by its ID with all relations loaded.
+   *
+   * @param userId - The UUID of the user
+   * @param orderId - The UUID of the order to retrieve
+   * @returns Promise resolving to Order entity with items, products, and user
+   * @throws {NotFoundException} If order doesn't exist - HTTP 404
+   */
+  async getOrderById(userId: string, orderId: string): Promise<Order> {
+    const order = await this.ordersRepository.findByIdWithItemRelations(orderId);
+
+    this.assertOrderOwnership(order, userId);
+
+    return order;
   }
 
   /**
@@ -219,7 +281,7 @@ export class OrdersService {
     userId: string,
     orderId: string,
   ): Promise<{ paymentId: string; status: string }> {
-    const order = await this.ordersRepository.findByIdWithRelations(orderId);
+    const order = await this.ordersRepository.findByIdWithItemRelations(orderId);
 
     this.assertOrderOwnership(order, userId);
 
@@ -362,7 +424,7 @@ export class OrdersService {
   }
 
   private async authorizePayment(order: Order): Promise<void> {
-    const orderWithItems = await this.ordersRepository.findByIdWithRelations(order.id);
+    const orderWithItems = await this.ordersRepository.findByIdWithItemRelations(order.id);
 
     if (!orderWithItems) {
       this.logger.error(`Order "${order.id}" not found for payment authorization`);
@@ -456,7 +518,7 @@ export class OrdersService {
     user: User,
     productIds: string[],
   ): Promise<Order> {
-    const { idempotencyKey, items } = createOrderDto;
+    const { idempotencyKey, items, shipping } = createOrderDto;
 
     const createdOrder = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
@@ -472,6 +534,12 @@ export class OrdersService {
 
       const order = await this.ordersRepository.createOrder(manager, {
         idempotencyKey,
+        shippingCity: shipping?.city ?? user.city,
+        shippingCountry: shipping?.country ?? user.country,
+        shippingFirstName: shipping?.firstName ?? user.firstName,
+        shippingLastName: shipping?.lastName ?? user.lastName,
+        shippingPhone: shipping?.phone ?? user.phone,
+        shippingPostcode: shipping?.postcode ?? user.postcode,
         user,
         userId: user.id,
       });

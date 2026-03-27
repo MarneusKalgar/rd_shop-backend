@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
+import { CartModule } from './cart/cart.module';
 import { QueryLoggerMiddleware, RequestIdMiddleware } from './common/middlewares';
 import { /*getGracefulShutdownConfig,*/ getTypeOrmModuleOptions } from './config';
 import { getEnvFile, validate } from './core/environment';
@@ -34,6 +35,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     AdminModule,
     UsersModule,
+    CartModule,
     OrdersModule,
     ProductsModule,
     FilesModule,

@@ -26,6 +26,10 @@ export class ProductsRepository {
     private readonly repository: Repository<Product>,
   ) {}
 
+  async findById(productId: string): Promise<null | Product> {
+    return this.repository.findOne({ where: { id: productId } });
+  }
+
   async findByIds(productIds: string[]): Promise<Product[]> {
     return this.repository.find({
       where: { id: In(productIds) },

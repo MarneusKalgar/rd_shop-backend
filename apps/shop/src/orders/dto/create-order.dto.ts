@@ -9,6 +9,7 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -35,6 +36,38 @@ export class CreateOrderItemDto {
   quantity: number;
 }
 
+export class ShippingAddressDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  country?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  postcode?: string;
+}
+
 export class CreateOrderDto {
   @ApiProperty({
     description:
@@ -56,6 +89,17 @@ export class CreateOrderDto {
   @Type(() => CreateOrderItemDto)
   @ValidateNested({ each: true })
   items: CreateOrderItemDto[];
+
+  @ApiProperty({
+    description:
+      'Optional shipping address. If omitted, the address from the user profile is used as a fallback.',
+    required: false,
+    type: ShippingAddressDto,
+  })
+  @IsOptional()
+  @Type(() => ShippingAddressDto)
+  @ValidateNested()
+  shipping?: ShippingAddressDto;
 }
 
 export class CreateOrderResponseDto {

@@ -48,6 +48,24 @@ export class Order {
   })
   paymentId: null | string;
 
+  @Column({ length: 100, name: 'shipping_city', nullable: true, type: 'varchar' })
+  shippingCity: null | string;
+
+  @Column({ length: 2, name: 'shipping_country', nullable: true, type: 'varchar' })
+  shippingCountry: null | string;
+
+  @Column({ length: 50, name: 'shipping_first_name', nullable: true, type: 'varchar' })
+  shippingFirstName: null | string;
+
+  @Column({ length: 50, name: 'shipping_last_name', nullable: true, type: 'varchar' })
+  shippingLastName: null | string;
+
+  @Column({ length: 20, name: 'shipping_phone', nullable: true, type: 'varchar' })
+  shippingPhone: null | string;
+
+  @Column({ length: 20, name: 'shipping_postcode', nullable: true, type: 'varchar' })
+  shippingPostcode: null | string;
+
   @Column({
     default: OrderStatus.PENDING,
     enum: OrderStatus,
