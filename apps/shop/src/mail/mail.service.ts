@@ -22,6 +22,78 @@ export class MailService {
     }
   }
 
+  async sendOrderCancellationEmail(email: string, orderId: string): Promise<void> {
+    if (!this.sesClient) {
+      this.logger.log(`[DEV] Order cancellation email for ${email}: orderId=${orderId}`);
+      return;
+    }
+
+    await this.sesClient.send(
+      new SendEmailCommand({
+        Content: {
+          Simple: {
+            Body: {
+              Text: {
+                Data: `Your order #${orderId} has been cancelled.\n\nIf you did not request this cancellation, please contact support.`,
+              },
+            },
+            Subject: { Data: `Order #${orderId} has been cancelled` },
+          },
+        },
+        Destination: { ToAddresses: [email] },
+        FromEmailAddress: this.fromAddress,
+      }),
+    );
+  }
+
+  async sendOrderConfirmationEmail(email: string, orderId: string): Promise<void> {
+    if (!this.sesClient) {
+      this.logger.log(`[DEV] Order confirmation email for ${email}: orderId=${orderId}`);
+      return;
+    }
+
+    await this.sesClient.send(
+      new SendEmailCommand({
+        Content: {
+          Simple: {
+            Body: {
+              Text: {
+                Data: `Thank you for your order! Your order #${orderId} has been successfully placed and is being processed.\n\nYou will receive a payment confirmation once your order has been processed.`,
+              },
+            },
+            Subject: { Data: `Order #${orderId} confirmed` },
+          },
+        },
+        Destination: { ToAddresses: [email] },
+        FromEmailAddress: this.fromAddress,
+      }),
+    );
+  }
+
+  async sendOrderPaidEmail(email: string, orderId: string): Promise<void> {
+    if (!this.sesClient) {
+      this.logger.log(`[DEV] Order paid email for ${email}: orderId=${orderId}`);
+      return;
+    }
+
+    await this.sesClient.send(
+      new SendEmailCommand({
+        Content: {
+          Simple: {
+            Body: {
+              Text: {
+                Data: `Great news! Payment has been confirmed for your order #${orderId}.\n\nYour order is now being prepared for shipment.`,
+              },
+            },
+            Subject: { Data: `Payment confirmed for order #${orderId}` },
+          },
+        },
+        Destination: { ToAddresses: [email] },
+        FromEmailAddress: this.fromAddress,
+      }),
+    );
+  }
+
   async sendPasswordResetEmail(email: string, token: string): Promise<void> {
     const link = `${this.appUrl}/reset-password?token=${encodeURIComponent(token)}`;
 

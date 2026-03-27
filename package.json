@@ -1,6 +1,6 @@
 {
   "name": "rd_shop-backend",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Backend for RD Shop application",
   "author": "Ihor Chernobai",
   "private": true,
@@ -29,6 +29,7 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
+    "@nestjs/event-emitter": "^3.0.1",
     "@nestjs/graphql": "^13.2.4",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/microservices": "^11.1.16",

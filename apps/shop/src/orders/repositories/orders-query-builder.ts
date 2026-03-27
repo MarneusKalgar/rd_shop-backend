@@ -31,16 +31,22 @@ export class OrdersQueryBuilder {
 
   /**
    * Builds the main query that joins relations for the paginated order IDs.
+   * Pass `{ withUser: false }` for user-facing endpoints where the `user` relation is not needed.
    */
-  buildMainQuery(orderIds: string[]): SelectQueryBuilder<Order> {
-    return this.orderRepository
+  buildMainQuery(orderIds: string[], options?: { withUser?: boolean }): SelectQueryBuilder<Order> {
+    const qb = this.orderRepository
       .createQueryBuilder('order')
-      .leftJoinAndSelect('order.user', 'user')
       .leftJoinAndSelect('order.items', 'orderItem')
       .leftJoinAndSelect('orderItem.product', 'product')
       .where('order.id IN (:...orderIds)', { orderIds })
       .orderBy('order.createdAt', 'DESC')
       .addOrderBy('order.id', 'DESC');
+
+    if (options?.withUser !== false) {
+      qb.leftJoinAndSelect('order.user', 'user');
+    }
+
+    return qb;
   }
 
   /**

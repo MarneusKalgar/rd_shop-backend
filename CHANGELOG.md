@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-03-27
+
+### Added
+
+- **Order Cancellation** — `POST /api/v1/orders/:orderId/cancellation` endpoint; transactional stock restoration with pessimistic locking; guards: `CANCELLED` → 409, `CREATED` → 400; ownership check via `assertOrderOwnership`; payment void/refund deferred to payments plan
+- **Shipping Address on Orders** — 6 nullable snapshot columns added to `Order` entity (`shippingFirstName`, `shippingLastName`, `shippingPhone`, `shippingCity`, `shippingCountry`, `shippingPostcode`); `ShippingAddressDto` nested in `CreateOrderDto`; resolution: explicit DTO field → user profile fallback
+- **Shopping Cart** — `Cart` and `CartItem` entities (1:1 user, unique `cartId+productId`); `CartService` with CRUD + checkout; `CartController` with 6 endpoints (`GET /cart`, `POST /cart/items`, `PATCH /cart/items/:id`, `DELETE /cart/items/:id`, `DELETE /cart`, `POST /cart/checkout`); lazy cart initialization; checkout delegates to `OrdersService.createOrder` and clears cart on success
+- **Email Notifications** — `@nestjs/event-emitter` integration; 3 domain events (`order.created`, `order.paid`, `order.cancelled`) emitted on status transitions; `OrderEmailListener` sends emails via `MailService` (AWS SES in prod, console log in dev); error-safe handlers — email failure never breaks order flow
+- **Order Email Methods** — `sendOrderConfirmationEmail`, `sendOrderPaidEmail`, `sendOrderCancellationEmail` added to shared `MailService`
+- **Event Constants** — `ORDER_CREATED_EVENT`, `ORDER_PAID_EVENT`, `ORDER_CANCELLED_EVENT` in `apps/shop/src/orders/events/index.ts`
+
+### Changed
+
+- **REST Order Queries Optimized** — `findByIdWithItemRelations` (no user JOIN) used for all user-facing REST endpoints; `buildMainQuery` accepts `{ withUser: false }` option; `findByIdWithRelations` (with user) preserved for GraphQL resolvers only
+- **Cancellation Endpoint is REST-Noun** — Route uses `POST :orderId/cancellation` (sub-resource noun) instead of `PATCH :orderId/cancel` (verb)
+- **`EventEmitterModule.forRoot()`** — Registered in `OrdersModule`; `MailModule` imported into `OrdersModule`
+
 ## [0.1.5] - 2026-03-26
 
 ### Added

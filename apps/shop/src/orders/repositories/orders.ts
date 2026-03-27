@@ -15,11 +15,27 @@ export class OrdersRepository {
 
   async createOrder(
     manager: EntityManager,
-    data: { idempotencyKey?: string; user: User; userId: string },
+    data: {
+      idempotencyKey?: string;
+      shippingCity?: null | string;
+      shippingCountry?: null | string;
+      shippingFirstName?: null | string;
+      shippingLastName?: null | string;
+      shippingPhone?: null | string;
+      shippingPostcode?: null | string;
+      user: User;
+      userId: string;
+    },
   ): Promise<Order> {
     const repo = this.getRepository(manager);
     const order = repo.create({
       idempotencyKey: data.idempotencyKey ?? null,
+      shippingCity: data.shippingCity ?? null,
+      shippingCountry: data.shippingCountry ?? null,
+      shippingFirstName: data.shippingFirstName ?? null,
+      shippingLastName: data.shippingLastName ?? null,
+      shippingPhone: data.shippingPhone ?? null,
+      shippingPostcode: data.shippingPostcode ?? null,
       user: data.user,
       userId: data.userId,
     });
@@ -37,6 +53,14 @@ export class OrdersRepository {
     return this.repository.findOne({
       relations: ['items', 'items.product', 'user'],
       where: { idempotencyKey },
+    });
+  }
+
+  async findByIdWithItemRelations(orderId: string, manager?: EntityManager): Promise<null | Order> {
+    const repo = this.getRepository(manager);
+    return repo.findOne({
+      relations: ['items', 'items.product'],
+      where: { id: orderId },
     });
   }
 

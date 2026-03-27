@@ -2,13 +2,14 @@
 
 ## REST endpoints — all scoped to the authenticated user
 
-| Endpoint                              | Guard        | Returns                      |
-| ------------------------------------- | ------------ | ---------------------------- |
-| `GET /api/v1/orders`                  | JwtAuthGuard | Paginated list, with filters |
-| `GET /api/v1/orders/:orderId`         | JwtAuthGuard | Single order + relations     |
-| `GET /api/v1/orders/:orderId/payment` | JwtAuthGuard | Payment status via gRPC      |
+| Endpoint                                    | Guard                      | Scope          | Returns                      |
+| ------------------------------------------- | -------------------------- | -------------- | ---------------------------- |
+| `GET /api/v1/orders`                        | JwtAuthGuard + ScopesGuard | `orders:read`  | Paginated list, with filters |
+| `GET /api/v1/orders/:orderId`               | JwtAuthGuard + ScopesGuard | `orders:read`  | Single order + relations     |
+| `GET /api/v1/orders/:orderId/payment`       | JwtAuthGuard + ScopesGuard | `orders:read`  | Payment status via gRPC      |
+| `POST /api/v1/orders/:orderId/cancellation` | JwtAuthGuard + ScopesGuard | `orders:write` | Cancelled order              |
 
-**Ownership:** All service methods call `assertOrderOwnership(order, userId)` — 404 if `order.userId ≠ req.user.sub`. No admin-only listing endpoint yet (`// TODO: add roles/scopes` in controller).
+**Ownership:** All service methods call `assertOrderOwnership(order, userId)` — 404 if `order.userId ≠ req.user.sub`.
 
 ## GET /api/v1/orders — filters & pagination
 
@@ -38,20 +39,21 @@ Subquery:  SELECT DISTINCT order.id, order.createdAt
              ORDER BY createdAt DESC, id DESC
              LIMIT :limit + 1
 
-Main query: SELECT order.*, items.*, products.*, user.*
+Main query: SELECT order.*, items.*, products.*
               FROM orders
               LEFT JOIN order_items ON ...
               LEFT JOIN products ON ...
-              LEFT JOIN users ON ...
               WHERE order.id IN (subquery IDs)
               ORDER BY createdAt DESC, id DESC
 ```
+
+**User JOIN optimization:** REST endpoints pass `{ withUser: false }` to `buildMainQuery`, skipping the `LEFT JOIN users`. The `user` relation is only loaded for GraphQL (where `UserLoader` resolves it).
 
 `limit + 1` trick: fetch one extra row to determine `hasNextPage`; strip it from response.
 
 ## GET /api/v1/orders/:orderId
 
-Loads order with full relations: `items → product`, `user`.  
+Loads order via `findByIdWithItemRelations` — joins `items` and `items.product` only (no user).  
 Returns `GetOrderByIdResponseDto { data: Order }`.
 
 ## GET /api/v1/orders/:orderId/payment

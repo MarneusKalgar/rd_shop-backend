@@ -2,7 +2,12 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsDate, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
-import { DEFAULT_ORDERS_LIMIT, MAX_ORDERS_LIMIT, MIN_ORDERS_LIMIT } from '../constants';
+import {
+  DEFAULT_ORDERS_LIMIT,
+  MAX_ORDERS_LIMIT,
+  MIN_ORDERS_LIMIT,
+  ORDER_EXAMPLE,
+} from '../constants';
 import { Order, OrderStatus } from '../order.entity';
 
 export class FindOrdersFilterDto {
@@ -74,7 +79,8 @@ export class FindOrdersFilterDto {
 export class GetOrdersResponseDto {
   @ApiProperty({
     description: 'List of orders matching the filters',
-    type: [Order], // You can replace Object with a more specific OrderDto if you have one
+    example: [ORDER_EXAMPLE],
+    type: [Order],
   })
   data: Order[];
 
