@@ -31,11 +31,12 @@ export class CartService {
   ) {}
 
   /**
-   * Adds a product to the cart. If the product is already in the cart, increments quantity (upsert).
-   * Rejects if product doesn't exist or has zero stock.
+   * Adds a product to the cart using a DB-level upsert on (cart_id, product_id).
+   * If the product is already in the cart, the requested quantity is added to the existing quantity.
+   * Creates a cart lazily if the user does not have one yet.
    *
    * @throws {NotFoundException} If product not found — HTTP 404
-   * @throws {ConflictException} If product has zero stock, is inactive, or requested quantity exceeds available stock — HTTP 409
+   * @throws {ConflictException} If product is inactive, out of stock, or the resulting quantity exceeds available stock — HTTP 409
    */
   async addItem(userId: string, dto: AddCartItemDto): Promise<CartResponseDto> {
     const product = await this.productsRepository.findById(dto.productId);
@@ -52,7 +53,7 @@ export class CartService {
       throw new ConflictException(`Product "${product.title}" is out of stock`);
     }
 
-    const cart = await this.getCart(userId);
+    const cart = await this.getOrCreateCartEntity(userId);
 
     const existingItem = cart.items.find((item) => item.productId === dto.productId);
     const newQuantity = (existingItem?.quantity ?? 0) + dto.quantity;
@@ -63,23 +64,18 @@ export class CartService {
       );
     }
 
-    if (existingItem) {
-      existingItem.quantity = newQuantity;
-      await this.cartItemRepository.save(existingItem);
-      this.logger.log(
-        `Cart item quantity updated for product "${dto.productId}" in cart "${cart.id}"`,
-      );
-    } else {
-      const item = this.cartItemRepository.create({
-        cartId: cart.id,
-        productId: dto.productId,
-        quantity: dto.quantity,
-      });
-      await this.cartItemRepository.save(item);
-      this.logger.log(`Cart item added for product "${dto.productId}" in cart "${cart.id}"`);
-    }
+    await this.cartItemRepository.upsert(
+      { cartId: cart.id, productId: dto.productId, quantity: newQuantity },
+      { conflictPaths: ['cartId', 'productId'] },
+    );
 
-    return toCartResponse((await this.findCartWithItems(userId))!);
+    this.logger.log(
+      existingItem
+        ? `Cart item quantity updated for product "${dto.productId}" in cart "${cart.id}"`
+        : `Cart item added for product "${dto.productId}" in cart "${cart.id}"`,
+    );
+
+    return toCartResponse(await this.findCartWithItemsOrFail(userId));
   }
 
   /**
@@ -128,16 +124,7 @@ export class CartService {
    * Returns the cart for the given user. Creates one lazily if it doesn't exist.
    */
   async getCart(userId: string): Promise<CartResponseDto> {
-    const existing = await this.findCartWithItems(userId);
-    if (existing) {
-      return toCartResponse(existing);
-    }
-
-    const cart = this.cartRepository.create({ userId });
-    await this.cartRepository.save(cart);
-    this.logger.log(`Cart created for user "${userId}"`);
-
-    return toCartResponse((await this.findCartWithItems(userId))!);
+    return toCartResponse(await this.getOrCreateCartEntity(userId));
   }
 
   /**
@@ -150,7 +137,7 @@ export class CartService {
 
     await this.cartItemRepository.remove(item);
 
-    return toCartResponse((await this.findCartWithItems(userId))!);
+    return toCartResponse(await this.findCartWithItemsOrFail(userId));
   }
 
   /**
@@ -174,7 +161,14 @@ export class CartService {
     item.quantity = dto.quantity;
     await this.cartItemRepository.save(item);
 
-    return toCartResponse((await this.findCartWithItems(userId))!);
+    return toCartResponse(await this.findCartWithItemsOrFail(userId));
+  }
+
+  private async findCartWithItems(userId: string): Promise<Cart | null> {
+    return this.cartRepository.findOne({
+      relations: ['items', 'items.product'],
+      where: { userId },
+    });
   }
 
   /**
@@ -184,11 +178,12 @@ export class CartService {
    * with a type cast (`as Promise<Cart>`) instead of awaiting and asserting non-null — both are
    * equivalent at runtime since no code executes after the return.
    */
-  private async findCartWithItems(userId: string): Promise<Cart | null> {
-    return this.cartRepository.findOne({
-      relations: ['items', 'items.product'],
-      where: { userId },
-    });
+  private async findCartWithItemsOrFail(userId: string): Promise<Cart> {
+    const cart = await this.findCartWithItems(userId);
+    if (!cart) {
+      throw new NotFoundException(`Cart not found for user "${userId}"`);
+    }
+    return cart;
   }
 
   private async findOwnedCartItem(userId: string, itemId: string): Promise<CartItem> {
@@ -200,5 +195,16 @@ export class CartService {
     }
 
     return item;
+  }
+
+  private async getOrCreateCartEntity(userId: string): Promise<Cart> {
+    const existing = await this.findCartWithItems(userId);
+    if (existing) {
+      return existing;
+    }
+    const cart = this.cartRepository.create({ userId });
+    await this.cartRepository.save(cart);
+    this.logger.log(`Cart created for user "${userId}"`);
+    return this.findCartWithItemsOrFail(userId);
   }
 }

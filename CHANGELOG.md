@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shopping Cart** — `Cart` and `CartItem` entities (1:1 user, unique `cartId+productId`); `CartService` with CRUD + checkout; `CartController` with 6 endpoints (`GET /cart`, `POST /cart/items`, `PATCH /cart/items/:id`, `DELETE /cart/items/:id`, `DELETE /cart`, `POST /cart/checkout`); lazy cart initialization; checkout delegates to `OrdersService.createOrder` and clears cart on success
 - **Email Notifications** — `@nestjs/event-emitter` integration; 3 domain events (`order.created`, `order.paid`, `order.cancelled`) emitted on status transitions; `OrderEmailListener` sends emails via `MailService` (AWS SES in prod, console log in dev); error-safe handlers — email failure never breaks order flow
 - **Order Email Methods** — `sendOrderConfirmationEmail`, `sendOrderPaidEmail`, `sendOrderCancellationEmail` added to shared `MailService`
-- **Event Constants** — `ORDER_CREATED_EVENT`, `ORDER_PAID_EVENT`, `ORDER_CANCELLED_EVENT` in `orders/constants/index.ts`
+- **Event Constants** — `ORDER_CREATED_EVENT`, `ORDER_PAID_EVENT`, `ORDER_CANCELLED_EVENT` in `apps/shop/src/orders/events/index.ts`
 
 ### Changed
 

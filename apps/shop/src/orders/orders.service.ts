@@ -98,12 +98,13 @@ export class OrdersService {
    *
    * @param userId - The UUID of the requesting user (ownership check)
    * @param orderId - The UUID of the order to cancel
+   * @param userEmail - The email from the JWT token, used for the cancellation notification event
    * @returns Promise resolving to the updated Order entity
    * @throws {NotFoundException} If order not found or doesn't belong to user — HTTP 404
    * @throws {ConflictException} If order is already cancelled — HTTP 409
    * @throws {BadRequestException} If order is in CREATED (legacy) state — HTTP 400
    */
-  async cancelOrder(userId: string, orderId: string): Promise<Order> {
+  async cancelOrder(userId: string, orderId: string, userEmail: string): Promise<Order> {
     const order = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
       await manager.query('SET LOCAL lock_timeout = 10000');
@@ -150,11 +151,7 @@ export class OrdersService {
       return updatedOrder;
     });
 
-    const cancelUser = await this.validateUser(userId);
-    this.eventEmitter.emit(
-      ORDER_CANCELLED_EVENT,
-      new OrderCancelledEvent(order.id, cancelUser.email),
-    );
+    this.eventEmitter.emit(ORDER_CANCELLED_EVENT, new OrderCancelledEvent(order.id, userEmail));
 
     return order;
   }
@@ -445,8 +442,22 @@ export class OrdersService {
     }
   }
 
+  /**
+   * Authorizes payment for a PROCESSED order via the payments gRPC microservice.
+   *
+   * Re-fetches the order with all relations (items, products, user) to compute the total amount
+   * and obtain the user email for the ORDER_PAID event — avoiding a separate user lookup.
+   *
+   * On a successful gRPC response the order is updated to PAID and `paymentId` is persisted.
+   * If `response.paymentId` is absent the update is skipped and no event is emitted.
+   *
+   * @param order - The PROCESSED order (only `id` and `userId` are required at call-time)
+   * @throws {NotFoundException} If the order cannot be reloaded from the DB
+   * @throws {Error} Re-throws any gRPC or DB error so the worker can nack and retry
+   * @private
+   */
   private async authorizePayment(order: Order): Promise<void> {
-    const orderWithItems = await this.ordersRepository.findByIdWithItemRelations(order.id);
+    const orderWithItems = await this.ordersRepository.findByIdWithRelations(order.id);
 
     if (!orderWithItems) {
       this.logger.error(`Order "${order.id}" not found for payment authorization`);
@@ -471,8 +482,10 @@ export class OrdersService {
           `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,
         );
 
-        const paidUser = await this.validateUser(order.userId);
-        this.eventEmitter.emit(ORDER_PAID_EVENT, new OrderPaidEvent(order.id, paidUser.email));
+        this.eventEmitter.emit(
+          ORDER_PAID_EVENT,
+          new OrderPaidEvent(order.id, orderWithItems.user.email),
+        );
       }
     } catch (error) {
       this.logger.error(`Payment authorization failed for order=${order.id}`, error);

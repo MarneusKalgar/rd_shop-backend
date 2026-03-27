@@ -2,7 +2,6 @@ import {
   Column,
   CreateDateColumn,
   Entity,
-  Index,
   JoinColumn,
   OneToMany,
   OneToOne,
@@ -14,7 +13,6 @@ import { User } from '../users/user.entity';
 import { CartItem } from './cart-item.entity';
 
 @Entity('carts')
-@Index('IDX_carts_user_id', ['userId'], { unique: true })
 export class Cart {
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
@@ -32,6 +30,6 @@ export class Cart {
   @OneToOne(() => User, { onDelete: 'CASCADE' })
   user: User;
 
-  @Column({ name: 'user_id', type: 'uuid', unique: true })
+  @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 }

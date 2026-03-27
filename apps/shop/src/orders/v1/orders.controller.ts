@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
@@ -49,25 +50,21 @@ export class OrdersController {
     description: 'Order is in an invalid state for cancellation',
     status: HttpStatus.BAD_REQUEST,
   })
+  @HttpCode(HttpStatus.OK)
   @Post(':orderId/cancellation')
   @Scopes(UserScope.ORDERS_WRITE)
   async cancelOrder(
     @Param('orderId', ParseUUIDPipe) orderId: string,
     @CurrentUser() user: AuthUser,
   ): Promise<GetOrderByIdResponseDto> {
-    const order = await this.ordersService.cancelOrder(user.sub, orderId);
+    const order = await this.ordersService.cancelOrder(user.sub, orderId, user.email);
     return { data: order };
   }
 
   @ApiOperation({ summary: 'Create a new order (idempotent)' })
   @ApiResponse({
-    description: 'Order created successfully',
+    description: 'Order created (or existing order returned for duplicate idempotency key)',
     status: HttpStatus.CREATED,
-    type: GetOrderByIdResponseDto,
-  })
-  @ApiResponse({
-    description: 'Order already exists (idempotency)',
-    status: HttpStatus.OK,
     type: GetOrderByIdResponseDto,
   })
   @ApiResponse({

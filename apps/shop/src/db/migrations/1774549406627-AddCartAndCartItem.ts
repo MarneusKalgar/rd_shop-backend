@@ -21,15 +21,13 @@ export class AddCartAndCartItem1774549406627 implements MigrationInterface {
     await queryRunner.query(`DROP INDEX "public"."IDX_cart_items_product_id"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_cart_items_cart_product"`);
     await queryRunner.query(`DROP TABLE "cart_items"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_carts_user_id"`);
     await queryRunner.query(`DROP TABLE "carts"`);
   }
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `CREATE TABLE "carts" ("created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "id" uuid NOT NULL DEFAULT uuid_generate_v4(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "user_id" uuid NOT NULL, CONSTRAINT "UQ_2ec1c94a977b940d85a4f498aea" UNIQUE ("user_id"), CONSTRAINT "REL_2ec1c94a977b940d85a4f498ae" UNIQUE ("user_id"), CONSTRAINT "PK_b5f695a59f5ebb50af3c8160816" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "carts" ("created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "id" uuid NOT NULL DEFAULT uuid_generate_v4(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "user_id" uuid NOT NULL, CONSTRAINT "REL_2ec1c94a977b940d85a4f498ae" UNIQUE ("user_id"), CONSTRAINT "PK_b5f695a59f5ebb50af3c8160816" PRIMARY KEY ("id"))`,
     );
-    await queryRunner.query(`CREATE UNIQUE INDEX "IDX_carts_user_id" ON "carts" ("user_id") `);
     await queryRunner.query(
       `CREATE TABLE "cart_items" ("added_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "cart_id" uuid NOT NULL, "id" uuid NOT NULL DEFAULT uuid_generate_v4(), "product_id" uuid NOT NULL, "quantity" integer NOT NULL, CONSTRAINT "PK_6fccf5ec03c172d27a28a82928b" PRIMARY KEY ("id"))`,
     );

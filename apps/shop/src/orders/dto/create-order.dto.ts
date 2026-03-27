@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsInt,
+  IsISO31661Alpha2,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -37,31 +38,38 @@ export class CreateOrderItemDto {
 }
 
 export class ShippingAddressDto {
+  @ApiProperty({ description: 'City', example: 'New York', required: false })
   @IsOptional()
   @IsString()
   @MaxLength(100)
   city?: string;
 
+  @ApiProperty({ description: 'Country (ISO 3166-1 alpha-2)', example: 'US', required: false })
+  @IsISO31661Alpha2()
   @IsOptional()
   @IsString()
   @MaxLength(2)
   country?: string;
 
+  @ApiProperty({ description: 'First name', example: 'John', required: false })
   @IsOptional()
   @IsString()
   @MaxLength(50)
   firstName?: string;
 
+  @ApiProperty({ description: 'Last name', example: 'Doe', required: false })
   @IsOptional()
   @IsString()
   @MaxLength(50)
   lastName?: string;
 
+  @ApiProperty({ description: 'Phone number', example: '+1234567890', required: false })
   @IsOptional()
   @IsString()
   @MaxLength(20)
   phone?: string;
 
+  @ApiProperty({ description: 'Postal code', example: '10001', required: false })
   @IsOptional()
   @IsString()
   @MaxLength(20)
