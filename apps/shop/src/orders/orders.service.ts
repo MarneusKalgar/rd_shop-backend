@@ -8,6 +8,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -22,6 +23,14 @@ import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY, ORDER_WORKER_SCOPE } from './constants';
 import { CreateOrderDto, FindOrdersFilterDto, OrderProcessMessageDto } from './dto';
+import {
+  ORDER_CANCELLED_EVENT,
+  ORDER_CREATED_EVENT,
+  ORDER_PAID_EVENT,
+  OrderCancelledEvent,
+  OrderCreatedEvent,
+  OrderPaidEvent,
+} from './events';
 import { Order, OrderStatus } from './order.entity';
 import {
   OrderItemData,
@@ -75,6 +84,7 @@ export class OrdersService {
     private readonly configService: ConfigService,
 
     private readonly paymentsGrpcService: PaymentsGrpcService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -94,7 +104,7 @@ export class OrdersService {
    * @throws {BadRequestException} If order is in CREATED (legacy) state — HTTP 400
    */
   async cancelOrder(userId: string, orderId: string): Promise<Order> {
-    return this.dataSource.transaction(async (manager) => {
+    const order = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
       await manager.query('SET LOCAL lock_timeout = 10000');
 
@@ -139,6 +149,14 @@ export class OrdersService {
 
       return updatedOrder;
     });
+
+    const cancelUser = await this.validateUser(userId);
+    this.eventEmitter.emit(
+      ORDER_CANCELLED_EVENT,
+      new OrderCancelledEvent(order.id, cancelUser.email),
+    );
+
+    return order;
   }
 
   /**
@@ -204,6 +222,10 @@ export class OrdersService {
     try {
       const createdOrder = await this.executeOrderTransaction(createOrderDto, user, productIds);
       this.publishOrderProcessingMessage(createdOrder, idempotencyKey);
+      this.eventEmitter.emit(
+        ORDER_CREATED_EVENT,
+        new OrderCreatedEvent(createdOrder.id, user.email),
+      );
       return createdOrder;
     } catch (error: unknown) {
       return await this.handleOrderCreationPgErrors(error, userId, idempotencyKey);
@@ -448,6 +470,9 @@ export class OrdersService {
         this.logger.log(
           `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,
         );
+
+        const paidUser = await this.validateUser(order.userId);
+        this.eventEmitter.emit(ORDER_PAID_EVENT, new OrderPaidEvent(order.id, paidUser.email));
       }
     } catch (error) {
       this.logger.error(`Payment authorization failed for order=${order.id}`, error);

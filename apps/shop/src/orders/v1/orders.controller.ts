@@ -5,7 +5,6 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
-  Patch,
   Post,
   Query,
   UseGuards,
@@ -50,7 +49,7 @@ export class OrdersController {
     description: 'Order is in an invalid state for cancellation',
     status: HttpStatus.BAD_REQUEST,
   })
-  @Patch(':orderId/cancel')
+  @Post(':orderId/cancellation')
   @Scopes(UserScope.ORDERS_WRITE)
   async cancelOrder(
     @Param('orderId', ParseUUIDPipe) orderId: string,

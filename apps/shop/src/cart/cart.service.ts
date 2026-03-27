@@ -106,8 +106,7 @@ export class CartService {
       shipping: dto.shipping,
     });
 
-    // TODO: uncomment after debugging
-    //await this.clearCart(userId);
+    await this.clearCart(userId);
 
     return order;
   }

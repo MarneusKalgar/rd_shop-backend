@@ -18,7 +18,7 @@
 ### 1.1 Endpoint
 
 ```
-PATCH /api/v1/orders/:orderId/cancel
+POST /api/v1/orders/:orderId/cancellation
 ```
 
 Guards: `JwtAuthGuard`. Only the order owner can cancel.
@@ -43,9 +43,9 @@ Inside a transaction:
 
 ### 1.4 Tasks
 
-- [ ] Add `PATCH /orders/:orderId/cancel` in `OrdersController`
-- [ ] Implement `cancelOrder()` in `OrdersService` — transaction with stock restoration
-- [ ] Add ownership check (`assertOrderOwnership`)
+- [x] Add `POST /orders/:orderId/cancellation` in `OrdersController`
+- [x] Implement `cancelOrder()` in `OrdersService` — transaction with stock restoration
+- [x] Add ownership check (`assertOrderOwnership`)
 - [ ] Handle payment void/refund if `paymentId` present (depends on payments plan)
 
 ---
@@ -119,12 +119,12 @@ This means the user's profile acts as a **default** — clients can skip `shippi
 
 ### 2.5 Tasks
 
-- [ ] Add shipping columns to `Order` entity (see 2.1)
-- [ ] Migration: add 6 nullable shipping columns to `orders` table
-- [ ] Create `ShippingAddressDto` with validation
-- [ ] Extend `CreateOrderDto` with optional `shipping` field
-- [ ] Update `createOrder()` — resolve shipping from DTO / user profile fallback
-- [ ] Update cart checkout DTO to include optional `shipping` (Phase 3)
+- [x] Add shipping columns to `Order` entity (see 2.1)
+- [x] Migration: add 6 nullable shipping columns to `orders` table
+- [x] Create `ShippingAddressDto` with validation
+- [x] Extend `CreateOrderDto` with optional `shipping` field
+- [x] Update `createOrder()` — resolve shipping from DTO / user profile fallback
+- [x] Update cart checkout DTO to include optional `shipping` (Phase 3)
 
 ---
 
@@ -208,14 +208,14 @@ UpdateCartItemDto {
 
 ### 3.6 Tasks
 
-- [ ] Create `Cart` and `CartItem` entities
-- [ ] Migration: `carts` and `cart_items` tables
-- [ ] `CartService` with CRUD + checkout
-- [ ] `CartController` with 6 endpoints
-- [ ] DTOs: `AddCartItemDto`, `UpdateCartItemDto` (see 3.5)
-- [ ] Auto-create cart on first `GET /cart` (lazy initialization)
-- [ ] Checkout: delegate to `OrdersService.createOrder`, clear cart on success
-- [ ] Checkout DTO: include optional `shipping` (forwarded to order creation)
+- [x] Create `Cart` and `CartItem` entities
+- [x] Migration: `carts` and `cart_items` tables
+- [x] `CartService` with CRUD + checkout
+- [x] `CartController` with 6 endpoints
+- [x] DTOs: `AddCartItemDto`, `UpdateCartItemDto` (see 3.5)
+- [x] Auto-create cart on first `GET /cart` (lazy initialization)
+- [x] Checkout: delegate to `OrdersService.createOrder`, clear cart on success
+- [x] Checkout DTO: include optional `shipping` (forwarded to order creation)
 
 ---
 
@@ -256,13 +256,13 @@ Simple HTML templates (inline or handlebars). Each template receives order data 
 
 ### 4.4 Tasks
 
-- [ ] Install `@nestjs/event-emitter` (MailModule already exists from auth Phase 2)
-- [ ] Add order email methods to shared `MailService` (if not already present)
-- [ ] Define event classes: `OrderCreatedEvent`, `OrderPaidEvent`, `OrderCancelledEvent`
-- [ ] Emit events in `OrdersService` at each transition
-- [ ] Create `OrderEmailListener` — sends emails via `MailService`
-- [ ] Create order email templates (order-confirmation, order-paid, order-cancelled)
-- [ ] SES env vars already configured from auth Phase 2
+- [x] Install `@nestjs/event-emitter` (MailModule already exists from auth Phase 2)
+- [x] Add order email methods to shared `MailService` (if not already present)
+- [x] Define event classes: `OrderCreatedEvent`, `OrderPaidEvent`, `OrderCancelledEvent`
+- [x] Emit events in `OrdersService` at each transition
+- [x] Create `OrderEmailListener` — sends emails via `MailService`
+- [x] Create order email templates (order-confirmation, order-paid, order-cancelled)
+- [x] SES env vars already configured from auth Phase 2
 
 ---
 
