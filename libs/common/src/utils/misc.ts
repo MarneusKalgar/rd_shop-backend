@@ -1,9 +1,3 @@
-/**
- * Creates a shallow copy of an object, omitting the specified key
- * @param obj - The object to copy
- * @param keyToOmit - The key to exclude from the copy
- * @returns A new object without the specified key
- */
 export function omit<T extends Record<string, any>, K extends keyof T>(
   obj: T,
   keyToOmit: K,

@@ -5,28 +5,6 @@ import { DEFAULT_VALUES } from './constants';
 import { EnvironmentVariables } from './schema';
 import { DefaultEnvKey, EnvVariable } from './types';
 
-/**
- * Determines the appropriate environment file path based on NODE_ENV.
- * Dynamically resolves to .env.{NODE_ENV} format.
- * Falls back to .env if NODE_ENV is not set or the environment is not recognized.
- *
- * @returns {string} The path to the environment file
- *
- * @example
- * // If NODE_ENV is 'development'
- * getEnvFile(); // Returns: '.env.development'
- */
-export const getEnvFile = (): string => {
-  const nodeEnv = process.env.NODE_ENV?.toLowerCase().trim();
-
-  if (!nodeEnv) {
-    return DEFAULT_VALUES.ENV;
-  }
-
-  // Dynamically construct the environment file path
-  return `.env.${nodeEnv}`;
-};
-
 // TODO this function may be an overhead. Consider removing in the future.
 /**
  * Retrieves a type-safe environment variable from the application's ConfigService.

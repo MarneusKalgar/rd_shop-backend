@@ -18,6 +18,8 @@ module.exports = {
       },
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
+        '^@app/common(/.*)$': '<rootDir>/../../libs/common/src$1',
+        '^@app/common$': '<rootDir>/../../libs/common/src',
       },
       testEnvironment: 'node',
     },
@@ -30,6 +32,8 @@ module.exports = {
       },
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
+        '^@app/common(/.*)$': '<rootDir>/../../libs/common/src$1',
+        '^@app/common$': '<rootDir>/../../libs/common/src',
       },
       testEnvironment: 'node',
     },

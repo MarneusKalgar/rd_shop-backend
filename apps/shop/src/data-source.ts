@@ -1,8 +1,8 @@
+import { DatabaseAdapterFactory } from '@app/common';
 import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 
 import { getEnvFile } from './core';
-import { DatabaseAdapterFactory } from './db/adapters';
 
 config({ path: getEnvFile() });
 

@@ -1,10 +1,7 @@
 {
   "compilerOptions": {
-    // "module": "nodenext",
-    // "moduleResolution": "nodenext",
     "module": "commonjs",
     "moduleResolution": "node",
-    // "resolvePackageJsonExports": true,
     "esModuleInterop": true,
     "isolatedModules": true,
     "declaration": true,
@@ -21,21 +18,11 @@
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
-
-    // TODO: Consider enabling these for better code quality, but they may require significant refactoring to fix existing issues
-    // "strict": true,
-    // "noUnusedLocals": true,
-    // "noUnusedParameters": true,
-    // "allowUnusedLabels": false,
-    // "noUncheckedSideEffectImports": true,
-    // "allowUnreachableCode": false
-
-    // "noFallthroughCasesInSwitch": true,
-    // "noUncheckedIndexedAccess": true,
-    // "erasableSyntaxOnly": true,
-
-    // "noImplicitOverride": true,
-    //"exactOptionalPropertyTypes": false,
-    "noErrorTruncation": false // Disable error truncation for better debugging,
+    "noErrorTruncation": false,
+    "baseUrl": "./",
+    "paths": {
+      "@app/common": ["libs/common/src"],
+      "@app/common/*": ["libs/common/src/*"]
+    }
   }
 }

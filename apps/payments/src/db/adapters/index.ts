@@ -1,4 +1,1 @@
-export * from './base';
-export * from './factory';
-export * from './interfaces';
-export * from './postgres-local';
+export * from '@app/common/database/adapters';
