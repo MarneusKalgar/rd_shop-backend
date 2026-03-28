@@ -83,7 +83,7 @@ nest build payments    # single app (requires common built first)
 Output: `dist/apps/shop/`, `dist/apps/payments/`, `dist/libs/common/`
 Proto files copied to `dist/apps/{app}/proto/` via `nest-cli.json` assets.
 
-A `dist/node_modules/@app/common` symlink is created during the production Docker build so Node.js resolves `require('@app/common')` at runtime without `tsconfig-paths`.
+NestJS CLI (`nest build`) automatically rewrites TypeScript path aliases (e.g. `@app/common`) to relative paths in the compiled JS output. No `tsconfig-paths` registration or `node_modules` symlink is needed at runtime.
 
 ## Communication between services
 
