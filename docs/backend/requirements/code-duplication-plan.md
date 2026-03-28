@@ -98,14 +98,14 @@ libs/common/src/
 
 ### 1.4 Tasks
 
-- [ ] Run `nest g library common`
-- [ ] Move identical files from both apps to `libs/common/src/`
-- [ ] Update imports in `apps/shop/` to use `@app/common`
-- [ ] Update imports in `apps/payments/` to use `@app/common`
-- [ ] Remove duplicated files from both apps
-- [ ] Verify `npm run build` compiles both apps + library
-- [ ] Verify `npm test` passes
-- [ ] Verify `npm run type-check` passes
+- [x] Run `nest g library common`
+- [x] Move identical files from both apps to `libs/common/src/`
+- [x] Update imports in `apps/shop/` to use `@app/common`
+- [x] Update imports in `apps/payments/` to use `@app/common`
+- [x] Remove duplicated files from both apps
+- [x] Verify `npm run build` compiles both apps + library
+- [x] Verify `npm test` passes
+- [x] Verify `npm run type-check` passes
 
 ---
 
@@ -191,15 +191,15 @@ Verify `libs/` is **not** excluded in `.dockerignore`. If a blanket ignore patte
 
 ### 2.8 Tasks
 
-- [ ] Add `COPY libs ./libs` to `Dockerfile` `build` stage (after `COPY apps ./apps`)
-- [ ] Add `../../libs:/app/libs` volume to `shop` service in `apps/shop/compose.dev.yml`
-- [ ] Add `../../libs:/app/libs` volume to `migrate` service in `apps/shop/compose.dev.yml`
-- [ ] Add `../../libs:/app/libs` volume to `payments` service in `apps/payments/compose.dev.yml`
-- [ ] Add `../../libs:/app/libs` volume to `migrate` service in `apps/payments/compose.dev.yml`
-- [ ] Verify `.dockerignore` does not exclude `libs/`
-- [ ] Verify `docker build --target prod-distroless-shop .` succeeds
-- [ ] Verify `docker compose -f apps/shop/compose.dev.yml up shop` resolves `@app/common`
-- [ ] Verify `docker compose -f apps/payments/compose.dev.yml up payments` resolves `@app/common`
+- [x] Add `COPY libs ./libs` to `Dockerfile` `build` stage (after `COPY apps ./apps`)
+- [x] Add `../../libs:/app/libs` volume to `shop` service in `apps/shop/compose.dev.yml`
+- [x] Add `../../libs:/app/libs` volume to `migrate` service in `apps/shop/compose.dev.yml`
+- [x] Add `../../libs:/app/libs` volume to `payments` service in `apps/payments/compose.dev.yml`
+- [x] Add `../../libs:/app/libs` volume to `migrate` service in `apps/payments/compose.dev.yml`
+- [x] Verify `.dockerignore` does not exclude `libs/`
+- [x] Verify `docker build --target prod-distroless-shop .` succeeds
+- [x] Verify `docker compose -f apps/shop/compose.dev.yml up shop` resolves `@app/common`
+- [x] Verify `docker compose -f apps/payments/compose.dev.yml up payments` resolves `@app/common`
 
 ---
 
@@ -295,12 +295,12 @@ DatabaseAdapterFactory.register([
 
 ### 4.4 Tasks
 
-- [ ] Extract base `CustomTypeOrmLogger` to `@app/common`
-- [ ] Create `ShopTypeOrmLogger extends CustomTypeOrmLogger` in shop
-- [ ] Keep `simulateExternalService()` in shop only
-- [ ] Keep `NeonAdapter` in shop only
-- [ ] Keep `graceful-shutdown.ts` in shop only (payments uses gRPC server shutdown)
-- [ ] Verify both apps still build and pass tests
+- [x] Extract base `CustomTypeOrmLogger` to `@app/common`
+- [x] Create `ShopTypeOrmLogger extends CustomTypeOrmLogger` in shop
+- [x] Keep `simulateExternalService()` in shop only
+- [x] Keep `NeonAdapter` in shop only
+- [x] Keep `graceful-shutdown.ts` in shop only (payments uses gRPC server shutdown)
+- [x] Verify both apps still build and pass tests
 
 ---
 
@@ -379,12 +379,12 @@ Ensure `libs/common/src/` is included in lint scope.
 
 ### 6.5 Tasks
 
-- [ ] Verify `nest build` compiles library → apps in correct order
-- [ ] Update `jest.config.js` with `@app/common` module mapping
-- [ ] Verify Docker build still passes (Dockerfile changes delivered in Phase 2)
-- [ ] Update ESLint config to include `libs/`
-- [ ] Verify CI pipeline passes: `type-check`, `lint:ci`, `test`, `test:integration:shop`
-- [ ] Verify dev compose hot-reload still works (volume mounts delivered in Phase 2)
+- [x] Verify `nest build` compiles library → apps in correct order
+- [x] Update `jest.config.js` with `@app/common` module mapping
+- [x] Verify Docker build still passes (Dockerfile changes delivered in Phase 2)
+- [x] Update ESLint config to include `libs/`
+- [x] Verify CI pipeline passes: `type-check`, `lint:ci`, `test`, `test:integration:shop`
+- [x] Verify dev compose hot-reload still works (volume mounts delivered in Phase 2)
 
 ---
 
