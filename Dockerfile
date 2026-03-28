@@ -41,6 +41,9 @@ COPY proto ./proto
 COPY apps ./apps
 COPY libs ./libs
 
+# Remove any env files that may have been copied
+RUN find apps -name ".env*" -not -name ".env.example" -delete
+
 # Copy proto file into app locations
 RUN mkdir -p apps/${APP}/src/proto && \
     cp proto/payments.proto apps/${APP}/src/proto/payments.proto
@@ -50,10 +53,6 @@ RUN npm run build -- common
 
 # Build the application
 RUN npm run build -- ${APP}
-
-# Create @app/common symlink for runtime module resolution
-RUN mkdir -p dist/node_modules/@app && \
-    ln -s ../../../libs/common dist/node_modules/@app/common
 
 # Copy proto file into app locations
 RUN cp proto/payments.proto dist/apps/${APP}/proto/payments.proto && \

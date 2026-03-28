@@ -4,7 +4,7 @@
   "description": "Backend for RD Shop application",
   "main": "index.js",
   "scripts": {
-    "start:dev": "cd ../.. && NODE_ENV=development APP=shop nest start shop --watch",
+    "start:dev": "cd ../.. && nest build common && NODE_ENV=development APP=shop nest start shop --watch",
     "start:debug": "NODE_ENV=development nest start --debug --watch",
     "start:prod": "node ../../dist/apps/shop/main",
     "typeorm": "NODE_ENV=development APP=shop TS_NODE_PROJECT=tsconfig.app.json ts-node -r tsconfig-paths/register ../../node_modules/typeorm/cli.js",
