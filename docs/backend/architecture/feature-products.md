@@ -55,7 +55,7 @@ Soft-delete via `@DeleteDateColumn` — TypeORM automatically adds `WHERE delete
 
 ---
 
-## ProductCategory Enum
+## ProductCategory Enum & Category Constants
 
 `apps/shop/src/products/constants/index.ts`
 
@@ -74,6 +74,21 @@ export enum ProductCategory {
   WEARABLES = 'wearables',
 }
 ```
+
+Each enum value has associated display metadata exported as two constants:
+
+```typescript
+export interface ProductCategoryMeta {
+  name: ProductCategory; // enum value (used as the API key)
+  nameEn: string; // English display name
+  nameUk: string; // Ukrainian display name
+}
+
+export const PRODUCT_CATEGORIES_MAP: Map<ProductCategory, ProductCategoryMeta>;
+export const PRODUCT_CATEGORIES: ProductCategoryMeta[]; // Array.from(PRODUCT_CATEGORIES_MAP.values())
+```
+
+`PRODUCT_CATEGORIES_MAP` enables O(1) lookup by enum key. `PRODUCT_CATEGORIES` is the ready-to-return ordered array used by the categories endpoint. Icons are intentionally omitted — they are mapped on the frontend side.
 
 ---
 
@@ -96,26 +111,31 @@ exports:     TypeOrmModule, ProductsService, ProductsRepository, ReviewsService
 
 `apps/shop/src/products/v1/products.controller.ts` — path `products`, no auth
 
-| Method | Path   | Description                         | Response                  |
-| ------ | ------ | ----------------------------------- | ------------------------- |
-| GET    | `/`    | Paginated list with filters + sort  | `ProductsListResponseDto` |
-| GET    | `/:id` | Single product with images + rating | `ProductDataResponseDto`  |
+| Method | Path          | Description                                        | Response                       |
+| ------ | ------------- | -------------------------------------------------- | ------------------------------ |
+| GET    | `/categories` | Static list of all categories with names and icons | `ProductCategoriesResponseDto` |
+| GET    | `/`           | Paginated list with filters + sort                 | `ProductsListResponseDto`      |
+| GET    | `/:id`        | Single product with images + rating                | `ProductDataResponseDto`       |
+
+> `GET /categories` is declared **before** `GET /:id` in the controller to prevent NestJS from matching the literal segment `categories` as a UUID param.
 
 ### Query parameters (`FindProductsQueryDto`)
 
-| Param       | Type              | Default     | Notes                                      |
-| ----------- | ----------------- | ----------- | ------------------------------------------ |
-| `cursor`    | UUID              | —           | Keyset pagination cursor (product ID)      |
-| `limit`     | int 1–50          | `10`        | —                                          |
-| `sortBy`    | `ProductSortBy`   | `createdAt` | `createdAt \| price \| title`              |
-| `sortOrder` | `SortOrder`       | `DESC`      | `ASC \| DESC`                              |
-| `isActive`  | boolean           | —           | Filter by active status                    |
-| `category`  | `ProductCategory` | —           | Enum exact match                           |
-| `brand`     | string            | —           | ILIKE partial match                        |
-| `country`   | varchar(2)        | —           | ISO 3166-1 alpha-2 exact match             |
-| `minPrice`  | decimal string    | —           | Inclusive lower bound                      |
-| `maxPrice`  | decimal string    | —           | Inclusive upper bound                      |
-| `search`    | string            | —           | ILIKE on `title` OR `description`, max 200 |
+| Param       | Type               | Default     | Notes                                                                      |
+| ----------- | ------------------ | ----------- | -------------------------------------------------------------------------- |
+| `cursor`    | UUID               | —           | Keyset pagination cursor (product ID)                                      |
+| `limit`     | int 1–50           | `10`        | —                                                                          |
+| `sortBy`    | `ProductSortBy`    | `createdAt` | `createdAt \| price \| title`                                              |
+| `sortOrder` | `SortOrder`        | `DESC`      | `ASC \| DESC`                                                              |
+| `isActive`  | boolean            | —           | Filter by active status                                                    |
+| `category`  | `ProductCategory`  | —           | Enum exact match                                                           |
+| `brand`     | string \| string[] | —           | One or more brands; each matched via ILIKE partial match, joined with `OR` |
+| `country`   | string \| string[] | —           | One or more ISO 3166-1 alpha-2 codes; exact match via `IN`                 |
+| `minPrice`  | decimal string     | —           | Inclusive lower bound                                                      |
+| `maxPrice`  | decimal string     | —           | Inclusive upper bound                                                      |
+| `search`    | string             | —           | ILIKE on `title` OR `description`, max 200                                 |
+
+Multi-value params accept either repeated query-string keys (`?brand=Sony&brand=Apple`) or a single value (`?brand=Sony`). A `@Transform(toArray)` decorator (from `common/dto`) normalises both forms to an array before validation.
 
 Cursor is the `id` of the last product on the previous page. The `ProductsRepository.findWithFilters` method builds the full QueryBuilder with all filter/sort/pagination logic.
 
@@ -220,6 +240,7 @@ Returns a `Map<productId, { averageRating, reviewsCount }>`. Products with no re
 
 | Method            | Description                                                         |
 | ----------------- | ------------------------------------------------------------------- |
+| `getCategories()` | Returns `{ data: PRODUCT_CATEGORIES }` — static, no DB call         |
 | `create(dto)`     | Validate title uniqueness (catches 23505), save, return DTO         |
 | `findAll(query)`  | Delegates to `ProductsRepository.findWithFilters`, enriches ratings |
 | `findById(id)`    | Loads product + images + rating in parallel                         |

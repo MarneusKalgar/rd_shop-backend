@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-28
+
+### Added
+
+- **`libs/common` shared library** — NestJS library (`@app/common`) extracted from duplicated code across `shop` and `payments`; registered in `nest-cli.json` as `type: "library"`
+- **Shared config** — `config/logger.ts` (log-level utility) moved to `@app/common/config`
+- **Shared database layer** — adapter base, factory, interfaces, `postgres-local`, and `CustomTypeOrmLogger` (base, no query counting) moved to `@app/common/database`
+- **Shared environment utilities** — `getEnvFile()` added to `@app/common/environment/utils`; `createValidate<T>(cls)` factory added to `@app/common/environment/validate`; `InjectConfig` decorator in `@app/common/environment`
+- **Shared utils** — `isProduction`/`isDevelopment` helpers and `omit()` moved to `@app/common/utils`
+- **`ShopTypeOrmLogger`** — `apps/shop/src/db/logger` now extends `CustomTypeOrmLogger` from `@app/common` and adds `incrementQueryCount()` call
+
+### Changed
+
+- **`apps/shop` and `apps/payments` validation** — `validation.ts` in each app reduced to `export const validate = createValidate(EnvironmentVariables)`; `getEnvFile` and `InjectConfig` re-exported via `core/environment/index.ts` from `@app/common/environment`
+- **tsconfig `@app/common` path** — Both app tsconfigs resolve `@app/common` to `dist/libs/common` first (declarations only, keeps `rootDir` scoped to `src/`) with `libs/common/src` as fallback for `ts-node`/IDE
+- **`libs/common/tsconfig.lib.json`** — Added `rootDir: "src"` and `outDir: "../../dist/libs/common"` so the library compiles to `dist/libs/common/` without `src/` nesting
+- **`start:dev` scripts** — Both app `package.json` `start:dev` scripts now run `nest build common` before starting the watcher to ensure `dist/libs/common/*.d.ts` exist
+- **Dockerfile** — Added `COPY libs ./libs` to `build` stage; added `nest build common` step before app build; added `dist/node_modules/@app/common` symlink for runtime resolution
+- **`apps/shop/compose.dev.yml`** — Added `../../libs:/app/libs` bind mount to `shop`, `migrate`, and `seed` services
+- **`apps/payments/compose.dev.yml`** — Added `../../libs:/app/libs` bind mount to `payments` and `migrate` services
+- **Docker env file exclusion** — `.dockerignore` updated to `**/.env.production`; Dockerfile `build` stage runs `find apps -name ".env*" -not -name ".env.example" -delete` after `COPY apps`
+- **`jest.config.js`** — Added `@app/common` module name mapper to both `shop` and `payments` projects
+- **`apps/shop/test/jest-integration.json`** — Fixed `@app/common` path (3 levels up from `rootDir`)
+
 ## [0.1.6] - 2026-03-27
 
 ### Added

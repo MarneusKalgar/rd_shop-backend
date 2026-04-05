@@ -39,10 +39,17 @@ COPY nest-cli.json ./
 # COPY src ./src
 COPY proto ./proto
 COPY apps ./apps
+COPY libs ./libs
+
+# Remove any env files that may have been copied
+RUN find apps -name ".env*" -not -name ".env.example" -delete
 
 # Copy proto file into app locations
 RUN mkdir -p apps/${APP}/src/proto && \
     cp proto/payments.proto apps/${APP}/src/proto/payments.proto
+
+# Build common lib first so @app/common declarations are available
+RUN npm run build -- common
 
 # Build the application
 RUN npm run build -- ${APP}

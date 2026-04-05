@@ -5,22 +5,16 @@ type AdapterConstructor = new () => IDatabaseAdapter;
 interface AdapterRegistration {
   adapter: AdapterConstructor;
   detectionFn: () => boolean;
-  priority: number; // Higher priority = checked first
+  priority: number;
 }
 
 export class DatabaseAdapterFactory {
   private static registry = new Map<string, AdapterRegistration>();
 
-  /**
-   * Clear all registered adapters (useful for testing)
-   */
   static clearRegistry(): void {
     this.registry.clear();
   }
 
-  /**
-   * Create a database adapter instance
-   */
   static create(providerName?: string): IDatabaseAdapter {
     if (providerName) {
       const registration = this.registry.get(providerName);
@@ -33,7 +27,6 @@ export class DatabaseAdapterFactory {
       return new registration.adapter();
     }
 
-    // Auto-detect provider based on environment
     const detected = this.detectProvider();
     if (detected) {
       console.log(`🔌 Using database provider: ${detected.name} (auto-detected)`);
@@ -46,16 +39,10 @@ export class DatabaseAdapterFactory {
     );
   }
 
-  /**
-   * Get list of registered adapters
-   */
   static getRegisteredAdapters(): string[] {
     return Array.from(this.registry.keys());
   }
 
-  /**
-   * Register a database adapter with detection logic
-   */
   static register(
     name: string,
     adapter: AdapterConstructor,
@@ -65,11 +52,7 @@ export class DatabaseAdapterFactory {
     this.registry.set(name, { adapter, detectionFn, priority });
   }
 
-  /**
-   * Auto-detect which database provider to use
-   */
   private static detectProvider(): null | { name: string; registration: AdapterRegistration } {
-    // Check explicit DATABASE_PROVIDER env var first
     const explicitProvider = process.env.DATABASE_PROVIDER;
     if (explicitProvider) {
       const registration = this.registry.get(explicitProvider);

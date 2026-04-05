@@ -4,10 +4,17 @@ import { Repository } from 'typeorm';
 
 import { FileRecord, FileStatus } from '../files/file-record.entity';
 import { S3Service } from '../files/s3.service';
-import { DEFAULT_PRODUCTS_LIMIT, ProductCategory, ProductSortBy, SortOrder } from './constants';
+import {
+  DEFAULT_PRODUCTS_LIMIT,
+  PRODUCT_CATEGORIES,
+  ProductCategory,
+  ProductSortBy,
+  SortOrder,
+} from './constants';
 import {
   CreateProductDto,
   FindProductsQueryDto,
+  ProductCategoriesResponseDto,
   ProductDataResponseDto,
   ProductImageDto,
   ProductImagesDataResponseDto,
@@ -147,6 +154,10 @@ export class ProductsService {
         ratingInfo.reviewsCount,
       ),
     };
+  }
+
+  getCategories(): ProductCategoriesResponseDto {
+    return { data: PRODUCT_CATEGORIES };
   }
 
   async listImages(productId: string): Promise<ProductImagesDataResponseDto> {

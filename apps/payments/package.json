@@ -4,7 +4,7 @@
   "description": "Backend for RD Shop Payments service",
   "main": "index.js",
   "scripts": {
-    "start:dev": "cd ../.. && NODE_ENV=development APP=payments nest start payments --watch",
+    "start:dev": "cd ../.. && npm run build:common && NODE_ENV=development APP=payments nest start payments --watch",
     "start:prod": "node ../../dist/apps/payments/main",
     "typeorm": "NODE_ENV=development APP=payments TS_NODE_PROJECT=tsconfig.app.json ts-node -r tsconfig-paths/register ../../node_modules/typeorm/cli.js",
     "db:generate": "npm run typeorm -- migration:generate -d ./src/data-source.ts",

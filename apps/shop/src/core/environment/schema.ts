@@ -63,6 +63,10 @@ export class EnvironmentVariables {
   @IsOptional()
   BCRYPT_SALT_ROUNDS?: number;
 
+  @IsOptional()
+  @IsString()
+  CORS_ALLOWED_ORIGINS?: string;
+
   @IsString()
   DATABASE_PROVIDER: string;
 

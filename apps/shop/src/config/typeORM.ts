@@ -1,9 +1,9 @@
+import { DatabaseAdapterFactory } from '@app/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 import { DEFAULT_VALUES } from '@/core/environment';
-import { DatabaseAdapterFactory } from '@/db/adapters';
-import { CustomTypeOrmLogger } from '@/db/logger';
+import { ShopTypeOrmLogger } from '@/db/logger';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { isProduction } from '@/utils/env';
 
@@ -64,6 +64,6 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
       EmailVerificationToken,
       PasswordResetToken,
     ],
-    logger: new CustomTypeOrmLogger(),
+    logger: new ShopTypeOrmLogger(),
   } as TypeOrmModuleOptions;
 };

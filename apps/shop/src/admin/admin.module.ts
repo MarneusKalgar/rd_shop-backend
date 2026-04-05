@@ -1,8 +1,8 @@
+import { isProduction } from '@app/common';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { User } from '@/users/user.entity';
-import { isProduction } from '@/utils';
 
 import { AdminTestingService } from './testing/admin-testing.service';
 import { AdminTestingController } from './v1/admin-testing.controller';

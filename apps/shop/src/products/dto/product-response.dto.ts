@@ -3,6 +3,22 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ProductCategory } from '../constants';
 import { Product } from '../product.entity';
 
+export class ProductCategoryDto {
+  @ApiProperty({ enum: ProductCategory })
+  name: ProductCategory;
+
+  @ApiProperty()
+  nameEn: string;
+
+  @ApiProperty()
+  nameUk: string;
+}
+
+export class ProductCategoriesResponseDto {
+  @ApiProperty({ isArray: true, type: ProductCategoryDto })
+  data: ProductCategoryDto[];
+}
+
 export class ProductImageDto {
   @ApiProperty()
   contentType: string;
