@@ -22,18 +22,19 @@ export class ProductsController {
     return this.productsService.findAll(query);
   }
 
+  @ApiOperation({ summary: 'List all product categories with display names' })
+  @ApiResponse({ status: HttpStatus.OK, type: ProductCategoriesResponseDto })
+  @Get('categories')
+  getCategories(): ProductCategoriesResponseDto {
+    return this.productsService.getCategories();
+  }
+
+  // eslint-disable-next-line
   @ApiOperation({ summary: 'Get product by ID (includes all images)' })
   @ApiResponse({ status: HttpStatus.OK, type: ProductDataResponseDto })
   @ApiResponse({ status: HttpStatus.NOT_FOUND })
   @Get(':id')
   async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<ProductDataResponseDto> {
     return this.productsService.findById(id);
-  }
-
-  @ApiOperation({ summary: 'List all product categories with display names and icons' })
-  @ApiResponse({ status: HttpStatus.OK, type: ProductCategoriesResponseDto })
-  @Get('categories')
-  getCategories(): ProductCategoriesResponseDto {
-    return this.productsService.getCategories();
   }
 }

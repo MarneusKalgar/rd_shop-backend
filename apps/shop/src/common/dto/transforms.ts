@@ -14,6 +14,7 @@ import { TransformFnParams } from 'class-transformer';
  * tags?: string[];
  * ```
  */
-export function toArray({ value }: TransformFnParams): unknown[] {
-  return Array.isArray(value) ? value : [value];
+export function toArray({ value }: TransformFnParams): null | undefined | unknown[] {
+  if (value === undefined || value === null) return value as null | undefined;
+  return Array.isArray(value) ? (value as unknown[]) : [value as unknown];
 }
