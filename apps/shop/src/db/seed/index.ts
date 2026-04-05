@@ -3,9 +3,10 @@ import { isProduction } from '@/utils';
 
 import { OrderItem } from '../../orders/order-item.entity';
 import { Order } from '../../orders/order.entity';
+import { ProductReview } from '../../products/product-review.entity';
 import { Product } from '../../products/product.entity';
 import { User } from '../../users/user.entity';
-import { seedOrders, seedProducts, seedUsers } from './data';
+import { seedOrders, seedProducts, seedReviews, seedUsers } from './data';
 
 async function seed() {
   if (isProduction() && process.env.ALLOW_SEED_IN_PRODUCTION !== 'true') {
@@ -25,6 +26,7 @@ async function seed() {
     const productRepository = dataSource.getRepository(Product);
     const orderRepository = dataSource.getRepository(Order);
     const orderItemRepository = dataSource.getRepository(OrderItem);
+    const reviewRepository = dataSource.getRepository(ProductReview);
 
     console.log('👤 Seeding users...');
     await userRepository.upsert(seedUsers, ['email']);
@@ -90,6 +92,38 @@ async function seed() {
     } else {
       console.log('   ⊘ No order items to upsert');
     }
+
+    console.log('⭐ Seeding reviews...');
+    const reviewsToUpsert: ProductReview[] = [];
+
+    for (const reviewData of seedReviews) {
+      const user = await userRepository.findOne({
+        where: { email: reviewData.userEmail },
+      });
+
+      if (!user) {
+        console.warn(`   ⚠ User not found: ${reviewData.userEmail}`);
+        continue;
+      }
+
+      reviewsToUpsert.push(
+        reviewRepository.create({
+          id: reviewData.id,
+          productId: reviewData.productId,
+          rating: reviewData.rating,
+          text: reviewData.text,
+          userId: user.id,
+        }),
+      );
+    }
+
+    if (reviewsToUpsert.length > 0) {
+      await reviewRepository.upsert(reviewsToUpsert, ['id']);
+      console.log(`   ✓ Upserted ${reviewsToUpsert.length} reviews`);
+    } else {
+      console.log('   ⊘ No reviews to upsert');
+    }
+
     console.log('✅ Seeding completed successfully');
   } catch (error) {
     console.error('❌ Seeding failed:', error);

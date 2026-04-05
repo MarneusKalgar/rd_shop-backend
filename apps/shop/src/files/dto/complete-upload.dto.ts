@@ -1,18 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsUUID } from 'class-validator';
+import { IsUUID } from 'class-validator';
 
 import { FileRecord } from '../file-record.entity';
 
 export class CompleteUploadDto {
-  @ApiProperty({
-    description: 'Type of entity this file belongs to',
-    enum: ['product', 'user'],
-    example: 'product',
-  })
-  @IsEnum(['product', 'user'])
-  @IsNotEmpty()
-  entityType: 'product' | 'user';
-
   @ApiProperty({
     description: 'File record ID',
     example: '550e8400-e29b-41d4-a716-446655440000',

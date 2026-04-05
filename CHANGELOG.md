@@ -5,6 +5,171 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-28
+
+### Added
+
+- **`libs/common` shared library** — NestJS library (`@app/common`) extracted from duplicated code across `shop` and `payments`; registered in `nest-cli.json` as `type: "library"`
+- **Shared config** — `config/logger.ts` (log-level utility) moved to `@app/common/config`
+- **Shared database layer** — adapter base, factory, interfaces, `postgres-local`, and `CustomTypeOrmLogger` (base, no query counting) moved to `@app/common/database`
+- **Shared environment utilities** — `getEnvFile()` added to `@app/common/environment/utils`; `createValidate<T>(cls)` factory added to `@app/common/environment/validate`; `InjectConfig` decorator in `@app/common/environment`
+- **Shared utils** — `isProduction`/`isDevelopment` helpers and `omit()` moved to `@app/common/utils`
+- **`ShopTypeOrmLogger`** — `apps/shop/src/db/logger` now extends `CustomTypeOrmLogger` from `@app/common` and adds `incrementQueryCount()` call
+
+### Changed
+
+- **`apps/shop` and `apps/payments` validation** — `validation.ts` in each app reduced to `export const validate = createValidate(EnvironmentVariables)`; `getEnvFile` and `InjectConfig` re-exported via `core/environment/index.ts` from `@app/common/environment`
+- **tsconfig `@app/common` path** — Both app tsconfigs resolve `@app/common` to `dist/libs/common` first (declarations only, keeps `rootDir` scoped to `src/`) with `libs/common/src` as fallback for `ts-node`/IDE
+- **`libs/common/tsconfig.lib.json`** — Added `rootDir: "src"` and `outDir: "../../dist/libs/common"` so the library compiles to `dist/libs/common/` without `src/` nesting
+- **`start:dev` scripts** — Both app `package.json` `start:dev` scripts now run `nest build common` before starting the watcher to ensure `dist/libs/common/*.d.ts` exist
+- **Dockerfile** — Added `COPY libs ./libs` to `build` stage; added `nest build common` step before app build; added `dist/node_modules/@app/common` symlink for runtime resolution
+- **`apps/shop/compose.dev.yml`** — Added `../../libs:/app/libs` bind mount to `shop`, `migrate`, and `seed` services
+- **`apps/payments/compose.dev.yml`** — Added `../../libs:/app/libs` bind mount to `payments` and `migrate` services
+- **Docker env file exclusion** — `.dockerignore` updated to `**/.env.production`; Dockerfile `build` stage runs `find apps -name ".env*" -not -name ".env.example" -delete` after `COPY apps`
+- **`jest.config.js`** — Added `@app/common` module name mapper to both `shop` and `payments` projects
+- **`apps/shop/test/jest-integration.json`** — Fixed `@app/common` path (3 levels up from `rootDir`)
+
+## [0.1.6] - 2026-03-27
+
+### Added
+
+- **Order Cancellation** — `POST /api/v1/orders/:orderId/cancellation` endpoint; transactional stock restoration with pessimistic locking; guards: `CANCELLED` → 409, `CREATED` → 400; ownership check via `assertOrderOwnership`; payment void/refund deferred to payments plan
+- **Shipping Address on Orders** — 6 nullable snapshot columns added to `Order` entity (`shippingFirstName`, `shippingLastName`, `shippingPhone`, `shippingCity`, `shippingCountry`, `shippingPostcode`); `ShippingAddressDto` nested in `CreateOrderDto`; resolution: explicit DTO field → user profile fallback
+- **Shopping Cart** — `Cart` and `CartItem` entities (1:1 user, unique `cartId+productId`); `CartService` with CRUD + checkout; `CartController` with 6 endpoints (`GET /cart`, `POST /cart/items`, `PATCH /cart/items/:id`, `DELETE /cart/items/:id`, `DELETE /cart`, `POST /cart/checkout`); lazy cart initialization; checkout delegates to `OrdersService.createOrder` and clears cart on success
+- **Email Notifications** — `@nestjs/event-emitter` integration; 3 domain events (`order.created`, `order.paid`, `order.cancelled`) emitted on status transitions; `OrderEmailListener` sends emails via `MailService` (AWS SES in prod, console log in dev); error-safe handlers — email failure never breaks order flow
+- **Order Email Methods** — `sendOrderConfirmationEmail`, `sendOrderPaidEmail`, `sendOrderCancellationEmail` added to shared `MailService`
+- **Event Constants** — `ORDER_CREATED_EVENT`, `ORDER_PAID_EVENT`, `ORDER_CANCELLED_EVENT` in `apps/shop/src/orders/events/index.ts`
+
+### Changed
+
+- **REST Order Queries Optimized** — `findByIdWithItemRelations` (no user JOIN) used for all user-facing REST endpoints; `buildMainQuery` accepts `{ withUser: false }` option; `findByIdWithRelations` (with user) preserved for GraphQL resolvers only
+- **Cancellation Endpoint is REST-Noun** — Route uses `POST :orderId/cancellation` (sub-resource noun) instead of `PATCH :orderId/cancel` (verb)
+- **`EventEmitterModule.forRoot()`** — Registered in `OrdersModule`; `MailModule` imported into `OrdersModule`
+
+## [0.1.5] - 2026-03-26
+
+### Added
+
+- **`AdminUsersController`** — New `apps/shop/src/users/v1/admin-users.controller.ts` consolidating all admin user operations; class-level `@Roles(UserRole.ADMIN)` + `@UseGuards(JwtAuthGuard, RolesGuard, ScopesGuard)`; route `/api/v1/admin/users`; 4 endpoints each with an explicit `@Scopes()` decorator
+- **`updateUserPermissions` in `UsersService`** — Absorbed from `AdminService`; uses `findUserOrFail` for consistent 404 handling; accepts `roles`, `scopes`, or both (at least one required)
+- **`UpdateUserPermissionsDto` / `UpdateUserPermissionsResponseDto`** — Moved from `admin/dto/` to `users/dto/`; `roles` and `scopes` are now both optional — at least one must be provided (`@ValidateIf` + `@IsDefined` constraint)
+- **`UserDataResponseDto`** — New single-user response wrapper `{ data: UserResponseDto, message?: string }` — matches the `{ data }` envelope used throughout the products domain
+
+### Changed
+
+- **Admin user endpoints moved to `/api/v1/admin/users`** — `GET /`, `GET /:id`, `DELETE /:id` migrated from `UsersController`; `PATCH /:id/permissions` migrated from `AdminController`; all now behind `AdminUsersController` with per-endpoint `@Scopes()` (`USERS_READ` / `USERS_WRITE`)
+- **`UsersController` self-service only** — All admin endpoints and method-level `@Roles` / `@UseGuards(RolesGuard)` removed; controller now exclusively owns `/me/*` routes
+- **Single-user responses wrapped in `{ data }`** — `getProfile`, `findById`, `updateProfile`, `setAvatar` now return `UserDataResponseDto` instead of flat `UserResponseDto`; list (`UsersListResponseDto`) and void responses unchanged
+- **`AdminModule` simplified** — `AdminController` and `AdminService` removed; module now registers only dev-only testing controllers (`AdminTestingController`, `AdminTestingService`); `AuthModule` import removed
+
+## [0.1.4] - 2026-03-25
+
+### Added
+
+- **Product Entity Extension** — `description` (text), `brand` (varchar 100), `country` (varchar 2, ISO 3166-1 alpha-2), `category` (`ProductCategory` enum, default `other`), `deletedAt` (`@DeleteDateColumn`, soft-delete) columns added to `Product` entity
+- **`ProductCategory` Enum** — 11 values: `accessories`, `audio`, `cameras`, `laptops`, `monitors`, `other`, `peripherals`, `smartphones`, `storage`, `tablets`, `wearables`; stored in `products/constants/index.ts`
+- **Public Products REST API** — `GET /api/v1/products` (paginated list) and `GET /api/v1/products/:id` (detail with images + rating); no auth required
+- **Admin Products REST API** — `POST`, `PATCH`, `DELETE /api/v1/admin/products/:id` (create / partial update / soft-delete); guarded by `JwtAuthGuard + RolesGuard(admin) + ScopesGuard(products:write)`
+- **Sorting & Filtering** — `FindProductsQueryDto` supports `sortBy` (`createdAt | price | title`), `sortOrder` (`ASC | DESC`), `minPrice`, `maxPrice`, `search` (ILIKE on title + description), `brand` (ILIKE), `country` (exact), `category` (enum exact), `isActive`, cursor + limit pagination
+- **`ProductsRepository`** — Custom injectable repository encapsulating all QueryBuilder logic: cursor keyset pagination, multi-field sorting, price range, ILIKE search, brand/country/category filters; also provides `findByIds` and `findByIdsWithLock` (pessimistic write, used by order stock deduction)
+- **Price Index** — `IDX_products_price` index added to `Product` entity to support price-based sorting at scale
+- **Multiple Product Images** — `GET /api/v1/products/:id` response includes `images[]` array (all `READY` `FileRecord`s linked to the product via `entityId`); main image URL served separately as `mainImageUrl` and excluded from `images[]` to avoid duplication
+- **Admin Image Management Endpoints** — `GET /:id/images` (list all), `POST /:id/images/:fileId` (associate a READY file), `DELETE /:id/images/:fileId` (remove association), `PATCH /:id/images/:fileId/main` (promote to main image); all behind `products:images:write` / `products:images:read` scopes
+- **`ProductReview` Entity** — table `product_reviews`; columns: `id`, `productId` (FK → products CASCADE), `userId` (FK → users CASCADE), `rating` (smallint, `CHECK ("rating" BETWEEN 1 AND 5)`), `text` (varchar 1000), `createdAt`, `updatedAt`; `UNIQUE(userId, productId)` — one review per user per product
+- **Reviews REST API** — `POST /api/v1/products/:id/reviews` (create, JWT required), `PATCH /api/v1/products/:id/reviews` (update own review, JWT required), `DELETE /api/v1/products/:id/reviews` (delete own review, JWT required), `GET /api/v1/products/:id/reviews` (paginated list, public); cursor pagination by `createdAt DESC, id DESC`
+- **Rating Enrichment** — `averageRating` (`ROUND(AVG::numeric, 2)`, null if no reviews) and `reviewsCount` (`COUNT::int`) included in all product responses; computed on-demand via raw QueryBuilder; batch variant (`getRatingInfoBatch`) issues a single grouped query for the full product list page
+- **`ReviewsService`** — Dedicated service owning all review and rating logic: `createReview`, `getReviews`, `updateReview`, `deleteReview`, `getRatingInfo`, `getRatingInfoBatch`; injects `Repository<Product>` and `Repository<ProductReview>` directly — no dependency on `ProductsService`
+- **Seed Data Expansion** — Seed data expanded from 12 to 48 products with `description`, `brand`, `country`, and `category` populated for all entries; products distributed across all `ProductCategory` values
+- **Architecture Documentation** — `docs/backend/architecture/products.md` covering entity graph, module wiring, all REST endpoints, image management flow, rating computation, and service/repository responsibilities
+
+### Changed
+
+- **`FilesService` Decoupled from `ProductsService`** — `complete-upload` (`POST /api/v1/files/complete-upload`) no longer accepts `entityType` and no longer calls `ProductsService.associateMainImage()`; file association is now an explicit client call to `POST /admin/products/:id/images/:fileId`; `FilesModule` no longer imports `ProductsModule` (circular dependency eliminated)
+- **`CompleteUploadDto`** — `entityType` field removed; body is now `{ fileId }` only
+- **`findById` Images Response** — Main image is excluded from `images[]` in the public product detail response; it is still returned in the admin `GET /:id/images` list (for image management UI)
+- **`docs/backend/architecture/files-s3.md`** — Upload flow updated to reflect 5-step process (presign → S3 PUT → complete-upload → associate → set main); auth section updated to distinguish file-upload endpoints from admin product-image endpoints
+
+### Security
+
+- **No `userId` in Review Body** — Review ownership always derived from JWT (`user.sub`); users can only create, update, or delete their own review
+- **Soft-Delete Integrity** — `DELETE /admin/products/:id` uses `softDelete()` — row is retained for FK integrity with `order_items`; TypeORM auto-filters deleted products from all queries
+
+## [0.1.3] - 2026-03-25
+
+### Added
+
+- **Users CRUD** — Full implementation replacing all mock service methods: `getProfile`, `updateProfile`, `findAll`, `findById`, `remove`, `changePassword`
+- **User Profile Fields** — `firstName`, `lastName`, `phone`, `city`, `country` (ISO 3166-1 alpha-2), `postcode` columns added to `User` entity; `AddUserProfileFields` migration
+- **User Avatar** — `avatarId` UUID FK → `file_records` (ON DELETE SET NULL, indexed); `PUT /users/me/avatar` validates file ownership + S3 existence, marks READY, sets `avatarId`; `DELETE /users/me/avatar` clears the association
+- **Password Change** — `PATCH /users/me/password` verifies current password via bcrypt, hashes new password, revokes all refresh tokens (forces re-login)
+- **Cursor Pagination + Search** — `GET /users` (admin) supports cursor-based pagination (`createdAt DESC, id DESC`) and optional `search` query param with ILIKE on `firstName`, `lastName`, `email`; LIKE wildcards (`%`, `_`, `\`) escaped with `ESCAPE '\'` clause; `@MaxLength(100)` on search input
+- **Soft-Delete** — `DELETE /users/:id` (admin) sets `deletedAt` via `@DeleteDateColumn`; TypeORM auto-filters deleted users from all queries; all refresh tokens revoked on deletion
+- **Auth Guards on Users Controller** — `JwtAuthGuard` at class level; `RolesGuard` + `@Roles(ADMIN)` on admin-only endpoints (`GET /users`, `GET /users/:id`, `DELETE /users/:id`)
+- **DTOs** — `UpdateProfileDto`, `ChangePasswordDto`, `SetAvatarDto`, `FindUsersDto`, `UserResponseDto`, `UsersListResponseDto`
+- **GraphQL UserType** — Added `firstName`, `lastName`, `phone`, `city`, `country`, `postcode`, `avatarId`, `avatarUrl`, `isEmailVerified`, `roles` fields to `UserType` schema
+- **Architecture Documentation** — `docs/backend/architecture/users.md` covering entity, endpoints, service methods, pagination, avatar flow, soft-delete, DTOs, GraphQL, security
+
+### Changed
+
+- **`UsersResolver`** — Temporarily dropped (REST API is the current focus); `UserLoader` remains active for `OrdersResolver.user()` field resolution
+- **`FilesService.getPresignedUrlForFileId`** — Now returns `null` for non-READY files (previously returned presigned URLs for PENDING files)
+- **S3 Presigned URLs** — Two `S3Client` instances: `client` (internal Docker endpoint for API operations) and `presignClient` (public endpoint for browser-accessible presigned URLs); fixes `SignatureDoesNotMatch` when MinIO internal hostname differs from browser-accessible host
+- **`findUserOrFail` Helper** — Extracted repeated `findOne` + 404 pattern into private method; used by `findById`, `getProfile`, `remove`, `setAvatar`, `updateProfile`
+- **`setAvatar` Ordering** — User existence check now happens before `prepareFileForEntity` to prevent orphaned READY files on missing user
+- **Migration `down()` Fix** — `DROP INDEX` moved before `DROP COLUMN "avatar_id"` in `AddUserProfileFields` migration (PostgreSQL auto-drops the index with the column, so the explicit drop must come first)
+
+### Security
+
+- **No User-to-User Access** — Self-service endpoints always derive `userId` from JWT (`user.sub`), never from request params
+- **Password Never Exposed** — `select: false` on entity column; `UserResponseDto.fromEntity()` never maps `password`
+- **Search Input Sanitization** — LIKE wildcard characters escaped before query execution; parameterized queries prevent SQL injection
+- **File Status Guard** — `getPresignedUrlForFileId` only returns URLs for `READY` files, preventing exposure of unverified uploads
+
+## [0.1.2] - 2026-03-24
+
+### Added
+
+- **Refresh Tokens** — `TokenService` encapsulates all JWT and refresh-token operations; `RefreshToken` entity (UUID PK, `tokenHash`, `expiresAt`, `revokedAt`, `isActive` virtual getter); single-session model revokes any existing token on each sign-in or refresh
+- **Cookie-Based Refresh Token** — `cookie-parser` installed and wired in `main.ts`; `Set-Cookie: refreshToken` is `HttpOnly`, `Secure` (prod), `SameSite=Strict`, scoped to the auth path prefix; token never appears in response body
+- **`POST /auth/refresh`** — rotates the refresh token, sets a new cookie, returns `{ accessToken }`
+- **`POST /auth/logout`** — revokes the refresh token, clears the cookie; uses `JwtAuthGuard`
+- **Email Verification** — `isEmailVerified` boolean column added to `User` entity (default `false`); `EmailVerificationToken` entity (UUID PK, `tokenHash`, `expiresAt`, `usedAt`, FK → users CASCADE)
+- **`POST /auth/verify-email`** — validates the token and marks the user's email as verified (unauthenticated)
+- **`POST /auth/resend-verification`** — re-issues and resends the verification email; requires JWT; DB-based 1-per-minute cooldown (TODO: replace with `@nestjs/throttler`)
+- **`MailModule` + `MailService`** — sends transactional email via AWS SES (`@aws-sdk/client-sesv2`); dev-mode fallback logs email content to console when `AWS_SES_REGION` is not set; supports `sendVerificationEmail`, `sendPasswordResetEmail`
+- **Password Reset** — `PasswordResetToken` entity (UUID PK, `tokenHash`, `expiresAt` 1h, `usedAt`, FK → users CASCADE)
+- **`POST /auth/forgot-password`** — always returns `200` (prevents user enumeration); sends reset link if account exists and rate limit (3 requests per hour per email) has not been exceeded; DB-based guard (TODO: replace with `@nestjs/throttler`)
+- **`POST /auth/reset-password`** — validates token, hashes new password, marks token used, revokes all refresh tokens for the user (force re-login)
+- **`UserRole` / `UserScope` Enums** — canonical string enums in `auth/permissions/constants.ts` replacing untyped `string[]`; all decorators, guards, seed data, and DTOs now use enum values
+- **`UserPermissions` Factory** — deeply-frozen `UserPermissions` object (`NewUser`, `Admin`, `Support`) groups roles and scopes by persona; used in signup and `AdminTestingService`
+- **Default Roles & Scopes on Signup** — new users automatically receive `USER` role and `orders:read`, `orders:write`, `files:write`, `products:read` scopes
+- **Admin Permissions Endpoint** — `PATCH /api/v1/admin/users/:userId/permissions` (admin-only) for assigning/revoking roles and scopes; `userId` validated with `ParseUUIDPipe`
+- **`AdminTestingController`** — `POST /api/v1/admin-testing/verified-admin` creates a verified admin user for non-production environments; controller and service are conditionally registered (not mounted in production via module-level `isProduction()` check)
+- **`NodeEnvironment` Enum** — `NODE_ENV` now validated as a strict enum (`development | production | test`) in the env schema; misconfigured values (e.g. `prod`) fail at startup
+
+### Changed
+
+- **`POST /auth/signup`** — `confirmedPassword` field added to `SignupDto`; password-match validation in service layer; emails a verification link after registration; no tokens issued on signup (user must sign in explicitly)
+- **`POST /auth/signin`** — now issues a refresh token pair and sets the `refreshToken` cookie in addition to returning `{ accessToken, user }`
+- **`@Roles()` / `@Scopes()` Decorators** — parameter types narrowed from `string` to `UserRole` / `UserScope`
+- **Seed Data** — all hardcoded role/scope strings normalized to `resource:action` convention using enum values
+
+### Security
+
+- **`parseOpaqueToken()` Hardened** — validates the `:` delimiter at position 36 and checks the UUID segment with `isUUID()` from `class-validator` before any DB lookup; malformed tokens now return `null` (→ 401) instead of bubbling a Postgres `invalid uuid syntax` 500
+- **`ParseUUIDPipe` on `:orderId`** — `GET /orders/:orderId` and `GET /orders/:orderId/payment` now reject non-UUID values with 400 before reaching TypeORM
+- **Production Guard at Module Level** — `AdminTestingController` and its service are absent from the DI container in production; no runtime `ForbiddenException` needed
+- **`NODE_ENV` Enum Validation** — prevents a misconfigured `NODE_ENV=prod` from silently bypassing the production guard
+
+## [0.1.1] - 2026-03-21
+
+### Added
+
+- **Integration Test Infrastructure** - Dedicated `apps/shop/test/integration/` directory with `jest-integration.json` config and `.integration-spec.ts` suffix; cleanly separated from the future true e2e tier (`jest-e2e.json` / `test/e2e/`)
+- **`@test/*` Path Alias** - TypeScript `paths` entry and Jest `moduleNameMapper` resolving `@test/*` to `apps/shop/test/*`; enables depth-independent imports from any nested spec file
+- **`test/paths.ts`** - Centralized `MIGRATIONS_GLOB` constant anchored to `apps/shop/test/`; eliminates `../../../` relative traversals regardless of how deeply a spec file is nested
+- **Testing Architecture Documentation** - README `🧪 Testing` section expanded with three-tier pyramid description (Unit / Integration / e2e TBD), per-tier scope explanation, alias reference table, and updated commands
+
 ## [0.1.0] - 2026-03-19
 
 ### Added

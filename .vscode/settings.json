@@ -1,0 +1,10 @@
+{
+  "chat.mcp.serverSampling": {
+    "rd_shop/.vscode/mcp.json: context-mode": {
+      "allowedModels": ["copilotcli/claude-sonnet-4.6", "copilotcli/claude-opus-4.6"]
+    },
+    "rd_shop/.vscode/mcp.json: context7": {
+      "allowedModels": ["copilotcli/claude-sonnet-4.6", "copilotcli/claude-opus-4.6"]
+    }
+  }
+}

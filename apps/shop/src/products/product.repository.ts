@@ -2,7 +2,22 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 
+import { ProductCategory, ProductSortBy, SortOrder } from './constants';
 import { Product } from './product.entity';
+
+export interface FindProductsParams {
+  brand?: string[];
+  category?: ProductCategory;
+  country?: string[];
+  cursor?: string;
+  isActive?: boolean;
+  limit: number;
+  maxPrice?: string;
+  minPrice?: string;
+  search?: string;
+  sortBy: ProductSortBy;
+  sortOrder: SortOrder;
+}
 
 @Injectable()
 export class ProductsRepository {
@@ -10,6 +25,10 @@ export class ProductsRepository {
     @InjectRepository(Product)
     private readonly repository: Repository<Product>,
   ) {}
+
+  async findById(productId: string): Promise<null | Product> {
+    return this.repository.findOne({ where: { id: productId } });
+  }
 
   async findByIds(productIds: string[]): Promise<Product[]> {
     return this.repository.find({
@@ -79,6 +98,95 @@ export class ProductsRepository {
       .setLock('pessimistic_write')
       .where('product.id IN (:...ids)', { ids: productIds })
       .getMany();
+  }
+
+  async findWithFilters(params: FindProductsParams): Promise<Product[]> {
+    const {
+      brand,
+      category,
+      country,
+      cursor,
+      isActive,
+      limit,
+      maxPrice,
+      minPrice,
+      search,
+      sortBy,
+      sortOrder,
+    } = params;
+
+    const qb = this.repository.createQueryBuilder('product');
+
+    if (isActive !== undefined) {
+      qb.andWhere('product.isActive = :isActive', { isActive });
+    }
+
+    if (category) {
+      qb.andWhere('product.category = :category', { category });
+    }
+
+    if (brand?.length) {
+      qb.andWhere(
+        `(${brand.map((b, i) => `product.brand ILIKE :brand${i} ESCAPE '!'`).join(' OR ')})`,
+        Object.fromEntries(brand.map((b, i) => [`brand${i}`, `%${b.replace(/[%_!]/g, '!$&')}%`])),
+      );
+    }
+
+    if (country?.length) {
+      qb.andWhere('UPPER(product.country) IN (:...countries)', {
+        countries: country.map((c) => c.toUpperCase()),
+      });
+    }
+
+    if (minPrice) {
+      qb.andWhere('CAST(product.price AS numeric) >= CAST(:minPrice AS numeric)', { minPrice });
+    }
+
+    if (maxPrice) {
+      qb.andWhere('CAST(product.price AS numeric) <= CAST(:maxPrice AS numeric)', { maxPrice });
+    }
+
+    if (search) {
+      const escaped = search.replace(/[%_!]/g, '!$&');
+      const term = `%${escaped}%`;
+      qb.andWhere(
+        "(product.title ILIKE :searchTerm ESCAPE '!' OR product.description ILIKE :searchTerm ESCAPE '!')",
+        { searchTerm: term },
+      );
+    }
+
+    if (cursor) {
+      const cursorProduct = await this.repository.findOne({ where: { id: cursor } });
+      if (cursorProduct) {
+        const op = sortOrder === SortOrder.DESC ? '<' : '>';
+        if (sortBy === ProductSortBy.PRICE) {
+          qb.andWhere(
+            `(CAST(product.price AS numeric) ${op} CAST(:cursorPrice AS numeric) OR (CAST(product.price AS numeric) = CAST(:cursorPrice AS numeric) AND product.id ${op} :cursorId))`,
+            { cursorId: cursorProduct.id, cursorPrice: cursorProduct.price },
+          );
+        } else if (sortBy === ProductSortBy.TITLE) {
+          qb.andWhere(
+            `(product.title ${op} :cursorTitle OR (product.title = :cursorTitle AND product.id ${op} :cursorId))`,
+            { cursorId: cursorProduct.id, cursorTitle: cursorProduct.title },
+          );
+        } else {
+          qb.andWhere(
+            `(date_trunc('milliseconds', product.createdAt) ${op} :cursorDate OR (date_trunc('milliseconds', product.createdAt) = :cursorDate AND product.id ${op} :cursorId))`,
+            { cursorDate: cursorProduct.createdAt, cursorId: cursorProduct.id },
+          );
+        }
+      }
+    }
+
+    const sortColumnMap: Record<ProductSortBy, string> = {
+      [ProductSortBy.CREATED_AT]: 'product.createdAt',
+      [ProductSortBy.PRICE]: 'product.price',
+      [ProductSortBy.TITLE]: 'product.title',
+    };
+
+    qb.orderBy(sortColumnMap[sortBy], sortOrder).addOrderBy('product.id', sortOrder).take(limit);
+
+    return qb.getMany();
   }
 
   async saveProducts(manager: EntityManager, products: Product[]): Promise<Product[]> {

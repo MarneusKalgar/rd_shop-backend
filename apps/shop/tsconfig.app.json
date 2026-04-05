@@ -5,7 +5,9 @@
     "outDir": "../../dist/apps/shop",
     "baseUrl": "./",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@app/common": ["../../dist/libs/common", "../../libs/common/src"],
+      "@app/common/*": ["../../dist/libs/common/*", "../../libs/common/src/*"]
     }
   },
   "include": ["src/**/*"],

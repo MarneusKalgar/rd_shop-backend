@@ -1,15 +1,21 @@
+import { DatabaseAdapterFactory } from '@app/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 import { DEFAULT_VALUES } from '@/core/environment';
-import { DatabaseAdapterFactory } from '@/db/adapters';
-import { CustomTypeOrmLogger } from '@/db/logger';
+import { ShopTypeOrmLogger } from '@/db/logger';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { isProduction } from '@/utils/env';
 
+import { EmailVerificationToken } from '../auth/email-verification-token.entity';
+import { PasswordResetToken } from '../auth/password-reset-token.entity';
+import { RefreshToken } from '../auth/refresh-token.entity';
+import { CartItem } from '../cart/cart-item.entity';
+import { Cart } from '../cart/cart.entity';
 import { FileRecord } from '../files/file-record.entity';
 import { OrderItem } from '../orders/order-item.entity';
 import { Order } from '../orders/order.entity';
+import { ProductReview } from '../products/product-review.entity';
 import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 
@@ -44,7 +50,20 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
 
   return {
     ...baseConfig,
-    entities: [User, Order, OrderItem, Product, FileRecord, ProcessedMessage],
-    logger: new CustomTypeOrmLogger(),
+    entities: [
+      User,
+      Order,
+      OrderItem,
+      Cart,
+      CartItem,
+      Product,
+      ProductReview,
+      FileRecord,
+      ProcessedMessage,
+      RefreshToken,
+      EmailVerificationToken,
+      PasswordResetToken,
+    ],
+    logger: new ShopTypeOrmLogger(),
   } as TypeOrmModuleOptions;
 };

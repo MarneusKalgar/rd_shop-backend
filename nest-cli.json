@@ -10,6 +10,15 @@
   "monorepo": true,
   "root": "apps/shop",
   "projects": {
+    "common": {
+      "type": "library",
+      "root": "libs/common",
+      "entryFile": "index",
+      "sourceRoot": "libs/common/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/common/tsconfig.lib.json"
+      }
+    },
     "payments": {
       "type": "application",
       "root": "apps/payments",
@@ -17,7 +26,12 @@
       "sourceRoot": "apps/payments/src",
       "compilerOptions": {
         "tsConfigPath": "apps/payments/tsconfig.app.json",
-        "assets": [{ "include": "proto/*.proto", "watchAssets": false }]
+        "assets": [
+          {
+            "include": "proto/*.proto",
+            "watchAssets": false
+          }
+        ]
       }
     },
     "shop": {
@@ -28,7 +42,12 @@
       "compilerOptions": {
         "tsConfigPath": "apps/shop/tsconfig.app.json",
         "deleteOutDir": true,
-        "assets": [{ "include": "proto/*.proto", "watchAssets": false }]
+        "assets": [
+          {
+            "include": "proto/*.proto",
+            "watchAssets": false
+          }
+        ]
       }
     }
   }

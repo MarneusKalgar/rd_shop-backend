@@ -11,6 +11,7 @@ services:
     volumes:
       - ../../apps:/app/apps
       - ../../proto:/app/proto
+      - ../../libs:/app/libs
       - /app/node_modules
     env_file:
       - .env.development
@@ -41,6 +42,7 @@ services:
       target: ''
     volumes:
       - ../../apps:/app/apps
+      - ../../libs:/app/libs
       - /app/node_modules
     env_file:
       - .env.development

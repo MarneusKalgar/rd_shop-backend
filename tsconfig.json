@@ -1,10 +1,7 @@
 {
   "compilerOptions": {
-    // "module": "nodenext",
-    // "moduleResolution": "nodenext",
     "module": "commonjs",
     "moduleResolution": "node",
-    // "resolvePackageJsonExports": true,
     "esModuleInterop": true,
     "isolatedModules": true,
     "declaration": true,
@@ -20,6 +17,12 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "noErrorTruncation": false,
+    "baseUrl": "./",
+    "paths": {
+      "@app/common": ["libs/common/src"],
+      "@app/common/*": ["libs/common/src/*"]
+    }
   }
 }

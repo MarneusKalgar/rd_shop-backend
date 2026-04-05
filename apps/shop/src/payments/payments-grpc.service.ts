@@ -97,6 +97,8 @@ export class PaymentsGrpcService implements OnModuleInit {
         throw new ConflictException(message);
       case GrpcStatus.UNAVAILABLE:
         throw new ServiceUnavailableException('Payment service is unavailable');
+      case GrpcStatus.DEADLINE_EXCEEDED:
+        throw new GatewayTimeoutException('Payment service request timed out');
       default:
         throw new ServiceUnavailableException(message);
     }

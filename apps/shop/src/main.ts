@@ -1,11 +1,12 @@
 import { INestApplication, Logger, ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 // import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
+import cookieParser from 'cookie-parser';
 
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
 import { getLogLevels } from './config';
-import { getEnvVariable, safeClose, setupProcessErrorHandlers } from './core';
+import { getEnvVariable, safeClose, setupCors, setupProcessErrorHandlers } from './core';
 import { setupSwagger } from './core/swagger';
 import { HEALTH_PATHS_TO_BYPASS } from './health/constants';
 import { isProduction } from './utils';
@@ -32,6 +33,8 @@ async function bootstrap() {
       exclude: [...HEALTH_PATHS_TO_BYPASS, '/'],
     });
 
+    app.use(cookieParser());
+
     app.useGlobalFilters(new GlobalExceptionFilter());
 
     app.useGlobalPipes(
@@ -43,6 +46,8 @@ async function bootstrap() {
         whitelist: true,
       }),
     );
+
+    setupCors(app);
 
     const isProd = isProduction();
 

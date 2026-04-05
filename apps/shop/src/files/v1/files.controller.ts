@@ -13,6 +13,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles, Scopes } from '@/auth/decorators';
 import { CurrentUser } from '@/auth/decorators/current-user';
 import { JwtAuthGuard, RolesGuard, ScopesGuard } from '@/auth/guards';
+import { UserRole, UserScope } from '@/auth/permissions';
 import { AuthUser } from '@/auth/types';
 
 import {
@@ -50,14 +51,14 @@ export class FilesController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Post('complete-upload')
-  @Roles('admin', 'support')
-  @Scopes('products:images:write')
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @Scopes(UserScope.PRODUCTS_IMAGES_WRITE)
   async completeUpload(
     @CurrentUser() user: AuthUser,
     @Body() body: CompleteUploadDto,
   ): Promise<CompleteUploadResponseDto> {
-    const { entityType, fileId } = body;
-    return this.filesService.completeUpload(user.sub, fileId, entityType);
+    const { fileId } = body;
+    return this.filesService.completeUpload(user.sub, fileId);
   }
 
   @ApiOperation({
@@ -75,8 +76,8 @@ export class FilesController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Post('presigned-upload')
-  @Roles('admin', 'support')
-  @Scopes('products:images:write')
+  // @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  // @Scopes(UserScope.PRODUCTS_IMAGES_WRITE)
   async createPresignedUpload(
     @CurrentUser() user: AuthUser,
     @Body() body: CreatePresignedUploadDto,
@@ -98,8 +99,8 @@ export class FilesController {
     status: HttpStatus.NOT_FOUND,
   })
   @Get(':fileId')
-  @Roles('admin', 'support')
-  @Scopes('products:images:read')
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @Scopes(UserScope.PRODUCTS_IMAGES_READ)
   async getFileById(
     @CurrentUser() user: AuthUser,
     @Param('fileId', ParseUUIDPipe) fileId: string,
@@ -126,8 +127,8 @@ export class FilesController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Get(':fileId/url')
-  @Roles('admin', 'support')
-  @Scopes('products:images:read')
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @Scopes(UserScope.PRODUCTS_IMAGES_READ)
   async getFileUrl(
     @CurrentUser() user: AuthUser,
     @Param('fileId', ParseUUIDPipe) fileId: string,

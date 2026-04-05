@@ -1,11 +1,14 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -20,6 +23,14 @@ import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY, ORDER_WORKER_SCOPE } from './constants';
 import { CreateOrderDto, FindOrdersFilterDto, OrderProcessMessageDto } from './dto';
+import {
+  ORDER_CANCELLED_EVENT,
+  ORDER_CREATED_EVENT,
+  ORDER_PAID_EVENT,
+  OrderCancelledEvent,
+  OrderCreatedEvent,
+  OrderPaidEvent,
+} from './events';
 import { Order, OrderStatus } from './order.entity';
 import {
   OrderItemData,
@@ -73,7 +84,77 @@ export class OrdersService {
     private readonly configService: ConfigService,
 
     private readonly paymentsGrpcService: PaymentsGrpcService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  /**
+   * Cancels an order and restores product stock within a transaction.
+   *
+   * **Allowed statuses:** PENDING, PROCESSED, PAID
+   * **Rejected statuses:** CANCELLED (409), CREATED (400)
+   *
+   * For PROCESSED/PAID orders with a paymentId, payment void/refund integration is deferred
+   * to the payments plan. Stock is always restored.
+   *
+   * @param userId - The UUID of the requesting user (ownership check)
+   * @param orderId - The UUID of the order to cancel
+   * @param userEmail - The email from the JWT token, used for the cancellation notification event
+   * @returns Promise resolving to the updated Order entity
+   * @throws {NotFoundException} If order not found or doesn't belong to user — HTTP 404
+   * @throws {ConflictException} If order is already cancelled — HTTP 409
+   * @throws {BadRequestException} If order is in CREATED (legacy) state — HTTP 400
+   */
+  async cancelOrder(userId: string, orderId: string, userEmail: string): Promise<Order> {
+    const order = await this.dataSource.transaction(async (manager) => {
+      await manager.query('SET LOCAL statement_timeout = 30000');
+      await manager.query('SET LOCAL lock_timeout = 10000');
+
+      const orderRepo = manager.getRepository(Order);
+      const order = await orderRepo.findOne({
+        relations: ['items', 'items.product'],
+        where: { id: orderId },
+      });
+
+      this.assertOrderOwnership(order, userId);
+
+      if (order.status === OrderStatus.CANCELLED) {
+        throw new ConflictException(`Order "${orderId}" is already cancelled`);
+      }
+
+      if (order.status === OrderStatus.CREATED) {
+        throw new BadRequestException(`Order "${orderId}" is in an invalid state for cancellation`);
+      }
+
+      const productIds = order.items.map((item) => item.productId);
+      const products = await this.productsRepository.findByIdsWithLock(manager, productIds);
+      const productMap = new Map(products.map((p) => [p.id, p]));
+
+      for (const item of order.items) {
+        const product = productMap.get(item.productId);
+        if (product) {
+          product.stock += item.quantity;
+        }
+      }
+
+      await this.productsRepository.saveProducts(manager, [...productMap.values()]);
+
+      order.status = OrderStatus.CANCELLED;
+      await orderRepo.save(order);
+
+      this.logger.log(`Order "${orderId}" cancelled, stock restored`);
+
+      const updatedOrder = await this.ordersRepository.findByIdWithItemRelations(orderId, manager);
+      if (!updatedOrder) {
+        throw new Error('Failed to reload cancelled order');
+      }
+
+      return updatedOrder;
+    });
+
+    this.eventEmitter.emit(ORDER_CANCELLED_EVENT, new OrderCancelledEvent(order.id, userEmail));
+
+    return order;
+  }
 
   /**
    * Creates a new order with idempotency support and transaction safety.
@@ -121,7 +202,6 @@ export class OrdersService {
    * @see {@link executeOrderTransaction} for transaction implementation
    * @see {@link handleOrderCreationPgErrors} for error handling
    */
-
   async createOrder(userId: string, createOrderDto: CreateOrderDto): Promise<Order> {
     const { idempotencyKey, items } = createOrderDto;
 
@@ -139,29 +219,16 @@ export class OrdersService {
     try {
       const createdOrder = await this.executeOrderTransaction(createOrderDto, user, productIds);
       this.publishOrderProcessingMessage(createdOrder, idempotencyKey);
+      this.eventEmitter.emit(
+        ORDER_CREATED_EVENT,
+        new OrderCreatedEvent(createdOrder.id, user.email),
+      );
       return createdOrder;
     } catch (error: unknown) {
       return await this.handleOrderCreationPgErrors(error, userId, idempotencyKey);
     }
   }
 
-  /**
-   * Retrieves an order by its ID with all relations loaded.
-   *
-   * @param userId - The UUID of the user
-   * @param orderId - The UUID of the order to retrieve
-   * @returns Promise resolving to Order entity with items, products, and user
-   * @throws {NotFoundException} If order doesn't exist - HTTP 404
-   */
-  async getOrderById(userId: string, orderId: string): Promise<Order> {
-    const order = await this.ordersRepository.findByIdWithRelations(orderId);
-
-    this.assertOrderOwnership(order, userId);
-
-    return order;
-  }
-
-  // eslint-disable-next-line perfectionist/sort-classes
   async findOrdersWithFilters(
     userId: string,
     params: FindOrdersFilterDto,
@@ -194,12 +261,28 @@ export class OrdersService {
     const pageSlice = hasNextPage ? paginatedOrders.slice(0, limit) : paginatedOrders;
 
     const orderIds = pageSlice.map((row) => row.id);
-    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds);
+    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds, { withUser: false });
     const orders = await mainQuery.getMany();
 
     const nextCursor = hasNextPage ? orders[orders.length - 1].id : null;
 
     return { nextCursor, orders };
+  }
+
+  /**
+   * Retrieves an order by its ID with all relations loaded.
+   *
+   * @param userId - The UUID of the user
+   * @param orderId - The UUID of the order to retrieve
+   * @returns Promise resolving to Order entity with items, products, and user
+   * @throws {NotFoundException} If order doesn't exist - HTTP 404
+   */
+  async getOrderById(userId: string, orderId: string): Promise<Order> {
+    const order = await this.ordersRepository.findByIdWithItemRelations(orderId);
+
+    this.assertOrderOwnership(order, userId);
+
+    return order;
   }
 
   /**
@@ -210,13 +293,14 @@ export class OrdersService {
    * @returns Promise resolving to payment details (paymentId and status)
    * @throws {NotFoundException} If order doesn't exist - HTTP 404
    * @throws {BadRequestException} If order has no associated payment - HTTP 400
-   * @throws {Error} If payment service is unavailable - HTTP 500
+   * @throws {HttpException} If payment service returns an error (mapped from gRPC) - HTTP 4xx/5xx
+   * @throws {ServiceUnavailableException} If payment service is unavailable - HTTP 503
    */
   async getOrderPayment(
     userId: string,
     orderId: string,
   ): Promise<{ paymentId: string; status: string }> {
-    const order = await this.ordersRepository.findByIdWithRelations(orderId);
+    const order = await this.ordersRepository.findByIdWithItemRelations(orderId);
 
     this.assertOrderOwnership(order, userId);
 
@@ -228,8 +312,12 @@ export class OrdersService {
       const paymentStatus = await this.paymentsGrpcService.getPaymentStatus(order.paymentId);
       return paymentStatus;
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
       this.logger.error(`Failed to fetch payment status for order ${orderId}`, error);
-      throw new Error('Failed to retrieve payment information');
+      throw new ServiceUnavailableException('Failed to retrieve payment information');
     }
   }
 
@@ -354,6 +442,20 @@ export class OrdersService {
     }
   }
 
+  /**
+   * Authorizes payment for a PROCESSED order via the payments gRPC microservice.
+   *
+   * Re-fetches the order with all relations (items, products, user) to compute the total amount
+   * and obtain the user email for the ORDER_PAID event — avoiding a separate user lookup.
+   *
+   * On a successful gRPC response the order is updated to PAID and `paymentId` is persisted.
+   * If `response.paymentId` is absent the update is skipped and no event is emitted.
+   *
+   * @param order - The PROCESSED order (only `id` and `userId` are required at call-time)
+   * @throws {NotFoundException} If the order cannot be reloaded from the DB
+   * @throws {Error} Re-throws any gRPC or DB error so the worker can nack and retry
+   * @private
+   */
   private async authorizePayment(order: Order): Promise<void> {
     const orderWithItems = await this.ordersRepository.findByIdWithRelations(order.id);
 
@@ -378,6 +480,11 @@ export class OrdersService {
 
         this.logger.log(
           `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,
+        );
+
+        this.eventEmitter.emit(
+          ORDER_PAID_EVENT,
+          new OrderPaidEvent(order.id, orderWithItems.user.email),
         );
       }
     } catch (error) {
@@ -449,7 +556,7 @@ export class OrdersService {
     user: User,
     productIds: string[],
   ): Promise<Order> {
-    const { idempotencyKey, items } = createOrderDto;
+    const { idempotencyKey, items, shipping } = createOrderDto;
 
     const createdOrder = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
@@ -465,6 +572,12 @@ export class OrdersService {
 
       const order = await this.ordersRepository.createOrder(manager, {
         idempotencyKey,
+        shippingCity: shipping?.city ?? user.city,
+        shippingCountry: shipping?.country ?? user.country,
+        shippingFirstName: shipping?.firstName ?? user.firstName,
+        shippingLastName: shipping?.lastName ?? user.lastName,
+        shippingPhone: shipping?.phone ?? user.phone,
+        shippingPostcode: shipping?.postcode ?? user.postcode,
         user,
         userId: user.id,
       });

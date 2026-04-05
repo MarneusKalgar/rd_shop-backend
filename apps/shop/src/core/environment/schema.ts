@@ -1,5 +1,7 @@
 import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 
+import { NodeEnvironment } from '@/utils/env';
+
 export class EnvironmentVariables {
   @IsOptional()
   @IsString()
@@ -12,6 +14,10 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   APP_LOG_LEVEL?: string;
+
+  @IsOptional()
+  @IsString()
+  APP_URL?: string;
 
   @IsString()
   AWS_ACCESS_KEY_ID: string;
@@ -42,12 +48,24 @@ export class EnvironmentVariables {
   @IsOptional()
   AWS_S3_PRESIGNED_URL_EXPIRATION?: number;
 
+  @IsOptional()
+  @IsString()
+  AWS_S3_PUBLIC_ENDPOINT?: string;
+
   @IsString()
   AWS_SECRET_ACCESS_KEY: string;
+
+  @IsOptional()
+  @IsString()
+  AWS_SES_REGION?: string;
 
   @IsNumber()
   @IsOptional()
   BCRYPT_SALT_ROUNDS?: number;
+
+  @IsOptional()
+  @IsString()
+  CORS_ALLOWED_ORIGINS?: string;
 
   @IsString()
   DATABASE_PROVIDER: string;
@@ -57,10 +75,18 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  EMAIL_VERIFICATION_EXPIRES_IN?: string;
+
+  @IsOptional()
+  @IsString()
   JWT_ACCESS_EXPIRES_IN?: string;
 
   @IsString()
   JWT_ACCESS_SECRET: string;
+
+  @IsOptional()
+  @IsString()
+  JWT_REFRESH_EXPIRES_IN?: string;
 
   @IsNumber()
   @IsOptional()
@@ -70,12 +96,16 @@ export class EnvironmentVariables {
   @IsOptional()
   MINIO_PORT?: number;
 
-  @IsString()
-  NODE_ENV: string;
+  @IsEnum(NodeEnvironment)
+  NODE_ENV: NodeEnvironment;
 
   @IsOptional()
   @IsString()
   NODE_HOSTNAME?: string;
+
+  @IsOptional()
+  @IsString()
+  PASSWORD_RESET_EXPIRES_IN?: string;
 
   @IsString()
   PAYMENTS_GRPC_HOST: string;
@@ -141,4 +171,8 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   RABBITMQ_VHOST?: string;
+
+  @IsOptional()
+  @IsString()
+  SES_FROM_ADDRESS?: string;
 }

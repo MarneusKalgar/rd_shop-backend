@@ -1,0 +1,474 @@
+# Products — Implementation Plan
+
+## Current state
+
+- Entity: `Product` — id, title (unique), price decimal(12,2), stock int, isActive bool, mainImageId FK→FileRecord
+- No REST controller — no `v1/` directory exists under `products/`
+- `ProductsService` has only `associateMainImage()`; stock managed via repository locks during order creation
+- GraphQL `ProductType` exists but no dedicated resolver; no `mainImage` field exposed
+- 12 seed products exist (all electronics)
+- No description, no brand, no country, no categories, no search, no sorting, no multiple images, no soft delete
+
+---
+
+## Phase 1 — Product entity extension + REST API (CRUD)
+
+### 1.1 New columns on Product entity
+
+```
++ description:  text nullable
++ brand:        varchar(100) nullable
++ country:      varchar(2) nullable      ISO 3166-1 alpha-2 (e.g., "US", "CN", "JP")
++ category:     varchar(50) NOT NULL DEFAULT 'other'    ProductCategory enum
++ deletedAt:    timestamptz nullable     @DeleteDateColumn (soft delete)
+```
+
+### 1.2 Updated Product entity
+
+```typescript
+@Entity('products')
+class Product {
+  id: string; // UUID PK (existing)
+  title: string; // varchar(200), unique (existing)
+  description: string | null; // NEW
+  brand: string | null; // NEW
+  country: string | null; // NEW — ISO 3166-1 alpha-2
+  category: ProductCategory; // NEW — enum column, default 'other'
+  price: string; // numeric(12,2) (existing)
+  stock: number; // int, default 0 (existing)
+  isActive: boolean; // default true (existing)
+  mainImageId: string | null; // FK → file_records (existing)
+  mainImage: FileRecord | null; // ManyToOne (existing)
+  orderItems: OrderItem[]; // OneToMany (existing)
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null; // NEW — @DeleteDateColumn
+}
+```
+
+### 1.3 ProductCategory enum
+
+```typescript
+// apps/shop/src/products/constants/category.ts
+export enum ProductCategory {
+  LAPTOPS = 'laptops',
+  SMARTPHONES = 'smartphones',
+  TABLETS = 'tablets',
+  AUDIO = 'audio',
+  WEARABLES = 'wearables',
+  ACCESSORIES = 'accessories',
+  MONITORS = 'monitors',
+  STORAGE = 'storage',
+  PERIPHERALS = 'peripherals',
+  CAMERAS = 'cameras',
+  OTHER = 'other',
+}
+```
+
+Single `category` column per product. If multiple categories are needed later, the column can be changed to `text[]` (array) without a separate entity.
+
+### 1.4 Migration
+
+```bash
+cd apps/shop && npm run db:generate -- src/db/migrations/ExtendProductEntity
+```
+
+### 1.5 Create `ProductsController` — `apps/shop/src/products/v1/products.controller.ts`
+
+| Endpoint                      | Method      | Guards                 | Scopes         | DTO                                               |
+| ----------------------------- | ----------- | ---------------------- | -------------- | ------------------------------------------------- |
+| `GET /api/v1/products`        | list        | none (public)          | —              | `FindProductsQueryDto` → `GetProductsResponseDto` |
+| `GET /api/v1/products/:id`    | get one     | none (public)          | —              | — → `GetProductResponseDto`                       |
+| `POST /api/v1/products`       | create      | JwtAuth + Roles(admin) | products:write | `CreateProductDto` → `GetProductResponseDto`      |
+| `PATCH /api/v1/products/:id`  | update      | JwtAuth + Roles(admin) | products:write | `UpdateProductDto` → `GetProductResponseDto`      |
+| `DELETE /api/v1/products/:id` | soft delete | JwtAuth + Roles(admin) | products:write | — → 204                                           |
+
+`DELETE` uses TypeORM `softDelete()` — sets `deletedAt`, doesn't remove the row. All queries use `@DeleteDateColumn` auto-filtering.
+
+### 1.6 DTOs — `apps/shop/src/products/dto/`
+
+```
+CreateProductDto {
+  title: string,
+  price: string,
+  stock: number,
+  description?: string,
+  brand?: string,
+  country?: string,          // ISO 3166-1 alpha-2
+  category?: ProductCategory, // default 'other'
+  isActive?: boolean
+}
+
+UpdateProductDto {
+  title?: string,
+  price?: string,
+  stock?: number,
+  description?: string,
+  brand?: string,
+  country?: string,
+  category?: ProductCategory,
+  isActive?: boolean
+}
+
+FindProductsQueryDto {
+  cursor?: UUID,
+  limit?: number (1-50, default 10),
+  isActive?: boolean,
+  category?: ProductCategory,
+  brand?: string,
+  country?: string
+}
+```
+
+### 1.7 Service methods to add
+
+- `create(dto)` — validate title uniqueness (23505 catch), return product
+- `findAll(filters)` — keyset cursor pagination (same pattern as orders)
+- `findById(id)` — with mainImage relation
+- `update(id, dto)` — partial update, 404 if not found
+- `remove(id)` — soft delete via `softDelete()`; FK from order_items keeps historical data intact
+
+### 1.8 Seed data expansion
+
+Expand from 12 to ~48 products. Add `description`, `brand`, `country`, `category` to each seed product. Distribute across all `ProductCategory` values.
+
+### 1.9 Tasks
+
+- [x] Add `description`, `brand`, `country`, `category`, `deletedAt` columns to `Product` entity
+- [x] Create `ProductCategory` enum
+- [ ] Generate migration: `npm run db:generate -- src/db/migrations/ExtendProductEntity`
+- [x] Create `apps/shop/src/products/v1/products.controller.ts`
+- [x] Create DTOs: `create-product.dto.ts`, `update-product.dto.ts`, `find-products.dto.ts`, `product-response.dto.ts`
+- [x] Add service methods: `create`, `findAll`, `findById`, `update`, `remove` (soft delete)
+- [x] Add repository methods: `findWithFilters` (cursor pagination + category/brand/country filters)
+- [x] Register controller in `ProductsModule`
+- [x] Add Swagger decorators
+- [x] Expand seed data to ~48 products with new fields
+
+---
+
+## Phase 2 — Sorting & Filtering
+
+### 2.1 Product listing sort options
+
+| Sort field  | Column       | Notes                    |
+| ----------- | ------------ | ------------------------ |
+| `createdAt` | `created_at` | Default, existing index  |
+| `price`     | `price`      | Needs index              |
+| `title`     | `title`      | Already indexed (unique) |
+
+### 2.2 Migration
+
+```bash
+cd apps/shop && npm run db:generate -- src/db/migrations/AddProductPriceIndex
+```
+
+Note: if the index can't be auto-generated (no entity change), add it manually in the generated migration file.
+
+### 2.3 Extended query filters
+
+Add to `FindProductsQueryDto`:
+
+```
+sortBy?: 'price' | 'title' | 'createdAt' (default 'createdAt')
+sortOrder?: 'ASC' | 'DESC' (default 'DESC')
+minPrice?: string
+maxPrice?: string
+search?: string          // ILIKE on title OR description
+brand?: string           // partial match (case-insensitive ILIKE)
+country?: string         // ISO 3166-1 alpha-2 exact match
+category?: ProductCategory
+```
+
+### 2.4 Tasks
+
+- [x] Add `sortBy` + `sortOrder` to query builder
+- [x] Add `minPrice` / `maxPrice` to `FindProductsQueryDto`
+- [x] Add `search` filter (ILIKE on title OR description)
+- [x] Add `brand` filter (ILIKE on brand)
+- [x] Add `country` filter (exact match)
+- [x] Add `category` filter (enum exact match)
+- [x] Add price index (migration or manual SQL)
+
+---
+
+## Phase 3 — Reviews (rating + comment)
+
+### 3.1 ProductReview entity
+
+```
+id:         UUID PK
+userId:     UUID FK → users (CASCADE)
+productId:  UUID FK → products (CASCADE)
+rating:     smallint NOT NULL          CHECK (rating BETWEEN 1 AND 5)
+text:       varchar(1000) NOT NULL
+createdAt:  timestamptz
+updatedAt:  timestamptz
+UNIQUE(userId, productId)              one review per user per product
+```
+
+Relation: **Product (1) → ProductReview (many)**, **User (1) → ProductReview (many)**.
+
+One review per user per product. Users can update their review via PATCH.
+
+**DB-level constraint:** `@Check('"rating" BETWEEN 1 AND 5')` on the entity — TypeORM generates the CHECK constraint in the migration. This enforces valid values regardless of application-layer validation.
+
+### 3.2 Endpoints
+
+| Endpoint                             | Method     | Guards  | Description                                              |
+| ------------------------------------ | ---------- | ------- | -------------------------------------------------------- |
+| `POST /api/v1/products/:id/reviews`  | create     | JwtAuth | Body: `{ rating: 1-5, text: string }` — both required    |
+| `PATCH /api/v1/products/:id/reviews` | update own | JwtAuth | Body: `{ rating?: 1-5, text?: string }` — partial update |
+| `GET /api/v1/products/:id/reviews`   | list       | public  | Paginated (cursor), includes user info                   |
+
+No dedicated ratings endpoint — rating data is included in product responses (see 3.3).
+
+### 3.3 Product responses enrichment
+
+**`GET /api/v1/products`** — each product includes:
+
+```typescript
+{
+  ...productFields,
+  averageRating: number | null,   // AVG(rating), null if no reviews
+  reviewsCount: number,           // COUNT(*)
+}
+```
+
+**`GET /api/v1/products/:id`** — same fields plus authenticated user's own review (if exists).
+
+**Service-level computation** (not `@VirtualColumn`): a private helper on `ProductsService` adds `LEFT JOIN` + `AVG` / `COUNT` to the QueryBuilder. Called only from `findAll()` and `findById()` — other callers (orders stock checks, image association, admin flows) skip the join and avoid the overhead.
+
+```typescript
+private applyRatingSelect(qb: SelectQueryBuilder<Product>): void {
+  qb.leftJoin('product.reviews', 'review')
+    .addSelect('ROUND(AVG(review.rating), 2)', 'averageRating')
+    .addSelect('COUNT(review.id)::int', 'reviewsCount')
+    .groupBy('product.id');
+}
+```
+
+Fits naturally into the existing QueryBuilder-based cursor pagination. Can be replaced with cached columns later if needed.
+
+### 3.4 Migration
+
+```bash
+cd apps/shop && npm run db:generate -- src/db/migrations/AddProductReviews
+```
+
+Review the generated migration and verify the `CHECK` constraint is included. If not, add manually:
+
+```sql
+ALTER TABLE "product_reviews" ADD CONSTRAINT "CHK_product_reviews_rating" CHECK ("rating" BETWEEN 1 AND 5);
+```
+
+### 3.5 Tasks
+
+- [x] Create `ProductReview` entity (ManyToOne → Product, ManyToOne → User, `@Check` for rating 1-5)
+- [ ] Generate migration: `npm run db:generate -- src/db/migrations/AddProductReviews`
+- [ ] Verify CHECK constraint in generated migration
+- [x] DTOs: `CreateReviewDto` (`{ rating, text }` — both required), `ReviewResponseDto`
+- [x] Service methods: `createReview`, `updateReview`, `getReviews` (paginated); `deleteReview` added beyond plan
+- [x] Add `POST /products/:id/reviews`, `PATCH /products/:id/reviews`, and `GET /products/:id/reviews` endpoints; `DELETE /products/:id/reviews` added beyond plan
+- [x] Enrich `GET /products` response with `averageRating` + `reviewsCount`
+- [ ] Enrich `GET /products/:id` response with `averageRating` + `reviewsCount` + user's own review
+
+---
+
+## Phase 4 — Multiple product images
+
+### 4.1 Changes
+
+Current: `Product.mainImageId` (1:1 FK to `FileRecord`)
+New: Keep `mainImageId` + add `Product.images` (1:N via `FileRecord.entityId`)
+
+FileRecord already has `entityId` column — just filter by `entityId = productId` + `status = READY`.
+
+### 4.2 Public endpoint
+
+`GET /api/v1/products/:id` — include `images` array in the product response (all `READY` FileRecords for the product). No separate endpoint needed for the public shop; images are loaded as part of the product detail.
+
+### 4.3 Admin endpoints (all require JwtAuth + Roles(admin))
+
+- `GET /api/v1/products/:id/images` — list all images (useful for image management UI)
+- `DELETE /api/v1/products/:id/images/:fileId` — remove image association
+- `PATCH /api/v1/products/:id/images/:fileId/main` — set as main image
+
+### 4.4 Tasks
+
+- [x] Add `images` relation/field resolution (query `file_records WHERE entityId = productId AND status = READY`)
+- [x] Include `images` in `GET /api/v1/products/:id` response DTO
+- [x] Admin REST endpoints for image management (`GET`, `DELETE`, `PATCH /main`); `POST /:id/images/:fileId` added beyond plan
+
+---
+
+## Phase 5 — Public Categories Endpoint
+
+### 5.1 Overview
+
+Expose the `ProductCategory` enum values as a standalone public endpoint so clients can populate category filters/dropdowns without hardcoding enum values.
+
+### 5.2 Endpoint
+
+`GET /api/v1/products/categories` — no auth, no query params
+
+**Response:**
+
+```json
+{
+  "data": [
+    { "name": "accessories", "nameEn": "Accessories", "nameUk": "Аксесуари" },
+    { "name": "audio", "nameEn": "Audio", "nameUk": "Аудіо" },
+    { "name": "cameras", "nameEn": "Cameras", "nameUk": "Камери" },
+    { "name": "laptops", "nameEn": "Laptops", "nameUk": "Ноутбуки" },
+    { "name": "monitors", "nameEn": "Monitors", "nameUk": "Монітори" },
+    { "name": "other", "nameEn": "Other", "nameUk": "Інше" },
+    { "name": "peripherals", "nameEn": "Peripherals", "nameUk": "Периферія" },
+    { "name": "smartphones", "nameEn": "Smartphones", "nameUk": "Смартфони" },
+    { "name": "storage", "nameEn": "Storage", "nameUk": "Накопичувачі" },
+    { "name": "tablets", "nameEn": "Tablets", "nameUk": "Планшети" },
+    { "name": "wearables", "nameEn": "Wearables", "nameUk": "Носимі пристрої" }
+  ]
+}
+```
+
+No DB query — static data defined as a `Map<ProductCategory, ProductCategoryDto>` constant (`PRODUCT_CATEGORIES_MAP`) and a derived array constant (`PRODUCT_CATEGORIES`) in `apps/shop/src/products/constants/index.ts`. The service returns `{ data: PRODUCT_CATEGORIES }`. Icons are mapped on the frontend side and are not included in the API response.
+
+> **Note:** The `categories` route segment must be declared **before** `/:id` in `ProductsController` to prevent NestJS from matching it as a UUID param.
+
+### 5.3 Constant shape
+
+```typescript
+export const PRODUCT_CATEGORIES_MAP = new Map<ProductCategory, ProductCategoryDto>([
+  [
+    ProductCategory.ACCESSORIES,
+    { name: 'accessories', nameEn: 'Accessories', nameUk: 'Аксесуари', icon: 'cable' },
+  ],
+  [ProductCategory.AUDIO, { name: 'audio', nameEn: 'Audio', nameUk: 'Аудіо', icon: 'headphones' }],
+  [
+    ProductCategory.CAMERAS,
+    { name: 'cameras', nameEn: 'Cameras', nameUk: 'Камери', icon: 'photo_camera' },
+  ],
+  [
+    ProductCategory.LAPTOPS,
+    { name: 'laptops', nameEn: 'Laptops', nameUk: 'Ноутбуки', icon: 'laptop' },
+  ],
+  [
+    ProductCategory.MONITORS,
+    { name: 'monitors', nameEn: 'Monitors', nameUk: 'Монітори', icon: 'monitor' },
+  ],
+  [ProductCategory.OTHER, { name: 'other', nameEn: 'Other', nameUk: 'Інше', icon: 'category' }],
+  [
+    ProductCategory.PERIPHERALS,
+    { name: 'peripherals', nameEn: 'Peripherals', nameUk: 'Периферія', icon: 'keyboard' },
+  ],
+  [
+    ProductCategory.SMARTPHONES,
+    { name: 'smartphones', nameEn: 'Smartphones', nameUk: 'Смартфони', icon: 'smartphone' },
+  ],
+  [
+    ProductCategory.STORAGE,
+    { name: 'storage', nameEn: 'Storage', nameUk: 'Накопичувачі', icon: 'storage' },
+  ],
+  [
+    ProductCategory.TABLETS,
+    { name: 'tablets', nameEn: 'Tablets', nameUk: 'Планшети', icon: 'tablet_android' },
+  ],
+  [
+    ProductCategory.WEARABLES,
+    { name: 'wearables', nameEn: 'Wearables', nameUk: 'Носимі пристрої', icon: 'watch' },
+  ],
+]);
+```
+
+The map can also be used elsewhere to look up a single category's display data by enum key (e.g. enriching product responses in the future).
+
+```typescript
+export const PRODUCT_CATEGORIES: ProductCategoryDto[] = Array.from(PRODUCT_CATEGORIES_MAP.values());
+```
+
+`PRODUCT_CATEGORIES` is the ready-to-serve array used by the service. `PRODUCT_CATEGORIES_MAP` is used for O(1) key lookups.
+
+### 5.4 DTO shape
+
+```typescript
+class ProductCategoryDto {
+  name: ProductCategory; // enum value
+  nameEn: string; // English display name
+  nameUk: string; // Ukrainian display name
+  // icon intentionally omitted — mapped on the frontend side
+}
+```
+
+### 5.5 Tasks
+
+- [x] Add `ProductCategoryDto` and `ProductCategoriesResponseDto` to `apps/shop/src/products/dto/product-response.dto.ts` and re-export from `dto/index.ts`
+- [x] Add `ProductCategoryMeta` interface, `PRODUCT_CATEGORIES_MAP: Map<ProductCategory, ProductCategoryMeta>`, and `PRODUCT_CATEGORIES: ProductCategoryMeta[]` constants to `apps/shop/src/products/constants/index.ts`
+- [x] Add `getCategories(): ProductCategoriesResponseDto` method to `ProductsService` — returns `{ data: PRODUCT_CATEGORIES }` (no injection needed)
+- [x] Add `GET /categories` handler in `ProductsController` before `GET /:id`, with Swagger decorators
+
+---
+
+## Phase 6 — Full-text search (deferred)
+
+### 6.1 Options
+
+| Approach                          | Complexity | Quality                                 |
+| --------------------------------- | ---------- | --------------------------------------- |
+| Postgres `tsvector` + `GIN` index | Low        | Good for title + description            |
+| Elasticsearch / Meilisearch       | High       | Best for faceted search, typo tolerance |
+
+### 6.2 Postgres approach (recommended starting point)
+
+`description` column already exists (from Phase 1). Add `tsvector` generated column + GIN index.
+
+Search endpoint: `GET /api/v1/products?q=<term>` using `plainto_tsquery`.
+
+### 6.3 Tasks
+
+- [ ] Migration: add tsvector generated column + GIN index
+- [ ] Update query builder to support `q` parameter
+- [ ] Update `FindProductsQueryDto`
+
+---
+
+## Implementation order
+
+```
+Phase 1 (Entity extension + CRUD)   ← Foundation: new fields, soft delete, controller, seed
+  ↓
+Phase 2 (Sorting & Filtering)       ← Enhances listing: sort, price range, search
+  ↓
+Phase 3 (Reviews)                   ← Single entity: rating + comment, 3 endpoints
+  ↓
+Phase 4 (Multiple images)           ← Builds on existing file upload pattern
+  ↓
+Phase 5 (Public categories endpoint) ← Static enum exposure, no DB query
+  ↓
+Phase 6 (Full-text search)          ← Deferred
+```
+
+---
+
+## Testing
+
+Deferred to dedicated testing plan. Key areas to cover:
+
+- Products CRUD (public read vs admin write)
+- Soft delete behavior (deleted products excluded from queries)
+- Sorting + filtering combinations
+- Rating upsert (create + overwrite) with CHECK constraint
+- Reviews pagination
+- Image management lifecycle
+- Seed data integrity
+
+---
+
+## GraphQL
+
+Deferred. Key areas to cover when prioritized:
+
+- `ProductType` fields for new columns (description, brand, country, category)
+- `mainImage` field on `ProductType`
+- `images` field with DataLoader
+- Category-based filtering in GraphQL queries

@@ -1,5 +1,4 @@
-import { BasePostgresAdapter } from './base';
-import { DatabaseAdapterFactory } from './factory';
+import { BasePostgresAdapter, DatabaseAdapterFactory } from '@app/common';
 
 export class NeonAdapter extends BasePostgresAdapter {
   protected connectionUrl: string;

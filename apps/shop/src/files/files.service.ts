@@ -8,12 +8,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { ProductsService } from '@/products/products.service';
-
 import { CreatePresignedUploadDto } from './dto';
 import { FileRecord, FileStatus, FileVisibility } from './file-record.entity';
 import { S3Service } from './s3.service';
-import { CompleteUploadResponse, EntityFileAssociation, FileUploadResponse } from './types';
+import { CompleteUploadResponse, FileUploadResponse } from './types';
 import { getObjectKey } from './utils';
 
 // TODO add public URL generation logic
@@ -25,7 +23,6 @@ export class FilesService {
     @InjectRepository(FileRecord)
     private readonly fileRecordRepository: Repository<FileRecord>,
     private readonly s3Service: S3Service,
-    private readonly productsService: ProductsService,
   ) {}
 
   checkIsOwner(fileRecord: FileRecord, userId: string) {
@@ -39,11 +36,7 @@ export class FilesService {
   /**
    * Complete file upload - verify file exists in S3 and update record status
    */
-  async completeUpload(
-    userId: string,
-    fileId: string,
-    entityType: EntityFileAssociation,
-  ): Promise<CompleteUploadResponse> {
+  async completeUpload(userId: string, fileId: string): Promise<CompleteUploadResponse> {
     const fileRecord = await this.findFileRecordOrFail(fileId);
 
     this.checkIsOwner(fileRecord, userId);
@@ -64,10 +57,6 @@ export class FilesService {
     fileRecord.status = FileStatus.READY;
     fileRecord.completedAt = new Date();
     await this.fileRecordRepository.save(fileRecord);
-
-    if (fileRecord.entityId) {
-      await this.associateFileWithEntity(fileRecord, entityType);
-    }
 
     this.logger.log(`File upload completed for record: ${fileRecord.id}`);
 
@@ -174,23 +163,48 @@ export class FilesService {
   }
 
   /**
-   * Associate file with entity (Product, User, etc.)
+   * Get presigned download URL for a file by ID (used by external services, e.g. UserService for avatar)
    */
-  private async associateFileWithEntity(
-    fileRecord: FileRecord,
-    entityType: EntityFileAssociation,
-  ): Promise<void> {
-    switch (entityType) {
-      case 'product':
-        await this.productsService.associateMainImage(fileRecord.entityId!, fileRecord.id);
-        break;
-      case 'user':
-        // TODO: Implement user avatar association
-        this.logger.log(`User avatar association not yet implemented for ${fileRecord.id}`);
-        break;
-      default:
-        this.logger.warn(`Unknown entity type: ${entityType as string}`);
+  async getPresignedUrlForFileId(fileId: string): Promise<null | string> {
+    const fileRecord = await this.fileRecordRepository.findOne({ where: { id: fileId } });
+
+    if (fileRecord?.status !== FileStatus.READY) return null;
+
+    const { downloadUrl } = await this.s3Service.getPresignedDownloadUrl(fileRecord.key);
+    return downloadUrl;
+  }
+
+  /**
+   * Verify file ownership + S3 existence, mark READY if PENDING.
+   * Returns { fileId, presignedUrl } for use by entity-specific services (e.g. avatar).
+   */
+  async prepareFileForEntity(
+    userId: string,
+    fileId: string,
+  ): Promise<{ fileId: string; presignedUrl: string }> {
+    const fileRecord = await this.findFileRecordOrFail(fileId);
+
+    this.checkIsOwner(fileRecord, userId);
+
+    const fileExistsInS3 = await this.s3Service.checkFileExists(fileRecord.key);
+
+    if (!fileExistsInS3) {
+      throw new BadRequestException(
+        'File not found in S3. Please upload the file first using the presigned URL.',
+      );
     }
+
+    if (fileRecord.status === FileStatus.PENDING) {
+      fileRecord.status = FileStatus.READY;
+      fileRecord.completedAt = new Date();
+      await this.fileRecordRepository.save(fileRecord);
+    }
+
+    const { downloadUrl: presignedUrl } = await this.s3Service.getPresignedDownloadUrl(
+      fileRecord.key,
+    );
+
+    return { fileId: fileRecord.id, presignedUrl };
   }
 
   /**

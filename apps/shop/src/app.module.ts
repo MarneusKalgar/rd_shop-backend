@@ -3,9 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 // import { GracefulShutdownModule } from '@tygra/nestjs-graceful-shutdown';
 
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
+import { CartModule } from './cart/cart.module';
 import { QueryLoggerMiddleware, RequestIdMiddleware } from './common/middlewares';
 import { /*getGracefulShutdownConfig,*/ getTypeOrmModuleOptions } from './config';
 import { getEnvFile, validate } from './core/environment';
@@ -19,7 +19,6 @@ import { RabbitMQModule } from './rabbitmq/rabbitmq.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
-  controllers: [AppController],
   imports: [
     ConfigModule.forRoot({
       envFilePath: getEnvFile(),
@@ -34,7 +33,9 @@ import { UsersModule } from './users/users.module';
     // TODO: Uncomment when resolve problem with graphql module
     // GracefulShutdownModule.forRoot(getGracefulShutdownConfig()),
     AuthModule,
+    AdminModule,
     UsersModule,
+    CartModule,
     OrdersModule,
     ProductsModule,
     FilesModule,
@@ -43,7 +44,6 @@ import { UsersModule } from './users/users.module';
     OrderWorkerModule,
     HealthModule,
   ],
-  providers: [AppService],
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {

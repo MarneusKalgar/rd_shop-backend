@@ -4,11 +4,13 @@ import {
   ArrayMinSize,
   IsArray,
   IsInt,
+  IsISO31661Alpha2,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -35,6 +37,45 @@ export class CreateOrderItemDto {
   quantity: number;
 }
 
+export class ShippingAddressDto {
+  @ApiProperty({ description: 'City', example: 'New York', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  city?: string;
+
+  @ApiProperty({ description: 'Country (ISO 3166-1 alpha-2)', example: 'US', required: false })
+  @IsISO31661Alpha2()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  country?: string;
+
+  @ApiProperty({ description: 'First name', example: 'John', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  firstName?: string;
+
+  @ApiProperty({ description: 'Last name', example: 'Doe', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  lastName?: string;
+
+  @ApiProperty({ description: 'Phone number', example: '+1234567890', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phone?: string;
+
+  @ApiProperty({ description: 'Postal code', example: '10001', required: false })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  postcode?: string;
+}
+
 export class CreateOrderDto {
   @ApiProperty({
     description:
@@ -56,6 +97,17 @@ export class CreateOrderDto {
   @Type(() => CreateOrderItemDto)
   @ValidateNested({ each: true })
   items: CreateOrderItemDto[];
+
+  @ApiProperty({
+    description:
+      'Optional shipping address. If omitted, the address from the user profile is used as a fallback.',
+    required: false,
+    type: ShippingAddressDto,
+  })
+  @IsOptional()
+  @Type(() => ShippingAddressDto)
+  @ValidateNested()
+  shipping?: ShippingAddressDto;
 }
 
 export class CreateOrderResponseDto {
