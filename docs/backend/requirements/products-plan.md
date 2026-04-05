@@ -302,22 +302,129 @@ FileRecord already has `entityId` column — just filter by `entityId = productI
 
 ---
 
-## Phase 5 — Full-text search (deferred)
+## Phase 5 — Public Categories Endpoint
 
-### 5.1 Options
+### 5.1 Overview
+
+Expose the `ProductCategory` enum values as a standalone public endpoint so clients can populate category filters/dropdowns without hardcoding enum values.
+
+### 5.2 Endpoint
+
+`GET /api/v1/products/categories` — no auth, no query params
+
+**Response:**
+
+```json
+{
+  "data": [
+    { "name": "accessories", "nameEn": "Accessories", "nameUk": "Аксесуари" },
+    { "name": "audio", "nameEn": "Audio", "nameUk": "Аудіо" },
+    { "name": "cameras", "nameEn": "Cameras", "nameUk": "Камери" },
+    { "name": "laptops", "nameEn": "Laptops", "nameUk": "Ноутбуки" },
+    { "name": "monitors", "nameEn": "Monitors", "nameUk": "Монітори" },
+    { "name": "other", "nameEn": "Other", "nameUk": "Інше" },
+    { "name": "peripherals", "nameEn": "Peripherals", "nameUk": "Периферія" },
+    { "name": "smartphones", "nameEn": "Smartphones", "nameUk": "Смартфони" },
+    { "name": "storage", "nameEn": "Storage", "nameUk": "Накопичувачі" },
+    { "name": "tablets", "nameEn": "Tablets", "nameUk": "Планшети" },
+    { "name": "wearables", "nameEn": "Wearables", "nameUk": "Носимі пристрої" }
+  ]
+}
+```
+
+No DB query — static data defined as a `Map<ProductCategory, ProductCategoryDto>` constant (`PRODUCT_CATEGORIES_MAP`) and a derived array constant (`PRODUCT_CATEGORIES`) in `apps/shop/src/products/constants/index.ts`. The service returns `{ data: PRODUCT_CATEGORIES }`. Icons are mapped on the frontend side and are not included in the API response.
+
+> **Note:** The `categories` route segment must be declared **before** `/:id` in `ProductsController` to prevent NestJS from matching it as a UUID param.
+
+### 5.3 Constant shape
+
+```typescript
+export const PRODUCT_CATEGORIES_MAP = new Map<ProductCategory, ProductCategoryDto>([
+  [
+    ProductCategory.ACCESSORIES,
+    { name: 'accessories', nameEn: 'Accessories', nameUk: 'Аксесуари', icon: 'cable' },
+  ],
+  [ProductCategory.AUDIO, { name: 'audio', nameEn: 'Audio', nameUk: 'Аудіо', icon: 'headphones' }],
+  [
+    ProductCategory.CAMERAS,
+    { name: 'cameras', nameEn: 'Cameras', nameUk: 'Камери', icon: 'photo_camera' },
+  ],
+  [
+    ProductCategory.LAPTOPS,
+    { name: 'laptops', nameEn: 'Laptops', nameUk: 'Ноутбуки', icon: 'laptop' },
+  ],
+  [
+    ProductCategory.MONITORS,
+    { name: 'monitors', nameEn: 'Monitors', nameUk: 'Монітори', icon: 'monitor' },
+  ],
+  [ProductCategory.OTHER, { name: 'other', nameEn: 'Other', nameUk: 'Інше', icon: 'category' }],
+  [
+    ProductCategory.PERIPHERALS,
+    { name: 'peripherals', nameEn: 'Peripherals', nameUk: 'Периферія', icon: 'keyboard' },
+  ],
+  [
+    ProductCategory.SMARTPHONES,
+    { name: 'smartphones', nameEn: 'Smartphones', nameUk: 'Смартфони', icon: 'smartphone' },
+  ],
+  [
+    ProductCategory.STORAGE,
+    { name: 'storage', nameEn: 'Storage', nameUk: 'Накопичувачі', icon: 'storage' },
+  ],
+  [
+    ProductCategory.TABLETS,
+    { name: 'tablets', nameEn: 'Tablets', nameUk: 'Планшети', icon: 'tablet_android' },
+  ],
+  [
+    ProductCategory.WEARABLES,
+    { name: 'wearables', nameEn: 'Wearables', nameUk: 'Носимі пристрої', icon: 'watch' },
+  ],
+]);
+```
+
+The map can also be used elsewhere to look up a single category's display data by enum key (e.g. enriching product responses in the future).
+
+```typescript
+export const PRODUCT_CATEGORIES: ProductCategoryDto[] = Array.from(PRODUCT_CATEGORIES_MAP.values());
+```
+
+`PRODUCT_CATEGORIES` is the ready-to-serve array used by the service. `PRODUCT_CATEGORIES_MAP` is used for O(1) key lookups.
+
+### 5.4 DTO shape
+
+```typescript
+class ProductCategoryDto {
+  name: ProductCategory; // enum value
+  nameEn: string; // English display name
+  nameUk: string; // Ukrainian display name
+  // icon intentionally omitted — mapped on the frontend side
+}
+```
+
+### 5.5 Tasks
+
+- [x] Add `ProductCategoryDto` and `ProductCategoriesResponseDto` to `apps/shop/src/products/dto/product-response.dto.ts` and re-export from `dto/index.ts`
+- [x] Add `ProductCategoryMeta` interface, `PRODUCT_CATEGORIES_MAP: Map<ProductCategory, ProductCategoryMeta>`, and `PRODUCT_CATEGORIES: ProductCategoryMeta[]` constants to `apps/shop/src/products/constants/index.ts`
+- [x] Add `getCategories(): ProductCategoriesResponseDto` method to `ProductsService` — returns `{ data: PRODUCT_CATEGORIES }` (no injection needed)
+- [x] Add `GET /categories` handler in `ProductsController` before `GET /:id`, with Swagger decorators
+
+---
+
+## Phase 6 — Full-text search (deferred)
+
+### 6.1 Options
 
 | Approach                          | Complexity | Quality                                 |
 | --------------------------------- | ---------- | --------------------------------------- |
 | Postgres `tsvector` + `GIN` index | Low        | Good for title + description            |
 | Elasticsearch / Meilisearch       | High       | Best for faceted search, typo tolerance |
 
-### 5.2 Postgres approach (recommended starting point)
+### 6.2 Postgres approach (recommended starting point)
 
 `description` column already exists (from Phase 1). Add `tsvector` generated column + GIN index.
 
 Search endpoint: `GET /api/v1/products?q=<term>` using `plainto_tsquery`.
 
-### 5.3 Tasks
+### 6.3 Tasks
 
 - [ ] Migration: add tsvector generated column + GIN index
 - [ ] Update query builder to support `q` parameter
@@ -336,7 +443,9 @@ Phase 3 (Reviews)                   ← Single entity: rating + comment, 3 endpo
   ↓
 Phase 4 (Multiple images)           ← Builds on existing file upload pattern
   ↓
-Phase 5 (Full-text search)          ← Deferred
+Phase 5 (Public categories endpoint) ← Static enum exposure, no DB query
+  ↓
+Phase 6 (Full-text search)          ← Deferred
 ```
 
 ---

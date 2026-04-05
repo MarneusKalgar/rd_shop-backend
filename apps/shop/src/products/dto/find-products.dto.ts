@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -14,6 +15,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { toArray } from '@/common/dto';
+
 import {
   DEFAULT_PRODUCTS_LIMIT,
   MAX_PRODUCTS_LIMIT,
@@ -25,24 +28,37 @@ import {
 
 export class FindProductsQueryDto {
   @ApiPropertyOptional({
-    description: 'Filter by brand name (partial, case-insensitive)',
-    example: 'Sony',
+    description:
+      'Filter by brand name(s) (partial, case-insensitive). Accepts a single value or an array.',
+    example: ['Sony', 'Apple'],
+    isArray: true,
     maxLength: 100,
+    type: String,
   })
+  @IsArray()
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  brand?: string;
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  @Transform(toArray)
+  brand?: string[];
 
   @ApiPropertyOptional({ description: 'Filter by category', enum: ProductCategory })
   @IsEnum(ProductCategory)
   @IsOptional()
   category?: ProductCategory;
 
-  @ApiPropertyOptional({ description: 'Filter by ISO 3166-1 alpha-2 country code', example: 'JP' })
-  @IsISO31661Alpha2()
+  @ApiPropertyOptional({
+    description:
+      'Filter by ISO 3166-1 alpha-2 country code(s). Accepts a single value or an array.',
+    example: ['JP', 'US'],
+    isArray: true,
+    type: String,
+  })
+  @IsArray()
+  @IsISO31661Alpha2({ each: true })
   @IsOptional()
-  country?: string;
+  @Transform(toArray)
+  country?: string[];
 
   @ApiPropertyOptional({ description: 'Cursor (product ID) for keyset pagination' })
   @IsOptional()

@@ -6,9 +6,9 @@ import { ProductCategory, ProductSortBy, SortOrder } from './constants';
 import { Product } from './product.entity';
 
 export interface FindProductsParams {
-  brand?: string;
+  brand?: string[];
   category?: ProductCategory;
-  country?: string;
+  country?: string[];
   cursor?: string;
   isActive?: boolean;
   limit: number;
@@ -125,13 +125,17 @@ export class ProductsRepository {
       qb.andWhere('product.category = :category', { category });
     }
 
-    if (brand) {
-      const escaped = brand.replace(/[%_!]/g, '!$&');
-      qb.andWhere("product.brand ILIKE :brand ESCAPE '!'", { brand: `%${escaped}%` });
+    if (brand?.length) {
+      qb.andWhere(
+        `(${brand.map((b, i) => `product.brand ILIKE :brand${i} ESCAPE '!'`).join(' OR ')})`,
+        Object.fromEntries(brand.map((b, i) => [`brand${i}`, `%${b.replace(/[%_!]/g, '!$&')}%`])),
+      );
     }
 
-    if (country) {
-      qb.andWhere('UPPER(product.country) = UPPER(:country)', { country });
+    if (country?.length) {
+      qb.andWhere('UPPER(product.country) IN (:...countries)', {
+        countries: country.map((c) => c.toUpperCase()),
+      });
     }
 
     if (minPrice) {

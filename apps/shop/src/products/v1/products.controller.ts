@@ -1,7 +1,12 @@
 import { Controller, Get, HttpStatus, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { FindProductsQueryDto, ProductDataResponseDto, ProductsListResponseDto } from '../dto';
+import {
+  FindProductsQueryDto,
+  ProductCategoriesResponseDto,
+  ProductDataResponseDto,
+  ProductsListResponseDto,
+} from '../dto';
 import { ProductsService } from '../products.service';
 
 @ApiTags('products')
@@ -23,5 +28,12 @@ export class ProductsController {
   @Get(':id')
   async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<ProductDataResponseDto> {
     return this.productsService.findById(id);
+  }
+
+  @ApiOperation({ summary: 'List all product categories with display names and icons' })
+  @ApiResponse({ status: HttpStatus.OK, type: ProductCategoriesResponseDto })
+  @Get('categories')
+  getCategories(): ProductCategoriesResponseDto {
+    return this.productsService.getCategories();
   }
 }
