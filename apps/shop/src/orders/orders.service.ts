@@ -12,6 +12,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
+import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
+import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProductsRepository } from '@/products/product.repository';
 import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
@@ -85,6 +87,7 @@ export class OrdersService {
 
     private readonly paymentsGrpcService: PaymentsGrpcService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -104,7 +107,12 @@ export class OrdersService {
    * @throws {ConflictException} If order is already cancelled — HTTP 409
    * @throws {BadRequestException} If order is in CREATED (legacy) state — HTTP 400
    */
-  async cancelOrder(userId: string, orderId: string, userEmail: string): Promise<Order> {
+  async cancelOrder(
+    userId: string,
+    orderId: string,
+    userEmail: string,
+    context?: AuditEventContext,
+  ): Promise<Order> {
     const order = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
       await manager.query('SET LOCAL lock_timeout = 10000');
@@ -152,6 +160,15 @@ export class OrdersService {
     });
 
     this.eventEmitter.emit(ORDER_CANCELLED_EVENT, new OrderCancelledEvent(order.id, userEmail));
+
+    void this.auditLogService.log({
+      action: AuditAction.ORDER_CANCELLED,
+      actorId: userId,
+      context,
+      outcome: AuditOutcome.SUCCESS,
+      targetId: order.id,
+      targetType: 'Order',
+    });
 
     return order;
   }
@@ -202,7 +219,11 @@ export class OrdersService {
    * @see {@link executeOrderTransaction} for transaction implementation
    * @see {@link handleOrderCreationPgErrors} for error handling
    */
-  async createOrder(userId: string, createOrderDto: CreateOrderDto): Promise<Order> {
+  async createOrder(
+    userId: string,
+    createOrderDto: CreateOrderDto,
+    context?: AuditEventContext,
+  ): Promise<Order> {
     const { idempotencyKey, items } = createOrderDto;
 
     const user = await this.validateUser(userId);
@@ -223,6 +244,16 @@ export class OrdersService {
         ORDER_CREATED_EVENT,
         new OrderCreatedEvent(createdOrder.id, user.email),
       );
+
+      void this.auditLogService.log({
+        action: AuditAction.ORDER_CREATED,
+        actorId: userId,
+        context,
+        outcome: AuditOutcome.SUCCESS,
+        targetId: createdOrder.id,
+        targetType: 'Order',
+      });
+
       return createdOrder;
     } catch (error: unknown) {
       return await this.handleOrderCreationPgErrors(error, userId, idempotencyKey);

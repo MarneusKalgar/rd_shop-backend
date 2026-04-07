@@ -8,15 +8,20 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { Request } from 'express';
 
+import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { CurrentUser } from '@/auth/decorators/current-user';
 import { Scopes } from '@/auth/decorators/scopes';
 import { JwtAuthGuard, ScopesGuard } from '@/auth/guards';
 import { UserScope } from '@/auth/permissions/constants';
 import { AuthUser } from '@/auth/types';
+import { REQUEST_ID_HEADER } from '@/common/constants';
 
 import {
   CreateOrderDto,
@@ -53,11 +58,18 @@ export class OrdersController {
   @HttpCode(HttpStatus.OK)
   @Post(':orderId/cancellation')
   @Scopes(UserScope.ORDERS_WRITE)
+  @Throttle({ medium: { limit: 5, ttl: 60_000 } })
   async cancelOrder(
     @Param('orderId', ParseUUIDPipe) orderId: string,
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ): Promise<GetOrderByIdResponseDto> {
-    const order = await this.ordersService.cancelOrder(user.sub, orderId, user.email);
+    const context: AuditEventContext = {
+      correlationId: req.headers[REQUEST_ID_HEADER] as string | undefined,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    };
+    const order = await this.ordersService.cancelOrder(user.sub, orderId, user.email, context);
     return { data: order };
   }
 
@@ -81,11 +93,18 @@ export class OrdersController {
   })
   @Post()
   @Scopes(UserScope.ORDERS_WRITE)
+  @Throttle({ medium: { limit: 5, ttl: 60_000 } })
   async createOrder(
     @Body() createOrderDto: CreateOrderDto,
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ): Promise<GetOrderByIdResponseDto> {
-    const order = await this.ordersService.createOrder(user.sub, createOrderDto);
+    const context: AuditEventContext = {
+      correlationId: req.headers[REQUEST_ID_HEADER] as string | undefined,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    };
+    const order = await this.ordersService.createOrder(user.sub, createOrderDto, context);
     return { data: order };
   }
 

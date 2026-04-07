@@ -1,12 +1,19 @@
-import { INestApplication, Logger, ValidationPipe, VersioningType } from '@nestjs/common';
+import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 // import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
 import cookieParser from 'cookie-parser';
+import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
-import { getLogLevels } from './config';
-import { getEnvVariable, safeClose, setupCors, setupProcessErrorHandlers } from './core';
+import {
+  getEnvVariable,
+  safeClose,
+  setupCors,
+  setupHelmet,
+  setupProcessErrorHandlers,
+} from './core';
 import { setupSwagger } from './core/swagger';
 import { HEALTH_PATHS_TO_BYPASS } from './health/constants';
 import { isProduction } from './utils';
@@ -14,12 +21,15 @@ import { isProduction } from './utils';
 async function bootstrap() {
   setupProcessErrorHandlers();
 
-  let app: INestApplication | undefined;
+  let app: NestExpressApplication | undefined;
 
   try {
-    app = await NestFactory.create(AppModule, {
-      logger: getLogLevels(),
-    });
+    app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+
+    app.useLogger(app.get(Logger));
+
+    // Trust one level of proxy (Docker gateway / AWS ALB) for correct client IP resolution
+    app.set('trust proxy', 1);
 
     // TODO: Uncomment when resolve problem with graphql module
     // setupGracefulShutdown({ app });
@@ -34,6 +44,8 @@ async function bootstrap() {
     });
 
     app.use(cookieParser());
+
+    setupHelmet(app);
 
     app.useGlobalFilters(new GlobalExceptionFilter());
 
@@ -59,14 +71,14 @@ async function bootstrap() {
 
     await app.listen(port);
 
-    Logger.log(`Application is running on port: ${port}`);
-
     if (!isProd) {
-      Logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`);
-      Logger.log(`GraphQL Playground available at: http://localhost:${port}/graphql`);
+      const logger = app.get(Logger);
+      logger.log(`Application is running on port: ${port}`, 'Bootstrap');
+      logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`, 'Bootstrap');
+      logger.log(`GraphQL Playground available at: http://localhost:${port}/graphql`, 'Bootstrap');
     }
   } catch (error) {
-    Logger.error('Error during application bootstrap', (error as Error).stack);
+    console.error('Bootstrap failed:', error);
     await safeClose(app);
     process.exit(1);
   }

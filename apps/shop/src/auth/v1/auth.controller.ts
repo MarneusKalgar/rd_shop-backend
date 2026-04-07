@@ -1,6 +1,10 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
+
+import { AuditEventContext } from '@/audit-log/audit-log.types';
+import { REQUEST_ID_HEADER } from '@/common/constants';
 
 import { AuthService } from '../auth.service';
 import {
@@ -23,7 +27,7 @@ import {
   VerifyEmailDto,
   VerifyEmailResponseDto,
 } from '../dto';
-import { JwtAuthGuard } from '../guards';
+import { JwtAuthGuard, UserEmailThrottleGuard } from '../guards';
 import { TokenService } from '../token.service';
 import { AuthUser } from '../types';
 
@@ -43,14 +47,20 @@ export class AuthController {
   })
   @HttpCode(HttpStatus.OK)
   @Post('forgot-password')
-  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto> {
-    return this.authService.forgotPassword(dto);
+  @Throttle({ long: { limit: 3, ttl: 3_600_000 } })
+  @UseGuards(UserEmailThrottleGuard)
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @Req() req: Request,
+  ): Promise<ForgotPasswordResponseDto> {
+    return this.authService.forgotPassword(dto, this.extractContext(req));
   }
 
   @ApiOperation({ summary: 'Sign out and revoke refresh token' })
   @ApiResponse({ description: 'Successfully signed out', status: HttpStatus.NO_CONTENT })
   @HttpCode(HttpStatus.NO_CONTENT)
   @Post('logout')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
     const cookieValue = req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
@@ -67,6 +77,7 @@ export class AuthController {
   @ApiResponse({ description: 'Missing or invalid refresh token', status: HttpStatus.UNAUTHORIZED })
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
+  @Throttle({ medium: { limit: 10, ttl: 60_000 } })
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -92,6 +103,7 @@ export class AuthController {
   @ApiResponse({ description: 'Too many requests', status: HttpStatus.TOO_MANY_REQUESTS })
   @HttpCode(HttpStatus.OK)
   @Post('resend-verification')
+  @Throttle({ medium: { limit: 1, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   async resendVerification(
     @CurrentUser() currentUser: AuthUser,
@@ -109,8 +121,12 @@ export class AuthController {
   @ApiResponse({ description: 'Passwords do not match', status: HttpStatus.BAD_REQUEST })
   @HttpCode(HttpStatus.OK)
   @Post('reset-password')
-  async resetPassword(@Body() dto: ResetPasswordDto): Promise<ResetPasswordResponseDto> {
-    return this.authService.resetPassword(dto);
+  @Throttle({ medium: { limit: 5, ttl: 60_000 } })
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @Req() req: Request,
+  ): Promise<ResetPasswordResponseDto> {
+    return this.authService.resetPassword(dto, this.extractContext(req));
   }
 
   @ApiOperation({ summary: 'Sign in with email and password' })
@@ -123,11 +139,16 @@ export class AuthController {
   @ApiResponse({ description: 'Invalid input data', status: HttpStatus.BAD_REQUEST })
   @HttpCode(HttpStatus.OK)
   @Post('signin')
+  @Throttle({ medium: { limit: 5, ttl: 60_000 } })
   async signin(
     @Body() signinDto: SigninDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SigninResponseDto> {
-    const { accessToken, cookieValue, user } = await this.authService.signin(signinDto);
+    const { accessToken, cookieValue, user } = await this.authService.signin(
+      signinDto,
+      this.extractContext(req),
+    );
     res.cookie(
       REFRESH_COOKIE_NAME,
       cookieValue,
@@ -145,6 +166,7 @@ export class AuthController {
   @ApiResponse({ description: 'Email already exists', status: HttpStatus.CONFLICT })
   @ApiResponse({ description: 'Invalid input data', status: HttpStatus.BAD_REQUEST })
   @Post('signup')
+  @Throttle({ medium: { limit: 10, ttl: 60_000 } })
   async signup(@Body() signupDto: SignupDto): Promise<SignupResponseDto> {
     return this.authService.signup(signupDto);
   }
@@ -158,7 +180,17 @@ export class AuthController {
   @ApiResponse({ description: 'Invalid or expired token', status: HttpStatus.BAD_REQUEST })
   @HttpCode(HttpStatus.OK)
   @Post('verify-email')
+  @SkipThrottle()
   async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto): Promise<VerifyEmailResponseDto> {
     return this.authService.verifyEmail(verifyEmailDto.token);
+  }
+
+  private extractContext(req: Request): AuditEventContext {
+    const correlationId = req.headers[REQUEST_ID_HEADER] as string | undefined;
+    return {
+      correlationId,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    };
   }
 }

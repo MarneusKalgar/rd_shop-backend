@@ -2,6 +2,7 @@ import { DatabaseAdapterFactory } from '@app/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
+import { AuditLog } from '@/audit-log/audit-log.entity';
 import { DEFAULT_VALUES } from '@/core/environment';
 import { ShopTypeOrmLogger } from '@/db/logger';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
@@ -63,6 +64,7 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
       RefreshToken,
       EmailVerificationToken,
       PasswordResetToken,
+      AuditLog,
     ],
     logger: new ShopTypeOrmLogger(),
   } as TypeOrmModuleOptions;

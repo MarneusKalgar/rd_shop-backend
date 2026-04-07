@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuditLogModule } from '@/audit-log';
 import { MailModule } from '@/mail/mail.module';
 import { PaymentsGrpcModule } from '@/payments/payments-grpc.module';
 import { ProductsRepository } from '@/products/product.repository';
@@ -21,6 +22,7 @@ import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
   exports: [OrdersService, OrdersRepository, OrderItemsRepository],
   imports: [
     TypeOrmModule.forFeature([Order, OrderItem, Product, User]),
+    AuditLogModule,
     EventEmitterModule.forRoot(),
     MailModule,
     RabbitMQModule,

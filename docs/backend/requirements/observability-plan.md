@@ -1,5 +1,9 @@
 # Observability & Reliability — Implementation Plan
 
+> Each phase carries **Priority** (business urgency), **Severity** (risk if absent), and **Complexity** (implementation effort) rated 1–5.
+>
+> **Phases 1–2** (Pino structured logging + HTTP security hardening) have been **moved to `security-hardening-plan.md`** — they are prerequisites for security hardening and are implemented in that scope.
+
 ## Current state
 
 - NestJS default logger with configurable log levels (`APP_LOG_LEVEL`)
@@ -8,221 +12,191 @@
 - `AsyncLocalStorage` for request-scoped context (`queryCount`)
 - Health checks: `/health` (liveness), `/ready` (postgres + rabbitmq + minio), `/status` (+ payments gRPC)
 - Graceful shutdown implemented
-- No Helmet, no CORS config, no rate limiting, no structured logging, no metrics, no distributed tracing
+- No structured logging, no metrics, no distributed tracing
 - No Winston/Pino — uses default NestJS `ConsoleLogger`
 
 ---
 
-## Phase 1 — Structured logging (Pino)
+## Target stack (AWS-native)
 
-### 1.1 Why Pino over Winston
+The production observability backend is **AWS CloudWatch** (Logs, Metrics, Dashboards, Alarms) + **AWS X-Ray** (tracing). No self-hosted Prometheus, Grafana, or Jaeger in production.
 
-- 5-10x faster (critical in Node.js event loop)
-- Native JSON output — direct compatible with log aggregators (ELK, Datadog, CloudWatch)
-- `nestjs-pino` integrates seamlessly with NestJS lifecycle
-- Built-in request serialization (method, url, status, duration)
+**Why not Prometheus + Grafana?**
 
-### 1.2 Dependencies
+| Concern                             | Problem                                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **t3.micro (1GB RAM)**              | Shop (400MB) + Payments (300MB) + OS (300MB) = full. Zero room for sidecar containers.               |
+| **Separate observability instance** | Doubles cost, eats free tier hours, doubles ops overhead.                                            |
+| **CloudWatch already included**     | Logs ingestion free up to 5GB/mo, basic Metrics free, X-Ray free up to 100K traces/mo.               |
+| **Vendor lock-in**                  | Acceptable — entire stack is AWS. EMF metric format is a thin logging convention, not deep coupling. |
 
-```
-npm install nestjs-pino pino-http pino-pretty
-```
+**Local dev:** Prometheus + Grafana remain available as **optional** Docker Compose services for metrics visualization during development. They are not part of the production stack.
 
-### 1.3 Configuration — `apps/shop/src/config/logger.ts` (rewrite)
+---
+
+## Phase 1 — CloudWatch Metrics via Embedded Metrics Format (EMF)
+
+> **Priority: 3 | Severity: 3 | Complexity: 2**
+>
+> **Prerequisite:** Pino structured logging (`security-hardening-plan.md`, Prerequisite section)
+
+### Why EMF over CloudWatch Agent sidecar
+
+| Approach         | Requires                                                        | RAM overhead | Fit for t3.micro        |
+| ---------------- | --------------------------------------------------------------- | ------------ | ----------------------- |
+| **EMF**          | Nothing — Pino logs with `_aws` field, CloudWatch auto-extracts | 0            | Yes                     |
+| CW Agent sidecar | Sidecar container scraping `/metrics`                           | ~100-200MB   | No — no memory headroom |
+
+EMF embeds metric data directly in Pino log lines. CloudWatch parses the `_aws` field and creates real CloudWatch Metrics automatically — no sidecar, no Prometheus server, no additional compute.
+
+### Implementation
+
+**`MetricsInterceptor`** — global NestJS interceptor that emits EMF-formatted log lines:
 
 ```typescript
-LoggerModule.forRoot({
-  pinoHttp: {
-    level: process.env.APP_LOG_LEVEL || 'info',
-    transport: isProd ? undefined : { target: 'pino-pretty' },
-    genReqId: (req) => req.headers['x-request-id'] || randomUUID(),
-    serializers: {
-      req: (req) => ({ method: req.method, url: req.url, requestId: req.id }),
-      res: (res) => ({ statusCode: res.statusCode }),
-    },
-    redact: ['req.headers.authorization', 'req.headers.cookie'],
+logger.info({
+  _aws: {
+    Timestamp: Date.now(),
+    CloudWatchMetrics: [
+      {
+        Namespace: 'RdShop',
+        Dimensions: [['method', 'path', 'statusCode']],
+        Metrics: [{ Name: 'RequestDuration', Unit: 'Milliseconds' }],
+      },
+    ],
   },
+  method: 'GET',
+  path: '/api/v1/products',
+  statusCode: 200,
+  RequestDuration: 42,
 });
 ```
 
-### 1.4 Request context
+### Custom metrics
 
-pino-http creates a child logger per request with `requestId`, `method`, `url`, `statusCode`, `responseTime` automatically. `userId` can be added via `req.log.setBindings({ userId })` in a guard/interceptor after JWT validation — no `AsyncLocalStorage` needed.
+| Metric                              | Type    | Labels                     | Purpose               |
+| ----------------------------------- | ------- | -------------------------- | --------------------- |
+| `http_requests_total`               | Counter | method, path, status       | Request volume        |
+| `http_request_duration_ms`          | Value   | method, path, status       | Latency               |
+| `orders_created_total`              | Counter | status                     | Order creation volume |
+| `orders_processed_total`            | Counter | result (success/retry/dlq) | Worker throughput     |
+| `rabbitmq_messages_published_total` | Counter | queue                      | Queue publish volume  |
+| `grpc_requests_total`               | Counter | method, status             | gRPC call volume      |
+| `grpc_request_duration_ms`          | Value   | method                     | gRPC latency          |
+| `db_query_duration_ms`              | Value   | operation                  | SQL query latency     |
+| `db_queries_per_request`            | Value   | path                       | N+1 detection         |
 
-The existing `AsyncLocalStorage` stays as-is — it's a query counter for DataLoader verification, not a request context store. No reason to merge the two concerns.
+### Instrumentation points
 
-### 1.5 Replace existing logger usage
+- `MetricsInterceptor` — global NestJS interceptor for HTTP request metrics
+- `RabbitMQService.publish()` and `OrderWorkerService.handleMessage()`
+- `PaymentsGrpcService.authorize()` and `getPaymentStatus()`
+- TypeORM query logger (extend existing `AsyncLocalStorage` pattern)
 
-- Remove `RequestIdMiddleware` (pino-http `genReqId` handles request ID generation/propagation natively)
-- Keep `AsyncLocalStorage` + `QueryLoggerMiddleware` for query counting — just swap `this.logger` to Pino
-- Replace `Logger.log()` / `this.logger.log()` calls with Pino logger injection
+### Local dev: Prometheus (optional)
 
-### 1.6 Tasks
+For local development, keep `prom-client` + `@willsoto/nestjs-prometheus` as optional dependencies. The `/metrics` endpoint works in dev for Prometheus scraping + Grafana visualization. In AWS, EMF takes over — the `/metrics` endpoint is not used in production.
 
-- [ ] Install `nestjs-pino`, `pino-http`, `pino-pretty`
-- [ ] Rewrite `config/logger.ts` for Pino
-- [ ] Register `LoggerModule` in `AppModule`
-- [ ] Remove `RequestIdMiddleware` (replaced by pino-http `genReqId`)
-- [ ] Update `QueryLoggerMiddleware` to use Pino (keep AsyncLocalStorage for query counting)
-- [ ] Add `userId` to request log context via `req.log.setBindings()` in auth guard/interceptor
-- [ ] Redact sensitive fields (Authorization header, passwords)
-- [ ] Update `main.ts`: `app.useLogger(app.get(Logger))`
-- [ ] Verify JSON output in prod, pretty-print in dev
-- [ ] Update tests (logger mock may need adjustment)
-
----
-
-## Phase 2 — HTTP security hardening
-
-### 2.1 Helmet
+### Dependencies
 
 ```
-npm install helmet
+npm install aws-embedded-metrics
 ```
 
-In `main.ts`:
+Or emit EMF format manually via Pino (no extra dependency — just structured log lines with `_aws` field).
 
-```typescript
-app.use(helmet());
-```
+### Tasks
 
-Sets secure HTTP headers: `X-Content-Type-Options`, `Strict-Transport-Security`, `X-Frame-Options`, etc.
-
-### 2.2 CORS
-
-```typescript
-app.enableCors({
-  origin: process.env.CORS_ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
-  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-  credentials: true,
-  maxAge: 86400,
-});
-```
-
-Env var: `CORS_ALLOWED_ORIGINS` — comma-separated list. Wide open in dev, restricted in prod.
-
-### 2.3 Rate limiting
-
-```
-npm install @nestjs/throttler
-```
-
-```typescript
-ThrottlerModule.forRoot([
-  { name: 'short', ttl: 1000, limit: 3 }, // 3 req/sec
-  { name: 'medium', ttl: 10000, limit: 20 }, // 20 req/10sec
-  { name: 'long', ttl: 60000, limit: 100 }, // 100 req/min
-]);
-```
-
-Custom stricter limits on auth endpoints:
-
-- `/auth/signin`: 5 attempts per minute per IP
-- `/auth/forgot-password`: 3 per hour per email
-- `/auth/refresh`: 10 per minute
-
-> **Important:** `@nestjs/throttler` rate-limits by IP by default. The auth endpoints
-> `forgot-password` (3/hour per email) and `resend-verification` (1/min per userId)
-> must rate-limit by **user identity**, not IP, to prevent abuse across proxies.
-> This requires a custom `ThrottlerGuard` that extracts the key from the request body
-> or JWT payload:
->
-> ```typescript
-> @Injectable()
-> export class UserEmailThrottleGuard extends ThrottlerGuard {
->   protected async getTracker(req: Request): Promise<string> {
->     return req.body?.email ?? req.ip;
->   }
-> }
-> ```
->
-> When these guards are in place, remove the manual DB-based rate-limit queries
-> (`threeHoursAgo` / `oneMinuteAgo`) from `AuthService.forgotPassword()` and
-> `AuthService.resendVerification()`.
-
-### 2.4 Tasks
-
-- [ ] Install + configure Helmet
-- [ ] Configure CORS with env-based origins
-- [ ] Install `@nestjs/throttler`, configure global + per-route limits
-- [ ] Add `CORS_ALLOWED_ORIGINS` to environment schema
-- [ ] Apply `@Throttle()` on auth endpoints
-- [ ] Verify GraphQL throttling (needs `GqlThrottlerGuard`)
-- [ ] Tests: verify rate limit responses (429)
-
----
-
-## Phase 3 — Prometheus metrics
-
-### 3.1 Dependencies
-
-```
-npm install prom-client @willsoto/nestjs-prometheus
-```
-
-### 3.2 Metrics endpoint
-
-`GET /metrics` — Prometheus scrape endpoint (excluded from auth + `api/` prefix).
-
-### 3.3 Default metrics
-
-`prom-client` auto-collects: process CPU, memory, event loop lag, GC stats, active handles.
-
-### 3.4 Custom metrics
-
-| Metric                              | Type      | Labels                     | Purpose               |
-| ----------------------------------- | --------- | -------------------------- | --------------------- |
-| `http_requests_total`               | Counter   | method, path, status       | Request volume        |
-| `http_request_duration_seconds`     | Histogram | method, path, status       | Latency distribution  |
-| `orders_created_total`              | Counter   | status                     | Order creation volume |
-| `orders_processed_total`            | Counter   | result (success/retry/dlq) | Worker throughput     |
-| `rabbitmq_messages_published_total` | Counter   | queue                      | Queue publish volume  |
-| `grpc_requests_total`               | Counter   | method, status             | gRPC call volume      |
-| `grpc_request_duration_seconds`     | Histogram | method                     | gRPC latency          |
-| `db_query_duration_seconds`         | Histogram | operation                  | SQL query latency     |
-| `db_queries_per_request`            | Histogram | path                       | N+1 detection         |
-
-### 3.5 Implementation
-
-- `MetricsInterceptor` — global NestJS interceptor for HTTP metrics
-- Instrument `RabbitMQService.publish()` and `OrderWorkerService.handleMessage()`
-- Instrument `PaymentsGrpcService.authorize()` and `getPaymentStatus()`
-- Instrument TypeORM query logger (extend existing `AsyncLocalStorage` pattern)
-
-### 3.6 Tasks
-
-- [ ] Install `prom-client` + `@willsoto/nestjs-prometheus`
-- [ ] Create `MetricsModule`, register in `AppModule`
-- [ ] Expose `/metrics` endpoint (bypass auth + prefix)
-- [ ] Create `MetricsInterceptor` for HTTP request metrics
-- [ ] Add custom counters/histograms for orders, RabbitMQ, gRPC
+- [ ] Create `MetricsInterceptor` (global NestJS interceptor)
+- [ ] Define EMF metric schemas for HTTP, orders, RabbitMQ, gRPC
+- [ ] Instrument `RabbitMQService.publish()` and `OrderWorkerService.handleMessage()`
+- [ ] Instrument `PaymentsGrpcService` methods
 - [ ] Instrument TypeORM query logger for DB metrics
-- [ ] Docker compose: add Prometheus service + scrape config
-- [ ] Tests: verify metrics endpoint returns valid Prometheus format
+- [ ] Optional: add `prom-client` + `/metrics` for local dev Prometheus
+- [ ] Verify metrics appear in CloudWatch Metrics console
 
 ---
 
-## Phase 4 — Distributed tracing (OpenTelemetry)
+## Phase 2 — CloudWatch Dashboards & Alarms
 
-### 4.1 Dependencies
+> **Priority: 2 | Severity: 2 | Complexity: 2**
+>
+> **Prerequisite:** Phase 1 (metrics must exist in CloudWatch before dashboards can visualize them)
+
+### Dashboards (provisioned via Pulumi)
+
+| Dashboard          | Widgets                                                                                  |
+| ------------------ | ---------------------------------------------------------------------------------------- |
+| **API Overview**   | Request rate, error rate (5xx), p50/p95/p99 latency                                      |
+| **Orders**         | Creation rate, processing time, retry rate, DLQ volume                                   |
+| **Infrastructure** | ECS CPU/memory utilization (built-in ECS metrics), RDS connections, AmazonMQ queue depth |
+
+Dashboards are defined as JSON in the Pulumi `infra/` project — same IaC pipeline, version-controlled, reproducible per environment.
+
+### Alarms
+
+| Alarm                    | Metric source                              | Condition                | Action                 |
+| ------------------------ | ------------------------------------------ | ------------------------ | ---------------------- |
+| High error rate          | `http_requests_total` (EMF)                | 5xx > 5% of total for 5m | SNS → email            |
+| Slow responses           | `http_request_duration_ms` p95             | > 2s for 5m              | SNS → email            |
+| DLQ growing              | `orders_processed_total{result=dlq}`       | > 0 for 10m              | SNS → email            |
+| Service unhealthy        | ECS health check (built-in)                | 3 consecutive failures   | ECS auto-restart + SNS |
+| High CPU/memory          | ECS `CPUUtilization` / `MemoryUtilization` | > 80% for 5m             | SNS → email            |
+| DB connections exhausted | RDS `DatabaseConnections` (built-in)       | > 80% of max for 1m      | SNS → email            |
+
+### Notifications
+
+- SNS topic per environment: `rd-shop-alarms-stage`, `rd-shop-alarms-production`
+- Email subscription initially; Slack webhook (via Lambda) as future enhancement
+
+### Tasks
+
+- [ ] Create CloudWatch Dashboard definitions in Pulumi
+- [ ] Create CloudWatch Alarms in Pulumi
+- [ ] Create SNS topics + email subscriptions in Pulumi
+- [ ] Set CloudWatch Logs retention policies (30 days stage, 90 days production)
+- [ ] Document alarm runbook (what each alarm means, how to respond)
+
+---
+
+## Phase 3 — Distributed Tracing (AWS X-Ray)
+
+> **Priority: 2 | Severity: 2 | Complexity: 3**
+>
+> **Deferred to post-free-tier.** At current scale (2 services, 1 instance, synchronous gRPC), Pino `requestId` correlation across CloudWatch log streams covers 90% of debugging needs.
+
+### Why defer
+
+| Factor                           | Assessment                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| **Current debugging capability** | Pino `requestId` correlates shop ↔ payments logs in CloudWatch Logs Insights |
+| **ADOT Collector sidecar**       | ~100-200MB RAM — doesn't fit on t3.micro alongside both services             |
+| **X-Ray SDK (no collector)**     | Direct sends possible but adds SDK dependency + ~10MB overhead per service   |
+| **X-Ray free tier**              | 100K traces/month — sufficient for staging                                   |
+| **Value at 2-service scale**     | Low. Tracing shines with 5+ services and async fan-out patterns              |
+
+### Implementation (when ready)
+
+When budget allows (t3.small or Fargate), add OpenTelemetry with X-Ray exporter:
 
 ```
 npm install @opentelemetry/sdk-node @opentelemetry/api \
   @opentelemetry/auto-instrumentations-node \
-  @opentelemetry/exporter-trace-otlp-http \
-  @opentelemetry/exporter-metrics-otlp-http
+  @opentelemetry/id-generator-aws-xray \
+  @opentelemetry/exporter-trace-otlp-http
 ```
 
-### 4.2 Tracing setup — `apps/shop/src/tracing.ts` (loaded before app)
+**Bootstrap** — `apps/shop/src/tracing.ts` (loaded before app):
 
 ```typescript
-// Must be imported before any other module
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { AWSXRayIdGenerator } from '@opentelemetry/id-generator-aws-xray';
 
 const sdk = new NodeSDK({
   serviceName: 'shop-service',
   traceExporter: new OTLPTraceExporter({ url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT }),
+  idGenerator: new AWSXRayIdGenerator(),
   instrumentations: [getNodeAutoInstrumentations()],
 });
 
@@ -231,84 +205,40 @@ sdk.start();
 
 Auto-instruments: HTTP, Express, pg (PostgreSQL), amqplib (RabbitMQ), gRPC.
 
-### 4.3 Trace context propagation
+**ADOT Collector** as ECS sidecar receives OTLP from the app and forwards to X-Ray. This keeps the app code identical between local (Jaeger) and AWS (X-Ray).
+
+### Trace context propagation
 
 - **HTTP → RabbitMQ:** Inject trace context in message headers; extract in worker
 - **HTTP → gRPC:** Auto-propagated by OpenTelemetry gRPC instrumentation
 - **Request ID correlation:** Link `X-Request-ID` to trace ID via span attributes
 
-### 4.4 Docker compose additions
-
-| Service  | Image                           | Port                         | Purpose             |
-| -------- | ------------------------------- | ---------------------------- | ------------------- |
-| `jaeger` | `jaegertracing/all-in-one:1.57` | 16686 (UI), 4318 (OTLP HTTP) | Trace visualization |
-
-Or use Grafana Tempo if Grafana is already in the stack.
-
-### 4.5 Tasks
+### Tasks (future)
 
 - [ ] Install OpenTelemetry packages
-- [ ] Create `tracing.ts` bootstrap file
+- [ ] Create `tracing.ts` bootstrap file with X-Ray ID generator
 - [ ] Update `main.ts` to import tracing before app
+- [ ] Add ADOT Collector sidecar to ECS task definition
 - [ ] Add trace context propagation in RabbitMQ message headers
 - [ ] Custom spans for business operations (order creation, payment auth)
-- [ ] Docker compose: add Jaeger or Tempo service
 - [ ] Add `OTEL_EXPORTER_OTLP_ENDPOINT` to environment schema
-- [ ] Verify traces in Jaeger UI
+- [ ] Verify traces in X-Ray console
 
 ---
 
-## Phase 5 — Grafana dashboards (deferred)
+## CloudWatch Logs integration
 
-### 5.1 Docker compose additions
+> Part of AWS migration — no separate implementation phase needed.
 
-| Service      | Image                    | Port |
-| ------------ | ------------------------ | ---- |
-| `grafana`    | `grafana/grafana:latest` | 3000 |
-| `prometheus` | `prom/prometheus:latest` | 9090 |
+Pino writes JSON to stdout → ECS `awslogs` log driver captures it → CloudWatch Logs ingests each line as a structured JSON event. **Zero application code changes.**
 
-### 5.2 Pre-built dashboards
-
-- **API Overview:** Request rate, error rate, p50/p95/p99 latency
-- **Orders:** Creation rate, processing time, retry rate, DLQ volume
-- **Database:** Query rate, slow queries, connections
-- **Infrastructure:** CPU, memory, event loop lag
-
-### 5.3 Alerting rules
-
-| Alert                         | Condition                          | Severity |
-| ----------------------------- | ---------------------------------- | -------- |
-| High error rate               | 5xx > 5% of total for 5m           | Critical |
-| Slow responses                | p95 > 2s for 5m                    | Warning  |
-| DLQ growing                   | orders_dlq size > 0 for 10m        | Warning  |
-| DB connection pool exhaustion | available connections < 2 for 1m   | Critical |
-| Payment service down          | gRPC Ping failures > 3 consecutive | Warning  |
-
-### 5.4 Tasks
-
-- [ ] Docker compose: Grafana + Prometheus services
-- [ ] Prometheus scrape config for shop + payments
-- [ ] Import/create dashboards (JSON provisioning)
-- [ ] Alert rules in Prometheus/Grafana
-- [ ] Documentation: how to access dashboards locally
-
----
-
-## AWS CloudWatch integration
-
-When infrastructure moves to AWS (ECS/Fargate), CloudWatch becomes the production observability backend. The phases above remain the same — Pino, Prometheus, and OpenTelemetry are application-level concerns — but their outputs route to CloudWatch instead of (or alongside) local tools.
-
-### Logs — CloudWatch Logs
-
-No code changes needed. Pino writes JSON to stdout → ECS `awslogs` log driver captures it → CloudWatch Logs ingests each line as a structured JSON event.
-
-**ECS task definition:**
+**ECS task definition (configured in Pulumi):**
 
 ```json
 "logConfiguration": {
   "logDriver": "awslogs",
   "options": {
-    "awslogs-group": "/ecs/rd-shop",
+    "awslogs-group": "/ecs/rd-shop/shop",
     "awslogs-region": "eu-central-1",
     "awslogs-stream-prefix": "shop"
   }
@@ -329,84 +259,37 @@ fields @timestamp, req.method, req.url, res.statusCode, responseTime
 - `/ecs/rd-shop/shop` — shop service logs
 - `/ecs/rd-shop/payments` — payments service logs
 
-**Retention:** Set per log group (e.g., 30 days dev, 90 days prod).
-
-### Metrics — CloudWatch Metrics
-
-Two options (not mutually exclusive):
-
-| Approach                          | How                                                                                   | Pros                                    | Cons                                          |
-| --------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------- |
-| **Embedded Metrics Format (EMF)** | Pino logs with special `_aws` field → CloudWatch auto-extracts metrics from log lines | Zero infrastructure, no sidecar         | Metric resolution limited to log frequency    |
-| **CloudWatch Agent sidecar**      | Scrapes `/metrics` (Prometheus format) → pushes to CloudWatch Metrics                 | Reuses Phase 3 Prometheus metrics as-is | Requires sidecar container in task definition |
-
-**Recommended: CloudWatch Agent sidecar** — reuses all Prometheus metrics from Phase 3 without code changes. Add as a sidecar container in the ECS task definition pointed at the app's `/metrics` endpoint.
-
-### Tracing — AWS X-Ray via OpenTelemetry
-
-OpenTelemetry (Phase 4) can export to X-Ray instead of Jaeger. Replace the OTLP exporter with the X-Ray exporter:
-
-```
-npm install @opentelemetry/id-generator-aws-xray @aws/aws-distro-opentelemetry-node-autoinstrumentation
-```
-
-Or use the **AWS Distro for OpenTelemetry (ADOT) Collector** as a sidecar — receives OTLP from the app and forwards to X-Ray. This keeps the app code identical between local (Jaeger) and AWS (X-Ray).
-
-### Alarms
-
-CloudWatch Alarms replace Grafana alerting rules from Phase 5:
-
-| Alarm             | Metric source                                  | Condition     |
-| ----------------- | ---------------------------------------------- | ------------- |
-| High error rate   | `http_requests_total{status=~"5.."}` via agent | > 5% for 5m   |
-| Slow responses    | `http_request_duration_seconds` p95            | > 2s for 5m   |
-| DLQ growing       | `orders_processed_total{result="dlq"}`         | > 0 for 10m   |
-| Service unhealthy | ECS health check failures                      | 3 consecutive |
-| High CPU/memory   | ECS built-in metrics                           | > 80% for 5m  |
-
-Notifications via SNS → email/Slack.
-
-### Dashboards
-
-CloudWatch Dashboards replace Grafana dashboards (Phase 5) in production. Same panels, different tool — built from the same underlying metrics.
-
-Local dev still uses Prometheus + Grafana (docker compose) for fast iteration.
-
-### Env vars (AWS-specific)
-
-```
-AWS_REGION=eu-central-1
-CLOUDWATCH_LOG_GROUP=/ecs/rd-shop
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318    # ADOT collector sidecar
-```
-
-### Tasks
-
-- [ ] Configure ECS task definition with `awslogs` log driver
-- [ ] Set CloudWatch Logs retention policies per environment
-- [ ] Add CloudWatch Agent sidecar for Prometheus metrics scraping
-- [ ] Configure ADOT Collector sidecar for X-Ray trace export
-- [ ] Create CloudWatch Alarms (error rate, latency, DLQ, health)
-- [ ] Create CloudWatch Dashboard (API overview, orders, DB)
-- [ ] SNS topic + subscription for alarm notifications
-- [ ] Document local-vs-AWS observability differences
+**Retention:** Set per log group (30 days stage, 90 days production) — configured in Pulumi.
 
 ---
 
-## Implementation order recommendation
+## Implementation order
 
 ```
-Phase 1 (Structured logging)  ← Foundation — do first, everything else depends on good logs
+Security Hardening (Pino + Helmet + Throttler)  ← Prerequisite — see security-hardening-plan.md
   ↓
-Phase 2 (Security hardening)  ← Quick win, no dependencies
+AWS Migration Phases 0-2 (VPC + Data + Compute) ← Infrastructure must exist for CloudWatch
   ↓
-Phase 3 (Metrics)             ← Requires Phase 1 for correlated logging
+Phase 1 (CloudWatch Metrics via EMF)             ← MetricsInterceptor + EMF format
   ↓
-Phase 4 (Tracing)             ← Biggest value after metrics are in place
+Phase 2 (CloudWatch Dashboards + Alarms)         ← Pulumi IaC, SNS notifications
   ↓
-Phase 5 (Dashboards)          ← Local dev visualization (Prometheus + Grafana)
-  ↓
-AWS CloudWatch                ← Production observability — routes Pino logs, Prometheus
-                                 metrics, and OTel traces to CloudWatch/X-Ray. Done
-                                 during or after AWS infrastructure migration.
+Phase 3 (X-Ray Tracing)                          ← Deferred to post-free-tier (t3.small or Fargate)
 ```
+
+---
+
+## Env vars
+
+| Variable                      | Value                   | Notes                                 |
+| ----------------------------- | ----------------------- | ------------------------------------- |
+| `AWS_REGION`                  | `eu-central-1`          | Used by EMF and CloudWatch SDK        |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | ADOT collector sidecar (Phase 3 only) |
+
+---
+
+## Cross-references
+
+- Pino structured logging + HTTP hardening: `docs/backend/requirements/security-hardening-plan.md` (Prerequisite + Parts 4a, 4b)
+- AWS infrastructure: `docs/backend/requirements/aws-migration-plan.md`
+- ECS task definitions with `awslogs` driver: `docs/backend/requirements/aws-migration-plan.md` (Phase 2)
