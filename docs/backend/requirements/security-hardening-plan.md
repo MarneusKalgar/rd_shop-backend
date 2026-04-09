@@ -53,14 +53,14 @@ The existing `AsyncLocalStorage` stays as-is — it's a query counter for DataLo
 
 ### Tasks
 
-- [ ] Install `nestjs-pino`, `pino-http`, `pino-pretty`
-- [ ] Rewrite `config/logger.ts` for Pino
-- [ ] Register `LoggerModule` in `AppModule`
-- [ ] Remove `RequestIdMiddleware` (replaced by pino-http `genReqId`)
-- [ ] Update `QueryLoggerMiddleware` to use Pino (keep AsyncLocalStorage for query counting)
-- [ ] Add `userId` to request log context via `req.log.setBindings()` in auth guard/interceptor
-- [ ] Redact sensitive fields (Authorization header, passwords) — satisfies Part 2.3
-- [ ] Update `main.ts`: `app.useLogger(app.get(Logger))`
+- [x] Install `nestjs-pino`, `pino-http`, `pino-pretty`
+- [x] Rewrite `config/logger.ts` for Pino
+- [x] Register `LoggerModule` in `AppModule`
+- [x] Remove `RequestIdMiddleware` (replaced by pino-http `genReqId`)
+- [x] Update `QueryLoggerMiddleware` to use Pino (keep AsyncLocalStorage for query counting)
+- [x] Add `userId` to request log context via `req.log.setBindings()` in auth guard/interceptor
+- [x] Redact sensitive fields (Authorization header, passwords) — satisfies Part 2.3
+- [x] Update `main.ts`: `app.useLogger(app.get(Logger))`
 - [ ] Verify JSON output in prod, pretty-print in dev
 - [ ] Update tests (logger mock may need adjustment)
 
@@ -88,9 +88,9 @@ Create a living `SECURITY-BASELINE.md` document at the repo root mapping the pro
 
 | #   | Requirement                                                                                                                  | Status |
 | --- | ---------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 1.1 | Document current posture for each ASVS category (Authentication, Access Control, Secrets, Transport, Input Surface, Logging) | ❌     |
-| 1.2 | For each category, list: what exists, residual risk, what was added in this HW, backlog/TODO                                 | ❌     |
-| 1.3 | Translate the checklist into a concrete engineering backlog with actionable items                                            | ❌     |
+| 1.1 | Document current posture for each ASVS category (Authentication, Access Control, Secrets, Transport, Input Surface, Logging) | ✅     |
+| 1.2 | For each category, list: what exists, residual risk, what was added in this HW, backlog/TODO                                 | ✅     |
+| 1.3 | Translate the checklist into a concrete engineering backlog with actionable items                                            | ✅     |
 
 ### Current state
 
@@ -114,11 +114,11 @@ No `SECURITY-BASELINE.md` exists. Architecture docs (`docs/backend/architecture/
 | --- | ------------------------------------------------------------ | ---------------------------- |
 | 2.1 | Secrets are not hardcoded in application code                | ✅                           |
 | 2.2 | Secrets are not committed to the repository                  | ✅                           |
-| 2.3 | Secrets are not logged (raw JWT, passwords, payment details) | ⚠️                           |
+| 2.3 | Secrets are not logged (raw JWT, passwords, payment details) | ✅                           |
 | 2.4 | Environment separation — different configs for dev/test/prod | ✅                           |
 | 2.5 | Env validation at startup (fail-fast on missing secrets)     | ✅                           |
-| 2.6 | Secrets delivery — document current flow (GH Secrets → VM)   | ❌                           |
-| 2.7 | Document what must never be logged                           | ⚠️                           |
+| 2.6 | Secrets delivery — document current flow (GH Secrets → VM)   | ✅                           |
+| 2.7 | Document what must never be logged                           | ✅                           |
 | 2.8 | Secrets rotation strategy (JWT, DB, AWS)                     | 🔜 Deferred to AWS migration |
 | 2.9 | External secrets manager integration                         | 🔜 Deferred to AWS migration |
 
@@ -183,10 +183,10 @@ docker compose env_file mount → container env vars at runtime
 
 | #   | Requirement                                                        | Status                       |
 | --- | ------------------------------------------------------------------ | ---------------------------- |
-| 3.1 | Document where TLS terminates (current state + target state)       | ❌                           |
+| 3.1 | Document where TLS terminates (current state + target state)       | ✅                           |
 | 3.2 | HTTP → HTTPS redirect on edge                                      | 🔜 Deferred to AWS migration |
-| 3.3 | Classify traffic: public / internal / trusted-by-placement         | ❌                           |
-| 3.4 | Provide architecture note showing intended TLS design              | ❌                           |
+| 3.3 | Classify traffic: public / internal / trusted-by-placement         | ✅                           |
+| 3.4 | Provide architecture note showing intended TLS design              | ✅                           |
 | 3.5 | App-level TLS readiness (cookie secure flag, scheme-agnostic URLs) | ✅                           |
 
 ### Already TLS-ready in application code
@@ -241,11 +241,11 @@ A **transport security architecture note** in `SECURITY-BASELINE.md` covering:
 
 | #   | Requirement                                                        | Status |
 | --- | ------------------------------------------------------------------ | ------ |
-| 4.1 | Global rate-limiting policy for normal API traffic                 | ❌     |
-| 4.2 | Stricter policy for risky endpoints (auth, payments, admin writes) | ⚠️     |
-| 4.3 | Distinguish between normal and risky traffic throttling modes      | ❌     |
-| 4.4 | GraphQL-aware throttling (GqlThrottlerGuard)                       | ❌     |
-| 4.5 | Correct client IP resolution behind reverse proxy                  | ❌     |
+| 4.1 | Global rate-limiting policy for normal API traffic                 | ✅     |
+| 4.2 | Stricter policy for risky endpoints (auth, payments, admin writes) | ✅     |
+| 4.3 | Distinguish between normal and risky traffic throttling modes      | ✅     |
+| 4.4 | GraphQL-aware throttling (GqlThrottlerGuard)                       | ✅     |
+| 4.5 | Correct client IP resolution behind reverse proxy                  | ✅     |
 | 4.6 | Document throttling evidence (429 response example)                | ❌     |
 
 ### Partially implemented — rework needed
@@ -310,14 +310,14 @@ Custom stricter limits on auth endpoints:
 
 ### Tasks
 
-- [ ] Install `@nestjs/throttler`
-- [ ] Configure `ThrottlerModule.forRoot()` with multi-tier limits
-- [ ] Apply `@Throttle()` on auth endpoints (`signin`, `forgot-password`, `refresh`)
-- [ ] Implement `UserEmailThrottleGuard` for identity-based throttling
-- [ ] Apply `@Throttle()` on payment/refund and admin write endpoints
-- [ ] Implement `GqlThrottlerGuard` for GraphQL mutations
-- [ ] Configure proxy IP resolution (`app.set('trust proxy', ...)`)
-- [ ] Remove DB-based rate-limit queries from `AuthService` after throttler is in place
+- [x] Install `@nestjs/throttler`
+- [x] Configure `ThrottlerModule.forRoot()` with multi-tier limits
+- [x] Apply `@Throttle()` on auth endpoints (`signin`, `forgot-password`, `refresh`)
+- [x] Implement `UserEmailThrottleGuard` for identity-based throttling
+- [x] Apply `@Throttle()` on payment/refund and admin write endpoints
+- [x] Implement `GqlThrottlerGuard` for GraphQL mutations
+- [x] Configure proxy IP resolution (`app.set('trust proxy', ...)`)
+- [x] Remove DB-based rate-limit queries from `AuthService` after throttler is in place
 - [ ] Tests: verify rate limit responses (429)
 
 ### Part 4b — Security Headers
@@ -328,9 +328,9 @@ Custom stricter limits on auth endpoints:
 
 | #    | Requirement                                                      | Status |
 | ---- | ---------------------------------------------------------------- | ------ |
-| 4.7  | Helmet middleware (or equivalent explicit headers)               | ❌     |
-| 4.8  | Surface-aware headers (API-only, Swagger UI, GraphQL playground) | ❌     |
-| 4.9  | Document header baseline and rationale                           | ❌     |
+| 4.7  | Helmet middleware (or equivalent explicit headers)               | ✅     |
+| 4.8  | Surface-aware headers (API-only, Swagger UI, GraphQL playground) | ✅     |
+| 4.9  | Document header baseline and rationale                           | ✅     |
 | 4.10 | Evidence — example response with security headers                | ❌     |
 
 ### Absent — full implementation needed
@@ -363,11 +363,11 @@ Sets secure HTTP headers automatically. Consider surface-specific overrides:
 
 ### Tasks
 
-- [ ] Install `helmet`
-- [ ] Add `app.use(helmet())` in `main.ts`
-- [ ] Configure surface-aware CSP overrides if needed
+- [x] Install `helmet`
+- [x] Add `app.use(helmet())` in `main.ts`
+- [x] Configure surface-aware CSP overrides if needed
 - [ ] Verify headers with `curl -I`
-- [ ] Document header baseline in `SECURITY-BASELINE.md`
+- [x] Document header baseline in `SECURITY-BASELINE.md`
 
 ---
 
@@ -379,11 +379,11 @@ Sets secure HTTP headers automatically. Consider surface-specific overrides:
 
 | #   | Requirement                                                                                               | Status |
 | --- | --------------------------------------------------------------------------------------------------------- | ------ |
-| 5.1 | Structured audit logging for ≥ 3 critical events                                                          | ❌     |
-| 5.2 | Audit event contains: action, actorId, actorRole, targetType, targetId, outcome, timestamp, correlationId | ❌     |
-| 5.3 | Optional fields: reason, ip, userAgent                                                                    | ❌     |
-| 5.4 | Sensitive data exclusion (no raw JWT, passwords, secrets, full payment details)                           | ⚠️     |
-| 5.5 | Audit log answers: who did what, on what, when, with what result                                          | ❌     |
+| 5.1 | Structured audit logging for ≥ 3 critical events                                                          | ✅     |
+| 5.2 | Audit event contains: action, actorId, actorRole, targetType, targetId, outcome, timestamp, correlationId | ✅     |
+| 5.3 | Optional fields: reason, ip, userAgent                                                                    | ✅     |
+| 5.4 | Sensitive data exclusion (no raw JWT, passwords, secrets, full payment details)                           | ✅     |
+| 5.5 | Audit log answers: who did what, on what, when, with what result                                          | ✅     |
 
 ### Suggested critical events to audit (pick ≥ 3)
 
@@ -448,7 +448,7 @@ Sets secure HTTP headers automatically. Consider surface-specific overrides:
 | --- | ---------------------------------------------------------- | ------ |
 | 6.1 | Example response with security headers                     | ❌     |
 | 6.2 | Example of rate limit triggering (429 response)            | ❌     |
-| 6.3 | Document in README or security doc how to verify hardening | ❌     |
+| 6.3 | Document in README or security doc how to verify hardening | ✅     |
 
 ### Absent — full implementation needed
 
@@ -491,6 +491,8 @@ Sets secure HTTP headers automatically. Consider surface-specific overrides:
 | Secrets not logged                  | Password `select: false`, no stack traces in responses        | No `Authorization` / cookie header redaction in internal logs; blocked on Pino migration |
 | Sensitive data exclusion from audit | Passwords excluded from queries, error responses sanitized    | No formal "never-log" policy documented                                                  |
 
+> **Note:** All items above are now fully implemented. Table preserved for historical reference.
+
 ### ❌ Absent — Full Implementation Needed
 
 | Area                                                   | Part | Priority | Severity | Complexity |
@@ -507,6 +509,8 @@ Sets secure HTTP headers automatically. Consider surface-specific overrides:
 | Audit logging service (≥ 3 critical events, DB table)  | 5    | 4        | 4        | 3          |
 | Audit event schema & storage-agnostic interface        | 5    | 4        | 4        | 3          |
 | Evidence documentation (headers, 429, audit entry)     | 6    | 2        | 2        | 1          |
+
+> **Note:** All items above are now fully implemented except evidence documentation (Part 6) and test coverage. Table preserved for historical reference.
 
 ### 🔜 Deferred to AWS Migration
 
@@ -552,3 +556,202 @@ If security hardening lands first: adding throttle + audit to the new payment en
 - Payments (audit targets): `docs/backend/architecture/feature-grpc-payments.md`
 - Docker security: `docs/backend/architecture/infra-docker-compose.md`
 - CI/CD & secrets delivery: `.github/workflows/deploy-stage.yml`, `.github/workflows/deploy-production.yml`
+- Security architecture overview: `docs/backend/architecture/infra-security.md`
+- Security baseline (OWASP ASVS mapping): `SECURITY-BASELINE.md`
+
+---
+
+## Part 7 — Gaps Identified vs. Raw Requirements
+
+> Items discovered during review of `.temp/raw-security.md` that are not fully covered by Parts 1–6.
+
+### 7.1 AUTH_SIGNUP / AUTH_LOGOUT audit events not wired
+
+**Status:** ✅ Fixed
+
+Both `AuditAction.AUTH_SIGNUP` and `AuditAction.AUTH_LOGOUT` were defined in the enum but not called in the service methods. Now wired:
+
+- `AuthService.signup()` — fires `AUTH_SIGNUP` after user persisted
+- `AuthService.logout()` — fires `AUTH_LOGOUT` after refresh token revoked; controller passes `actorId` from `@CurrentUser()` and `AuditEventContext` from `@Req()`
+
+### 7.2 Payment capture/refund audit events
+
+**Status:** 🔜 Blocked on payments plan Phases 1–2
+
+`PAYMENT_CAPTURED` and `PAYMENT_REFUNDED` action constants need to be added to `AuditAction` enum and wired into the payment service once those endpoints are implemented. See [Dependency: Payments plan](#dependency-payments-plan-capture--refund).
+
+### 7.3 Security evidence files not generated
+
+**Status:** ❌ Manual step — see Part 8 below
+
+The raw requirements expect a `security-evidence/` directory with actual captured output (curl responses, Postman screenshots, DB query results). This requires a running instance of the application to capture. See Part 8 for the complete evidence checklist and where each artifact can be obtained.
+
+### 7.4 No `security-evidence/` directory scaffold
+
+**Tasks:**
+
+- [ ] Create `security-evidence/` directory at repo root
+- [ ] Capture and commit `headers.txt`
+- [ ] Capture and commit `rate-limit.txt`
+- [ ] Capture and commit `audit-log-example.txt`
+- [ ] Commit `secret-flow-note.md` (can reference `SECURITY-BASELINE.md` Section 3)
+- [ ] Commit `tls-note.md` (can reference `SECURITY-BASELINE.md` Section 4)
+
+---
+
+## Part 8 — Evidence Checklist
+
+> Required evidence artifacts per raw-security.md Sections 6 and 7.
+
+### 8.1 Security Headers (`security-evidence/headers.txt`)
+
+**What to capture:** HTTP response headers showing Helmet output.
+
+**How to reproduce:**
+
+```bash
+# Start the application locally (docker compose up or npm run start:dev)
+curl -si http://localhost:8080/api/v1/products | \
+  grep -Ei 'x-content-type|x-frame|content-security|strict-transport|referrer|x-dns|cross-origin'
+```
+
+**Expected output includes:**
+
+```
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+x-content-type-options: nosniff
+x-frame-options: DENY
+strict-transport-security: max-age=15552000; includeSubDomains
+referrer-policy: no-referrer
+x-dns-prefetch-control: off
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+```
+
+**Save as:** `security-evidence/headers.txt`
+
+---
+
+### 8.2 Rate Limit Triggering (`security-evidence/rate-limit.txt`)
+
+**What to capture:** HTTP 429 response with `X-RateLimit-*` headers after threshold is hit.
+
+**Method A — signin (5/min per IP):**
+
+```bash
+for i in {1..6}; do
+  curl -s -o /dev/null -w "Request $i: %{http_code}\n" \
+    -X POST http://localhost:8080/api/v1/auth/signin \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"test@example.com","password":"wrongpassword"}';
+done
+# Expected: 401 401 401 401 401 429
+```
+
+**Method B — Postman Collection Runner:**
+
+1. Create a `POST /api/v1/auth/signin` request with wrong credentials
+2. Run 6 iterations with 0ms delay in Collection Runner
+3. Observe 429 on iteration 6 with `X-RateLimit-Remaining-medium: 0`
+
+**Method C — forgot-password (3/hr per email, `UserEmailThrottleGuard`):**
+
+```bash
+for i in {1..4}; do
+  curl -s -o /dev/null -w "Request $i: %{http_code}\n" \
+    -X POST http://localhost:8080/api/v1/auth/forgot-password \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"test@example.com"}';
+done
+# Expected: 200 200 200 429
+```
+
+**Response body on 429:**
+
+```json
+{ "statusCode": 429, "message": "ThrottlerException: Too Many Requests" }
+```
+
+**Response headers on 429:**
+
+```
+x-ratelimit-limit-medium: 5
+x-ratelimit-remaining-medium: 0
+x-ratelimit-reset-medium: <epoch-ms>
+```
+
+**Save as:** `security-evidence/rate-limit.txt`
+
+---
+
+### 8.3 Audit Log Entry (`security-evidence/audit-log-example.txt`)
+
+**What to capture:** One or more rows from the `audit_logs` table after performing a tracked action.
+
+**How to reproduce:**
+
+```bash
+# 1. Sign in with bad credentials to trigger AUTH_SIGNIN_FAILURE
+curl -X POST http://localhost:8080/api/v1/auth/signin \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"test@example.com","password":"wrong"}'
+
+# 2. Query the audit_logs table
+docker exec -it rd_shop_backend_shop_dev-postgres \
+  psql -U postgres -d rd_shop_dev \
+  -c "SELECT action, actor_id, outcome, ip, correlation_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 5;"
+```
+
+**Expected output (example):**
+
+```
+       action        | actor_id | outcome |    ip     |          correlation_id          |          created_at
+---------------------+----------+---------+-----------+----------------------------------+----------------------------
+ AUTH_SIGNIN_FAILURE |          | FAILURE | 127.0.0.1 | a1b2c3d4-...                     | 2026-04-07 19:00:00.000+00
+```
+
+**Additional events to demonstrate:**
+
+- `ORDER_CREATED` — create an order via `POST /api/v1/orders`
+- `USER_ROLE_CHANGED` — call `PATCH /api/v1/admin/users/:id/roles` as admin
+
+**Save as:** `security-evidence/audit-log-example.txt`
+
+---
+
+### 8.4 Secrets Flow Note (`security-evidence/secret-flow-note.md`)
+
+**What to provide:** Description of how secrets reach runtime.
+
+**Source:** Copy or reference `SECURITY-BASELINE.md` Section 3 ("Secrets Management") — the delivery flow diagram and "what must never be logged" table are already there.
+
+**Save as:** `security-evidence/secret-flow-note.md`
+
+---
+
+### 8.5 TLS Note (`security-evidence/tls-note.md`)
+
+**What to provide:** Current TLS posture and intended target design.
+
+**Source:** Copy or reference `SECURITY-BASELINE.md` Section 4 ("Transport Security / TLS") — current state table, target state table, and traffic classification are already there.
+
+**Save as:** `security-evidence/tls-note.md`
+
+---
+
+### 8.6 Summary Table
+
+| Evidence Artifact       | Status     | Source / How to Get It                                        |
+| ----------------------- | ---------- | ------------------------------------------------------------- |
+| `headers.txt`           | ❌ Pending | `curl -si localhost:8080/api/v1/products` against running app |
+| `rate-limit.txt`        | ❌ Pending | Shell loop or Postman runner — `POST /auth/signin` × 6        |
+| `audit-log-example.txt` | ❌ Pending | `docker exec ... psql` after triggering a tracked action      |
+| `secret-flow-note.md`   | ❌ Pending | Extract from `SECURITY-BASELINE.md` Section 3                 |
+| `tls-note.md`           | ❌ Pending | Extract from `SECURITY-BASELINE.md` Section 4                 |
+| `SECURITY-BASELINE.md`  | ✅ Done    | `SECURITY-BASELINE.md` at repo root                           |
+
+**All evidence requires a running Docker Compose environment.** Use:
+
+```bash
+cd apps/shop && docker compose -f compose.dev.yml up -d
+```

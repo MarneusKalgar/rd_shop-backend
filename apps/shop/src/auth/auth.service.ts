@@ -81,10 +81,18 @@ export class AuthService {
   }
 
   /** Revokes the refresh token identified by the cookie value. No-ops on invalid input. */
-  async logout(cookieValue: string): Promise<void> {
+  async logout(cookieValue: string, actorId?: string, context?: AuditEventContext): Promise<void> {
     const parsed = parseOpaqueToken(cookieValue);
     if (!parsed) return;
     await this.tokenService.revokeRefreshToken(parsed.tokenId);
+
+    void this.auditLogService.log({
+      action: AuditAction.AUTH_LOGOUT,
+      actorId: actorId ?? null,
+      context,
+      outcome: AuditOutcome.SUCCESS,
+      targetType: 'User',
+    });
   }
 
   /**
@@ -200,7 +208,7 @@ export class AuthService {
    * Registers a new user, hashes the password, persists the record, and sends a
    * verification email. Throws `ConflictException` if the email is already taken.
    */
-  async signup(signupDto: SignupDto): Promise<SignupResponseDto> {
+  async signup(signupDto: SignupDto, context?: AuditEventContext): Promise<SignupResponseDto> {
     const { confirmedPassword, email, password } = signupDto;
 
     if (password !== confirmedPassword) {
@@ -229,6 +237,15 @@ export class AuthService {
     await this.userRepository.save(user);
 
     this.logger.log(`New user registered: ${user.email}`);
+
+    void this.auditLogService.log({
+      action: AuditAction.AUTH_SIGNUP,
+      actorId: user.id,
+      context,
+      outcome: AuditOutcome.SUCCESS,
+      targetId: user.id,
+      targetType: 'User',
+    });
 
     await this.issueAndSendVerificationToken(user);
 

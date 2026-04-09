@@ -1,0 +1,26 @@
+for i in {1..6}; do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST http://localhost:8080/api/v1/auth/signin \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"test@example.com","password":"wrong"}';
+done
+400
+400
+400
+429
+429
+429
+
+rd_shop_backend_shop_dev-app         |     context: "TypeORM"
+rd_shop_backend_shop_dev-app         | [2026-04-08 17:46:13.546 +0000] WARN (57): HTTP POST /api/v1/auth/signin - Status: 400 - Bad Request Exception
+rd_shop_backend_shop_dev-app         |     context: "GlobalExceptionFilter"
+rd_shop_backend_shop_dev-app         | [2026-04-08 17:46:13.559 +0000] WARN (57): HTTP POST /api/v1/auth/signin - Status: 400 - Bad Request Exception
+rd_shop_backend_shop_dev-app         |     context: "GlobalExceptionFilter"
+rd_shop_backend_shop_dev-app         | [2026-04-08 17:46:13.569 +0000] WARN (57): HTTP POST /api/v1/auth/signin - Status: 400 - Bad Request Exception
+rd_shop_backend_shop_dev-app         |     context: "GlobalExceptionFilter"
+rd_shop_backend_shop_dev-app         | [2026-04-08 17:46:13.579 +0000] WARN (57): HTTP POST /api/v1/auth/signin - Status: 429 - ThrottlerException: Too Many Requests
+rd_shop_backend_shop_dev-app         |     context: "GlobalExceptionFilter"
+rd_shop_backend_shop_dev-app         | [2026-04-08 17:46:13.588 +0000] WARN (57): HTTP POST /api/v1/auth/signin - Status: 429 - ThrottlerException: Too Many Requests
+rd_shop_backend_shop_dev-app         |     context: "GlobalExceptionFilter"
+rd_shop_backend_shop_dev-app         | [2026-04-08 17:46:13.596 +0000] WARN (57): HTTP POST /api/v1/auth/signin - Status: 429 - ThrottlerException: Too Many Requests
+rd_shop_backend_shop_dev-app         |     context: "GlobalExceptionFilter"

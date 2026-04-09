@@ -14,6 +14,7 @@ import { DataSource, Repository } from 'typeorm';
 
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuditEventContext } from '@/audit-log/audit-log.types';
+import { AuthUser } from '@/auth/types';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProductsRepository } from '@/products/product.repository';
 import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
@@ -99,20 +100,17 @@ export class OrdersService {
    * For PROCESSED/PAID orders with a paymentId, payment void/refund integration is deferred
    * to the payments plan. Stock is always restored.
    *
-   * @param userId - The UUID of the requesting user (ownership check)
+   * @param user - The authenticated user (sub used for ownership check; email for notification event)
    * @param orderId - The UUID of the order to cancel
-   * @param userEmail - The email from the JWT token, used for the cancellation notification event
+   * @param context - Audit event context (correlationId, ip, userAgent) from the HTTP request
    * @returns Promise resolving to the updated Order entity
    * @throws {NotFoundException} If order not found or doesn't belong to user — HTTP 404
    * @throws {ConflictException} If order is already cancelled — HTTP 409
    * @throws {BadRequestException} If order is in CREATED (legacy) state — HTTP 400
    */
-  async cancelOrder(
-    userId: string,
-    orderId: string,
-    userEmail: string,
-    context?: AuditEventContext,
-  ): Promise<Order> {
+  async cancelOrder(user: AuthUser, orderId: string, context?: AuditEventContext): Promise<Order> {
+    const { email: userEmail, sub: userId } = user;
+
     const order = await this.dataSource.transaction(async (manager) => {
       await manager.query('SET LOCAL statement_timeout = 30000');
       await manager.query('SET LOCAL lock_timeout = 10000');
@@ -231,6 +229,14 @@ export class OrdersService {
 
     const existingOrder = await this.checkIdempotency(idempotencyKey);
     if (existingOrder) {
+      void this.auditLogService.log({
+        action: AuditAction.ORDER_IDEMPOTENT_HIT,
+        actorId: userId,
+        context,
+        outcome: AuditOutcome.SUCCESS,
+        targetId: existingOrder.id,
+        targetType: 'Order',
+      });
       return existingOrder;
     }
 
@@ -256,7 +262,18 @@ export class OrdersService {
 
       return createdOrder;
     } catch (error: unknown) {
-      return await this.handleOrderCreationPgErrors(error, userId, idempotencyKey);
+      try {
+        return await this.handleOrderCreationPgErrors(error, userId, idempotencyKey);
+      } catch (finalError) {
+        void this.auditLogService.log({
+          action: AuditAction.ORDER_CREATION_FAILED,
+          actorId: userId,
+          context,
+          outcome: AuditOutcome.FAILURE,
+          targetType: 'Order',
+        });
+        throw finalError;
+      }
     }
   }
 
@@ -513,6 +530,14 @@ export class OrdersService {
           `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,
         );
 
+        void this.auditLogService.log({
+          action: AuditAction.ORDER_PAYMENT_AUTHORIZED,
+          actorId: order.userId,
+          outcome: AuditOutcome.SUCCESS,
+          targetId: order.id,
+          targetType: 'Order',
+        });
+
         this.eventEmitter.emit(
           ORDER_PAID_EVENT,
           new OrderPaidEvent(order.id, orderWithItems.user.email),
@@ -520,6 +545,13 @@ export class OrdersService {
       }
     } catch (error) {
       this.logger.error(`Payment authorization failed for order=${order.id}`, error);
+      void this.auditLogService.log({
+        action: AuditAction.ORDER_PAYMENT_FAILED,
+        actorId: order.userId,
+        outcome: AuditOutcome.FAILURE,
+        targetId: order.id,
+        targetType: 'Order',
+      });
       throw error;
     }
   }

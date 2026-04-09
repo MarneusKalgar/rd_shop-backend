@@ -12,6 +12,7 @@ import { Repository } from 'typeorm';
 
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuditEventContext } from '@/audit-log/audit-log.types';
+import { AuthUser } from '@/auth/types';
 
 import { TokenService } from '../auth/token.service';
 import { FilesService } from '../files/files.service';
@@ -141,7 +142,7 @@ export class UsersService {
     return { data: dto };
   }
 
-  async remove(id: string, actorId?: string, context?: AuditEventContext): Promise<void> {
+  async remove(id: string, actor?: AuthUser, context?: AuditEventContext): Promise<void> {
     await this.findUserOrFail(id);
 
     await Promise.all([
@@ -153,7 +154,8 @@ export class UsersService {
 
     void this.auditLogService.log({
       action: AuditAction.USER_SOFT_DELETED,
-      actorId: actorId ?? null,
+      actorId: actor?.sub ?? null,
+      actorRole: actor?.roles.join(',') ?? null,
       context,
       outcome: AuditOutcome.SUCCESS,
       targetId: id,
@@ -195,7 +197,7 @@ export class UsersService {
   async updateRoles(
     userId: string,
     dto: UpdateRolesDto,
-    actorId?: string,
+    actor?: AuthUser,
     context?: AuditEventContext,
   ): Promise<UpdateUserPermissionsResponseDto> {
     await this.findUserOrFail(userId);
@@ -203,7 +205,8 @@ export class UsersService {
 
     void this.auditLogService.log({
       action: AuditAction.USER_ROLE_CHANGED,
-      actorId: actorId ?? null,
+      actorId: actor?.sub ?? null,
+      actorRole: actor?.roles.join(',') ?? null,
       context,
       outcome: AuditOutcome.SUCCESS,
       targetId: userId,
@@ -216,7 +219,7 @@ export class UsersService {
   async updateScopes(
     userId: string,
     dto: UpdateScopesDto,
-    actorId?: string,
+    actor?: AuthUser,
     context?: AuditEventContext,
   ): Promise<UpdateUserPermissionsResponseDto> {
     await this.findUserOrFail(userId);
@@ -224,7 +227,8 @@ export class UsersService {
 
     void this.auditLogService.log({
       action: AuditAction.USER_SCOPE_CHANGED,
-      actorId: actorId ?? null,
+      actorId: actor?.sub ?? null,
+      actorRole: actor?.roles.join(',') ?? null,
       context,
       outcome: AuditOutcome.SUCCESS,
       targetId: userId,

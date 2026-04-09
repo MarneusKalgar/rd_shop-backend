@@ -15,14 +15,13 @@ import {
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
-import { AuditEventContext } from '@/audit-log/audit-log.types';
+import { extractAuditContext } from '@/audit-log/utils';
 import { CurrentUser } from '@/auth/decorators/current-user';
 import { Roles } from '@/auth/decorators/roles';
 import { Scopes } from '@/auth/decorators/scopes';
 import { JwtAuthGuard, RolesGuard, ScopesGuard } from '@/auth/guards';
 import { UserRole, UserScope } from '@/auth/permissions/constants';
 import { AuthUser } from '@/auth/types';
-import { REQUEST_ID_HEADER } from '@/common/constants';
 
 import {
   FindUsersDto,
@@ -52,7 +51,7 @@ export class AdminUsersController {
     @CurrentUser() admin: AuthUser,
     @Req() req: Request,
   ): Promise<void> {
-    return this.usersService.remove(id, admin.sub, this.extractContext(req));
+    return this.usersService.remove(id, admin, extractAuditContext(req));
   }
 
   @ApiOperation({ summary: 'Get user by ID' })
@@ -83,7 +82,7 @@ export class AdminUsersController {
     @CurrentUser() admin: AuthUser,
     @Req() req: Request,
   ): Promise<UpdateUserPermissionsResponseDto> {
-    return this.usersService.updateRoles(id, dto, admin.sub, this.extractContext(req));
+    return this.usersService.updateRoles(id, dto, admin, extractAuditContext(req));
   }
 
   @ApiOperation({ summary: 'Set scopes for a user' })
@@ -97,14 +96,6 @@ export class AdminUsersController {
     @CurrentUser() admin: AuthUser,
     @Req() req: Request,
   ): Promise<UpdateUserPermissionsResponseDto> {
-    return this.usersService.updateScopes(id, dto, admin.sub, this.extractContext(req));
-  }
-
-  private extractContext(req: Request): AuditEventContext {
-    return {
-      correlationId: req.headers[REQUEST_ID_HEADER] as string | undefined,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-    };
+    return this.usersService.updateScopes(id, dto, admin, extractAuditContext(req));
   }
 }

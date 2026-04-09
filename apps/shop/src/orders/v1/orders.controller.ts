@@ -15,13 +15,12 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 
-import { AuditEventContext } from '@/audit-log/audit-log.types';
+import { extractAuditContext } from '@/audit-log/utils';
 import { CurrentUser } from '@/auth/decorators/current-user';
 import { Scopes } from '@/auth/decorators/scopes';
 import { JwtAuthGuard, ScopesGuard } from '@/auth/guards';
 import { UserScope } from '@/auth/permissions/constants';
 import { AuthUser } from '@/auth/types';
-import { REQUEST_ID_HEADER } from '@/common/constants';
 
 import {
   CreateOrderDto,
@@ -31,6 +30,7 @@ import {
   GetOrdersResponseDto,
 } from '../dto';
 import { OrdersService } from '../orders.service';
+
 @ApiTags('orders')
 @Controller({ path: 'orders', version: '1' })
 @UseGuards(JwtAuthGuard, ScopesGuard)
@@ -64,12 +64,7 @@ export class OrdersController {
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ): Promise<GetOrderByIdResponseDto> {
-    const context: AuditEventContext = {
-      correlationId: req.headers[REQUEST_ID_HEADER] as string | undefined,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-    };
-    const order = await this.ordersService.cancelOrder(user.sub, orderId, user.email, context);
+    const order = await this.ordersService.cancelOrder(user, orderId, extractAuditContext(req));
     return { data: order };
   }
 
@@ -99,12 +94,12 @@ export class OrdersController {
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ): Promise<GetOrderByIdResponseDto> {
-    const context: AuditEventContext = {
-      correlationId: req.headers[REQUEST_ID_HEADER] as string | undefined,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-    };
-    const order = await this.ordersService.createOrder(user.sub, createOrderDto, context);
+    const order = await this.ordersService.createOrder(
+      user.sub,
+      createOrderDto,
+      extractAuditContext(req),
+    );
+
     return { data: order };
   }
 

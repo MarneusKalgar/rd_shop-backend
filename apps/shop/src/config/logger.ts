@@ -8,17 +8,22 @@ export const getPinoLoggerConfig = (): Params => {
   const isProd = isProduction();
 
   return {
+    // nestjs-pino defaults to path:'*' which throws in Express 5 (path-to-regexp v8).
+    // '/{*path}' is the Express 5 equivalent that matches every route.
+    forRoutes: ['/{*path}'],
+
     pinoHttp: {
       autoLogging: {
         ignore: (req: IncomingMessage & { url?: string }) =>
           req.url?.startsWith('/health') ?? false,
       },
 
-      genReqId: (
-        req: IncomingMessage & { headers: Record<string, string | string[] | undefined> },
-      ) => {
+      genReqId: (req: IncomingMessage) => {
         const fromHeader = req.headers['x-request-id'];
-        return (Array.isArray(fromHeader) ? fromHeader[0] : fromHeader) ?? randomUUID();
+        const id = (Array.isArray(fromHeader) ? fromHeader[0] : fromHeader) ?? randomUUID();
+        // Write back so extractAuditContext and Pino share the exact same value.
+        req.headers['x-request-id'] = id;
+        return id;
       },
 
       level: process.env.APP_LOG_LEVEL ?? 'info',

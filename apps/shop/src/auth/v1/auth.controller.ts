@@ -3,8 +3,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 
-import { AuditEventContext } from '@/audit-log/audit-log.types';
-import { REQUEST_ID_HEADER } from '@/common/constants';
+import { extractAuditContext } from '@/audit-log/utils';
 
 import { AuthService } from '../auth.service';
 import {
@@ -53,7 +52,7 @@ export class AuthController {
     @Body() dto: ForgotPasswordDto,
     @Req() req: Request,
   ): Promise<ForgotPasswordResponseDto> {
-    return this.authService.forgotPassword(dto, this.extractContext(req));
+    return this.authService.forgotPassword(dto, extractAuditContext(req));
   }
 
   @ApiOperation({ summary: 'Sign out and revoke refresh token' })
@@ -62,9 +61,13 @@ export class AuthController {
   @Post('logout')
   @SkipThrottle()
   @UseGuards(JwtAuthGuard)
-  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
+  async logout(
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
     const cookieValue = req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
-    if (cookieValue) await this.authService.logout(cookieValue);
+    if (cookieValue) await this.authService.logout(cookieValue, user.sub, extractAuditContext(req));
     res.clearCookie(REFRESH_COOKIE_NAME, REFRESH_COOKIE_CLEAR_OPTIONS);
   }
 
@@ -85,11 +88,13 @@ export class AuthController {
     const cookieValue = req.cookies?.[REFRESH_COOKIE_NAME] as string | undefined;
     const { accessToken, cookieValue: newCookieValue } =
       await this.authService.refresh(cookieValue);
+
     res.cookie(
       REFRESH_COOKIE_NAME,
       newCookieValue,
       buildRefreshCookieOptions(this.tokenService.ttlMs),
     );
+
     return { accessToken };
   }
 
@@ -126,7 +131,7 @@ export class AuthController {
     @Body() dto: ResetPasswordDto,
     @Req() req: Request,
   ): Promise<ResetPasswordResponseDto> {
-    return this.authService.resetPassword(dto, this.extractContext(req));
+    return this.authService.resetPassword(dto, extractAuditContext(req));
   }
 
   @ApiOperation({ summary: 'Sign in with email and password' })
@@ -147,13 +152,15 @@ export class AuthController {
   ): Promise<SigninResponseDto> {
     const { accessToken, cookieValue, user } = await this.authService.signin(
       signinDto,
-      this.extractContext(req),
+      extractAuditContext(req),
     );
+
     res.cookie(
       REFRESH_COOKIE_NAME,
       cookieValue,
       buildRefreshCookieOptions(this.tokenService.ttlMs),
     );
+
     return { accessToken, user };
   }
 
@@ -167,8 +174,8 @@ export class AuthController {
   @ApiResponse({ description: 'Invalid input data', status: HttpStatus.BAD_REQUEST })
   @Post('signup')
   @Throttle({ medium: { limit: 10, ttl: 60_000 } })
-  async signup(@Body() signupDto: SignupDto): Promise<SignupResponseDto> {
-    return this.authService.signup(signupDto);
+  async signup(@Body() signupDto: SignupDto, @Req() req: Request): Promise<SignupResponseDto> {
+    return this.authService.signup(signupDto, extractAuditContext(req));
   }
 
   @ApiOperation({ summary: 'Verify email address using token received via email' })
@@ -183,14 +190,5 @@ export class AuthController {
   @SkipThrottle()
   async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto): Promise<VerifyEmailResponseDto> {
     return this.authService.verifyEmail(verifyEmailDto.token);
-  }
-
-  private extractContext(req: Request): AuditEventContext {
-    const correlationId = req.headers[REQUEST_ID_HEADER] as string | undefined;
-    return {
-      correlationId,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-    };
   }
 }
