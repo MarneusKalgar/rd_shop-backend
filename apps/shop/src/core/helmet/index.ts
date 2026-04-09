@@ -10,6 +10,7 @@ export const setupHelmet = (app: NestExpressApplication): void => {
           frameAncestors: ["'none'"],
         },
       },
+      frameguard: { action: 'deny' },
     }),
   );
 };

@@ -1,13 +1,14 @@
 import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 // import { GracefulShutdownModule } from '@tygra/nestjs-graceful-shutdown';
 
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
+import { GqlThrottlerGuard } from './auth/guards';
 import { CartModule } from './cart/cart.module';
 import { QueryLoggerMiddleware } from './common/middlewares';
 import {
@@ -59,7 +60,7 @@ import { UsersModule } from './users/users.module';
   providers: [
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: GqlThrottlerGuard,
     },
   ],
 })

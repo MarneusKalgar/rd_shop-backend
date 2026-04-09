@@ -1,7 +1,7 @@
 # Security Architecture
 
 > Security controls implemented in the `rd_shop` backend.
-> For the full OWASP ASVS mapping and evidence index see [`SECURITY-BASELINE.md`](../../../SECURITY-BASELINE.md) at the repo root.
+> For the full OWASP ASVS mapping and evidence index see [`SECURITY-BASELINE.md`](../../../security-homework/SECURITY-BASELINE.md).
 
 ## Overview
 

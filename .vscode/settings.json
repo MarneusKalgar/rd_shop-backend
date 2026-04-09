@@ -1,4 +1,5 @@
 {
+  "typescript.tsdk": "node_modules/typescript/lib",
   "chat.mcp.serverSampling": {
     "rd_shop/.vscode/mcp.json: context-mode": {
       "allowedModels": ["copilotcli/claude-sonnet-4.6", "copilotcli/claude-opus-4.6"]

@@ -2,6 +2,7 @@ import { Params } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import { IncomingMessage } from 'node:http';
 
+import { REQUEST_ID_HEADER } from '@/common/constants';
 import { isProduction } from '@/utils/env';
 
 export const getPinoLoggerConfig = (): Params => {
@@ -19,10 +20,10 @@ export const getPinoLoggerConfig = (): Params => {
       },
 
       genReqId: (req: IncomingMessage) => {
-        const fromHeader = req.headers['x-request-id'];
+        const fromHeader = req.headers[REQUEST_ID_HEADER];
         const id = (Array.isArray(fromHeader) ? fromHeader[0] : fromHeader) ?? randomUUID();
         // Write back so extractAuditContext and Pino share the exact same value.
-        req.headers['x-request-id'] = id;
+        req.headers[REQUEST_ID_HEADER] = id;
         return id;
       },
 

@@ -38,7 +38,7 @@ export class AuditLog {
   @Column({ length: 255, name: 'correlation_id', nullable: true, type: 'varchar' })
   correlationId: null | string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @PrimaryGeneratedColumn('uuid')

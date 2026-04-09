@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-04-09
+
+### Added
+
+- **Audit log** — `AuditLogEvent` entity and `AuditLogService.log()` wired across 10 domain actions: `USER_SIGNIN`, `USER_SIGNUP`, `USER_SOFT_DELETED`, `USER_ROLE_CHANGED`, `USER_SCOPE_CHANGED`, `ORDER_CREATED`, `ORDER_CANCELLED`, `ORDER_IDEMPOTENT_HIT`, `ORDER_CREATION_FAILED`, `ORDER_PAYMENT_AUTHORIZED`, `ORDER_PAYMENT_FAILED`; `correlationId` propagated from `genReqId` via `extractAuditContext(req)`
+- **`actorRole` population** — Admin-only audit events (`USER_SOFT_DELETED`, `USER_ROLE_CHANGED`, `USER_SCOPE_CHANGED`) capture the acting admin's roles at event time via `actor?.roles.join(',')`
+- **`GqlThrottlerGuard`** — Extends `ThrottlerGuard`; detects context type (`graphql` vs HTTP) and calls the correct `getRequestResponse` path; constructor re-declares `@InjectThrottlerOptions()` / `@InjectThrottlerStorage()` so NestJS DI resolves custom tokens on the subclass
+- **Global rate limiting** — `APP_GUARD` switched from `ThrottlerGuard` to `GqlThrottlerGuard`; covers both REST and GraphQL endpoints
+- **`SECURITY-BASELINE.md`** — OWASP ASVS mapping, threat model, all wired audit events, rate-limit evidence, HSTS configuration
+- **`infra-security.md`** — Architecture-level security design decisions: audit schema, `actorRole`, worker-path null context, guard topology
+- **Security evidence** — `security-evidence/` directory with `headers.txt`, `rate-limit.txt`, `audit-log-example.txt`, `secret-flow-note.md`, `tls-note.md`
+- **`REQUEST_ID_HEADER` constant** — `apps/shop/src/common/constants/index.ts`; replaces all `'x-request-id'` hardcodes
+
+### Changed
+
+- **`cancelOrder` signature** — Accepts `user: AuthUser` instead of separate `userId: string` + `userEmail: string`; controller passes the full `AuthUser` object
+- **`CartService.checkout`** — Added `context?: AuditEventContext` parameter; forwards context to `ordersService.createOrder` so cart-initiated orders carry a correlationId
+- **Helmet `frameguard`** — Explicitly set to `{ action: 'deny' }` (was inheriting Helmet's `SAMEORIGIN` default)
+- **`@CreateDateColumn` type** — `audit-log.entity.ts` `created_at` uses `type: 'timestamptz'` for timezone-aware storage
+- **Migration `CreateAuditLogs`** — `created_at` column changed from `TIMESTAMP` to `TIMESTAMP WITH TIME ZONE`
+- **`tsconfig.json`** — Added `"types": ["jest", "node"]` (Jest globals in all spec files), `"strictPropertyInitialization": false` (DTO/entity class fields), `"ignoreDeprecations": "6.0"` (suppress `moduleResolution: node` / `baseUrl` TypeScript 6 deprecation warnings)
+- **`logger.ts`** — `genReqId` reads/writes `req.headers[REQUEST_ID_HEADER]` instead of hardcoded `'x-request-id'`
+- **Integration test throttler** — `graphql-orders-pagination.integration-spec.ts` overrides `getOptionsToken()` with limits of 10 000 req/window so test requests never trigger throttling
+- **`SECURITY-BASELINE.md` links** — All relative links corrected to `../security-evidence/`; HSTS `max-age` updated to `31536000`
+
+### Fixed
+
+- **`users.service.spec.ts`** — Added missing `AuditLogService` mock provider; test module now compiles without DI errors
+- **`infra-security.md` broken link** — `SECURITY-BASELINE.md` reference corrected to `../../../security-homework/SECURITY-BASELINE.md`
+- **`rate-limit.txt`** — Updated to demonstrate 200 → 429 progression with valid credentials (not 400 → 429)
+
 ## [0.2.0] - 2026-03-28
 
 ### Added
