@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import { CurrentUser } from '@/auth/decorators/current-user';
 import { JwtAuthGuard } from '@/auth/guards';
@@ -37,6 +38,7 @@ export class ReviewsController {
   @ApiResponse({ status: HttpStatus.NOT_FOUND })
   @ApiResponse({ description: 'Already reviewed this product', status: HttpStatus.CONFLICT })
   @Post(':id/reviews')
+  @Throttle({ medium: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   async createReview(
     @Param('id', ParseUUIDPipe) id: string,

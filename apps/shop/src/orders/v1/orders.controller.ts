@@ -8,10 +8,14 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { Request } from 'express';
 
+import { extractAuditContext } from '@/audit-log/utils';
 import { CurrentUser } from '@/auth/decorators/current-user';
 import { Scopes } from '@/auth/decorators/scopes';
 import { JwtAuthGuard, ScopesGuard } from '@/auth/guards';
@@ -26,6 +30,7 @@ import {
   GetOrdersResponseDto,
 } from '../dto';
 import { OrdersService } from '../orders.service';
+
 @ApiTags('orders')
 @Controller({ path: 'orders', version: '1' })
 @UseGuards(JwtAuthGuard, ScopesGuard)
@@ -53,11 +58,13 @@ export class OrdersController {
   @HttpCode(HttpStatus.OK)
   @Post(':orderId/cancellation')
   @Scopes(UserScope.ORDERS_WRITE)
+  @Throttle({ medium: { limit: 5, ttl: 60_000 } })
   async cancelOrder(
     @Param('orderId', ParseUUIDPipe) orderId: string,
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ): Promise<GetOrderByIdResponseDto> {
-    const order = await this.ordersService.cancelOrder(user.sub, orderId, user.email);
+    const order = await this.ordersService.cancelOrder(user, orderId, extractAuditContext(req));
     return { data: order };
   }
 
@@ -81,11 +88,18 @@ export class OrdersController {
   })
   @Post()
   @Scopes(UserScope.ORDERS_WRITE)
+  @Throttle({ medium: { limit: 5, ttl: 60_000 } })
   async createOrder(
     @Body() createOrderDto: CreateOrderDto,
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ): Promise<GetOrderByIdResponseDto> {
-    const order = await this.ordersService.createOrder(user.sub, createOrderDto);
+    const order = await this.ordersService.createOrder(
+      user.sub,
+      createOrderDto,
+      extractAuditContext(req),
+    );
+
     return { data: order };
   }
 

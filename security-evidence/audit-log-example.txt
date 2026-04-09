@@ -1,0 +1,73 @@
+- Order Created
+
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "POST",
+rd_shop_backend_shop_dev-app         |       "requestId": "5ff237a9-b270-4f6e-a765-c33e26cc2d3b",
+rd_shop_backend_shop_dev-app         |       "url": "/api/v1/cart/checkout"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     userId: "5e8b5563-2498-4891-b5fa-b2c0a4bd1558"
+rd_shop_backend_shop_dev-app         |     context: "TypeORM"
+rd_shop_backend_shop_dev-app         | [2026-04-09 11:46:18.453 +0000] DEBUG (57): Query: INSERT INTO "audit_logs"("action", "actor_id", "actor_role", "correlation_id", "created_at", "id", "ip", "outcome", "reason", "target_id", "target_type", "user_agent") VALUES ($1, $2, $3, $4, DEFAULT, DEFAULT, $5, $6, $7, $8, $9, $10) RETURNING "created_at", "id" -- Parameters: ["ORDER_CREATED","5e8b5563-2498-4891-b5fa-b2c0a4bd1558",null,"5ff237a9-b270-4f6e-a765-c33e26cc2d3b","::ffff:192.168.65.1","SUCCESS",null,"9ff13319-5727-4d5f-b044-9bfa2f5f227a","Order","PostmanRuntime/7.53.0"]
+
+
+- Order Idempotent Hit
+
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "POST",
+rd_shop_backend_shop_dev-app         |       "requestId": "a77ba8c8-36d4-4370-a701-077867b4b1dd",
+rd_shop_backend_shop_dev-app         |       "url": "/api/v1/cart/checkout"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     userId: "5e8b5563-2498-4891-b5fa-b2c0a4bd1558"
+rd_shop_backend_shop_dev-app         |     context: "TypeORM"
+rd_shop_backend_shop_dev-app         | [2026-04-09 09:39:37.599 +0000] DEBUG (312): Query: INSERT INTO "audit_logs"("action", "actor_id", "actor_role", "correlation_id", "created_at", "id", "ip", "outcome", "reason", "target_id", "target_type", "user_agent") VALUES ($1, $2, $3, $4, DEFAULT, DEFAULT, $5, $6, $7, $8, $9, $10) RETURNING "created_at", "id" -- Parameters: ["ORDER_IDEMPOTENT_HIT","5e8b5563-2498-4891-b5fa-b2c0a4bd1558",null,"a77ba8c8-36d4-4370-a701-077867b4b1dd","::ffff:192.168.65.1","SUCCESS",null,"4c9d239a-8b37-4ed6-90d2-80e5b45169fb","Order","PostmanRuntime/7.53.0"]
+
+
+- Order Cancelled
+
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "POST",
+rd_shop_backend_shop_dev-app         |       "requestId": "a23e8f66-fe8d-4457-980c-d7dbf5d14f4c",
+rd_shop_backend_shop_dev-app         |       "url": "/api/v1/orders/4c9d239a-8b37-4ed6-90d2-80e5b45169fb/cancellation"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     userId: "5e8b5563-2498-4891-b5fa-b2c0a4bd1558"
+rd_shop_backend_shop_dev-app         |     context: "TypeORM"
+rd_shop_backend_shop_dev-app         | [2026-04-09 11:15:52.322 +0000] DEBUG (342): Query: INSERT INTO "audit_logs"("action", "actor_id", "actor_role", "correlation_id", "created_at", "id", "ip", "outcome", "reason", "target_id", "target_type", "user_agent") VALUES ($1, $2, $3, $4, DEFAULT, DEFAULT, $5, $6, $7, $8, $9, $10) RETURNING "created_at", "id" -- Parameters: ["ORDER_CANCELLED","5e8b5563-2498-4891-b5fa-b2c0a4bd1558",null,"a23e8f66-fe8d-4457-980c-d7dbf5d14f4c","::ffff:192.168.65.1","SUCCESS",null,"4c9d239a-8b37-4ed6-90d2-80e5b45169fb","Order","PostmanRuntime/7.53.0"]
+
+
+- Payment Authorised
+rd_shop_backend_shop_dev-app         | [2026-04-09 11:51:22.974 +0000] DEBUG (57): Query: INSERT INTO "audit_logs"("action", "actor_id", "actor_role", "correlation_id", "created_at", "id", "ip", "outcome", "reason", "target_id", "target_type", "user_agent") VALUES ($1, $2, $3, $4, DEFAULT, DEFAULT, $5, $6, $7, $8, $9, $10) RETURNING "created_at", "id" -- Parameters: ["ORDER_PAYMENT_AUTHORIZED","5e8b5563-2498-4891-b5fa-b2c0a4bd1558",null,null,null,"SUCCESS",null,"6d1928b3-94f8-4ee9-a9e0-bec9502a3814","Order",null]
+
+
+- Signup
+
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "POST",
+rd_shop_backend_shop_dev-app         |       "requestId": "9631e2b4-bfc2-48a8-9abf-82228d40c00e",
+rd_shop_backend_shop_dev-app         |       "url": "/api/v1/auth/signup"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     context: "TypeORM"
+rd_shop_backend_shop_dev-app         | [2026-04-09 11:26:03.496 +0000] DEBUG (342): Query: INSERT INTO "audit_logs"("action", "actor_id", "actor_role", "correlation_id", "created_at", "id", "ip", "outcome", "reason", "target_id", "target_type", "user_agent") VALUES ($1, $2, $3, $4, DEFAULT, DEFAULT, $5, $6, $7, $8, $9, $10) RETURNING "created_at", "id" -- Parameters: ["AUTH_SIGNUP","2f847a54-aa54-4844-966a-2b89a3e3240f",null,"9631e2b4-bfc2-48a8-9abf-82228d40c00e","::ffff:192.168.65.1","SUCCESS",null,"2f847a54-aa54-4844-966a-2b89a3e3240f","User","PostmanRuntime/7.53.0"]
+
+
+- User role changed
+
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "PATCH",
+rd_shop_backend_shop_dev-app         |       "requestId": "ad77bcb8-2c83-49fb-8837-26dc78d8cc55",
+rd_shop_backend_shop_dev-app         |       "url": "/api/v1/admin/users/5e8b5563-2498-4891-b5fa-b2c0a4bd1558/roles"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     userId: "da40c1b8-b216-4230-9bc2-421d23fe58cb"
+rd_shop_backend_shop_dev-app         |     context: "TypeORM"
+rd_shop_backend_shop_dev-app         | [2026-04-09 11:56:05.897 +0000] DEBUG (57): Query: INSERT INTO "audit_logs"("action", "actor_id", "actor_role", "correlation_id", "created_at", "id", "ip", "outcome", "reason", "target_id", "target_type", "user_agent") VALUES ($1, $2, $3, $4, DEFAULT, DEFAULT, $5, $6, $7, $8, $9, $10) RETURNING "created_at", "id" -- Parameters: ["USER_ROLE_CHANGED","da40c1b8-b216-4230-9bc2-421d23fe58cb","admin","ad77bcb8-2c83-49fb-8837-26dc78d8cc55","::ffff:192.168.65.1","SUCCESS",null,"5e8b5563-2498-4891-b5fa-b2c0a4bd1558","User","PostmanRuntime/7.53.0"]
+
+
+- User soft deleted
+
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "DELETE",
+rd_shop_backend_shop_dev-app         |       "requestId": "6f09c2c6-d788-4f33-8a34-7d12589af3bb",
+rd_shop_backend_shop_dev-app         |       "url": "/api/v1/admin/users/2f847a54-aa54-4844-966a-2b89a3e3240f"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     userId: "da40c1b8-b216-4230-9bc2-421d23fe58cb"
+rd_shop_backend_shop_dev-app         |     context: "TypeORM"
+rd_shop_backend_shop_dev-app         | [2026-04-09 11:27:56.138 +0000] DEBUG (342): Query: INSERT INTO "audit_logs"("action", "actor_id", "actor_role", "correlation_id", "created_at", "id", "ip", "outcome", "reason", "target_id", "target_type", "user_agent") VALUES ($1, $2, $3, $4, DEFAULT, DEFAULT, $5, $6, $7, $8, $9, $10) RETURNING "created_at", "id" -- Parameters: ["USER_SOFT_DELETED","da40c1b8-b216-4230-9bc2-421d23fe58cb","admin","6f09c2c6-d788-4f33-8a34-7d12589af3bb","::ffff:192.168.65.1","SUCCESS",null,"2f847a54-aa54-4844-966a-2b89a3e3240f","User","PostmanRuntime/7.53.0"]

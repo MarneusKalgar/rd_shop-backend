@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import { Roles, Scopes } from '@/auth/decorators';
 import { CurrentUser } from '@/auth/decorators/current-user';
@@ -20,7 +21,6 @@ import {
   CompleteUploadDto,
   CompleteUploadResponseDto,
   CreatePresignedUploadDto,
-  // GetFileDto,
   GetFileUrlResponseDto,
   PresignedUploadResponseDto,
 } from '../dto';
@@ -76,8 +76,9 @@ export class FilesController {
     status: HttpStatus.BAD_REQUEST,
   })
   @Post('presigned-upload')
-  // @Roles(UserRole.ADMIN, UserRole.SUPPORT)
-  // @Scopes(UserScope.PRODUCTS_IMAGES_WRITE)
+  @Roles(UserRole.ADMIN, UserRole.SUPPORT)
+  @Scopes(UserScope.PRODUCTS_IMAGES_WRITE)
+  @Throttle({ medium: { limit: 10, ttl: 60_000 } })
   async createPresignedUpload(
     @CurrentUser() user: AuthUser,
     @Body() body: CreatePresignedUploadDto,

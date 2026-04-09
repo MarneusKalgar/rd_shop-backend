@@ -2,6 +2,8 @@ import { SendEmailCommand, SESv2Client } from '@aws-sdk/client-sesv2';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { DEFAULT_VALUES } from '@/core/environment/constants';
+
 @Injectable()
 export class MailService {
   private readonly appUrl: string;
@@ -12,7 +14,7 @@ export class MailService {
   constructor(private readonly configService: ConfigService) {
     const sesRegion = this.configService.get<string>('AWS_SES_REGION');
     this.fromAddress = this.configService.get<string>('SES_FROM_ADDRESS', 'noreply@rdshop.com');
-    this.appUrl = this.configService.get<string>('APP_URL', 'http://localhost:3000');
+    this.appUrl = this.configService.get<string>('APP_URL', DEFAULT_VALUES.APP_URL);
 
     if (sesRegion) {
       this.sesClient = new SESv2Client({ region: sesRegion });

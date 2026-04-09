@@ -11,6 +11,7 @@
 import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
+import { getOptionsToken } from '@nestjs/throttler';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { MIGRATIONS_GLOB } from '@test/paths';
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -106,6 +107,12 @@ describe('GraphQL orders pagination', () => {
     //    on CI. PaymentsGrpcService.onModuleInit calls client.getService() on the real client.
     //    All three are replaced with no-ops; gRPC payments are not under test here.
     const moduleFixture = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(getOptionsToken())
+      .useValue([
+        { limit: 10_000, name: 'short', ttl: 1000 },
+        { limit: 10_000, name: 'medium', ttl: 10_000 },
+        { limit: 10_000, name: 'long', ttl: 60_000 },
+      ])
       .overrideProvider(RabbitMQService)
       .useValue({
         cancelConsumer: jest.fn().mockResolvedValue(undefined),

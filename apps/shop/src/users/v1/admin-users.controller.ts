@@ -9,14 +9,19 @@ import {
   ParseUUIDPipe,
   Patch,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 
+import { extractAuditContext } from '@/audit-log/utils';
+import { CurrentUser } from '@/auth/decorators/current-user';
 import { Roles } from '@/auth/decorators/roles';
 import { Scopes } from '@/auth/decorators/scopes';
 import { JwtAuthGuard, RolesGuard, ScopesGuard } from '@/auth/guards';
 import { UserRole, UserScope } from '@/auth/permissions/constants';
+import { AuthUser } from '@/auth/types';
 
 import {
   FindUsersDto,
@@ -41,8 +46,12 @@ export class AdminUsersController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @Scopes(UserScope.USERS_WRITE)
-  async deleteUser(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
-    return this.usersService.remove(id);
+  async deleteUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() admin: AuthUser,
+    @Req() req: Request,
+  ): Promise<void> {
+    return this.usersService.remove(id, admin, extractAuditContext(req));
   }
 
   @ApiOperation({ summary: 'Get user by ID' })
@@ -70,8 +79,10 @@ export class AdminUsersController {
   async updateRoles(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateRolesDto,
+    @CurrentUser() admin: AuthUser,
+    @Req() req: Request,
   ): Promise<UpdateUserPermissionsResponseDto> {
-    return this.usersService.updateRoles(id, dto);
+    return this.usersService.updateRoles(id, dto, admin, extractAuditContext(req));
   }
 
   @ApiOperation({ summary: 'Set scopes for a user' })
@@ -82,7 +93,9 @@ export class AdminUsersController {
   async updateScopes(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateScopesDto,
+    @CurrentUser() admin: AuthUser,
+    @Req() req: Request,
   ): Promise<UpdateUserPermissionsResponseDto> {
-    return this.usersService.updateScopes(id, dto);
+    return this.usersService.updateScopes(id, dto, admin, extractAuditContext(req));
   }
 }

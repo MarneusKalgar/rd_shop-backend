@@ -1,5 +1,6 @@
-import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
+import { Injectable, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
+import { PinoLogger } from 'nestjs-pino';
 
 import { getNewStore, requestContext } from '@/core/async-storage';
 
@@ -8,7 +9,7 @@ import { getNewStore, requestContext } from '@/core/async-storage';
  */
 @Injectable()
 export class QueryLoggerMiddleware implements NestMiddleware {
-  private readonly logger = new Logger(QueryLoggerMiddleware.name);
+  constructor(private readonly logger: PinoLogger) {}
 
   use(req: Request, res: Response, next: NextFunction): void {
     const store = getNewStore();
@@ -17,8 +18,7 @@ export class QueryLoggerMiddleware implements NestMiddleware {
       res.on('finish', () => {
         if (!req.originalUrl.startsWith('/graphql')) return;
 
-        const msg = `SQL Queries: ${store.queryCount}`;
-        this.logger.log(msg);
+        this.logger.info({ queryCount: store.queryCount }, `SQL Queries: ${store.queryCount}`);
       });
 
       next();

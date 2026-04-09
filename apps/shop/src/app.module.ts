@@ -1,13 +1,20 @@
 import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { LoggerModule } from 'nestjs-pino';
 // import { GracefulShutdownModule } from '@tygra/nestjs-graceful-shutdown';
 
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
+import { GqlThrottlerGuard } from './auth/guards';
 import { CartModule } from './cart/cart.module';
-import { QueryLoggerMiddleware, RequestIdMiddleware } from './common/middlewares';
-import { /*getGracefulShutdownConfig,*/ getTypeOrmModuleOptions } from './config';
+import { QueryLoggerMiddleware } from './common/middlewares';
+import {
+  /*getGracefulShutdownConfig,*/ getPinoLoggerConfig,
+  getTypeOrmModuleOptions,
+} from './config';
 import { getEnvFile, validate } from './core/environment';
 import { FilesModule } from './files/files.module';
 import { GraphqlModule } from './graphql/graphql.module';
@@ -20,6 +27,7 @@ import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
+    LoggerModule.forRoot(getPinoLoggerConfig()),
     ConfigModule.forRoot({
       envFilePath: getEnvFile(),
       isGlobal: true,
@@ -30,6 +38,11 @@ import { UsersModule } from './users/users.module';
       inject: [ConfigService],
       useFactory: getTypeOrmModuleOptions,
     }),
+    ThrottlerModule.forRoot([
+      { limit: 3, name: 'short', ttl: 1000 },
+      { limit: 20, name: 'medium', ttl: 10000 },
+      { limit: 100, name: 'long', ttl: 60000 },
+    ]),
     // TODO: Uncomment when resolve problem with graphql module
     // GracefulShutdownModule.forRoot(getGracefulShutdownConfig()),
     AuthModule,
@@ -44,10 +57,15 @@ import { UsersModule } from './users/users.module';
     OrderWorkerModule,
     HealthModule,
   ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: GqlThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
     consumer.apply(QueryLoggerMiddleware).forRoutes('*');
   }
 }

@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { OrdersService } from '@/orders/orders.service';
 import { ProductsRepository } from '@/products/product.repository';
 
@@ -84,7 +85,11 @@ export class CartService {
    *
    * @throws {BadRequestException} If cart is empty — HTTP 400
    */
-  async checkout(userId: string, dto: CartCheckoutDto): Promise<Order> {
+  async checkout(
+    userId: string,
+    dto: CartCheckoutDto,
+    context?: AuditEventContext,
+  ): Promise<Order> {
     const cart = await this.findCartWithItems(userId);
 
     if (!cart?.items.length) {
@@ -96,11 +101,13 @@ export class CartService {
       quantity: item.quantity,
     }));
 
-    const order = await this.ordersService.createOrder(userId, {
+    const createOrderDto = {
       idempotencyKey: dto.idempotencyKey,
       items,
       shipping: dto.shipping,
-    });
+    };
+
+    const order = await this.ordersService.createOrder(userId, createOrderDto, context);
 
     await this.clearCart(userId);
 

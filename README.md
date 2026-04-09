@@ -31,6 +31,7 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **GraphQL Authentication** - JWT-protected GraphQL queries via `GqlJwtAuthGuard`; user identity derived from Bearer token
 - **CI/CD Pipeline** - Four-workflow GitHub Actions pipeline with PR quality gates, immutable image build, automatic stage deploy, and manual production deploy with approval gate (see [homework17.md](homework17.md))
 - **Health Check System** - Three-tier health endpoints (`/health`, `/ready`, `/status`) built with `@nestjs/terminus`; custom indicators for PostgreSQL, RabbitMQ, MinIO, and payments-service gRPC; liveness/readiness/full-status probes with Kubernetes-compatible semantics
+- **Security Hardening** - OWASP ASVS-aligned controls: HTTP security headers (Helmet), rate limiting (ThrottlerGuard — HTTP + GraphQL), structured audit log with correlation IDs, RBAC/ABAC with JWT, input validation, and secrets never logged (see [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md))
 
 ## 🛠️ Technology Stack
 
@@ -798,9 +799,31 @@ See [TODO.md](TODO.md) for planned features:
 - [x] CI/CD pipeline with GitHub Actions (PR checks, build & push, stage/production deploy) (see [homework17.md](homework17.md))
 - [ ] Complete service layer implementation (CRUD operations)
 - [x] Health check endpoint (`/health`, `/ready`, `/status` with custom Terminus indicators)
-- [ ] Rate limiting
+- [x] Rate limiting (global `GqlThrottlerGuard` — HTTP + GraphQL)
+- [x] Security hardening — headers, audit log, OWASP ASVS baseline (see [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md))
 - [ ] Redis caching
 - [ ] API documentation (Swagger)
+
+## 🔒 Security
+
+The project maintains an OWASP ASVS-aligned security baseline. Key controls:
+
+| Control               | Implementation                                                                 |
+| --------------------- | ------------------------------------------------------------------------------ |
+| HTTP security headers | Helmet (`X-Frame-Options: DENY`, HSTS, CSP, etc.)                              |
+| Rate limiting         | Global `GqlThrottlerGuard` — 3 req/s (short), 20/10 s (medium), 100/min (long) |
+| Authentication        | JWT RS256/HS256 via Passport; 4 guard types (REST + GraphQL)                   |
+| Authorization         | RBAC (roles) + ABAC (scopes) per-endpoint                                      |
+| Audit log             | `AuditLogEvent` table — action, actor, outcome, correlationId, IP, user-agent  |
+| Input validation      | `ValidationPipe` with `whitelist: true` on all controllers                     |
+| Secrets               | Never logged; redacted from pino serializers                                   |
+| TLS                   | Enforced at reverse-proxy / load balancer level                                |
+
+**Documentation:**
+
+- [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md) — full OWASP ASVS mapping, threat model, and evidence index
+- [security-evidence/](security-evidence/) — curl captures, header dumps, rate-limit proofs, and audit log samples
+- [infra-security.md](docs/backend/architecture/infra-security.md) — architecture-level security design decisions
 
 ## 🤝 Contributing
 
