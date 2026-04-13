@@ -29,8 +29,4 @@ export class GqlThrottlerGuard extends ThrottlerGuard {
     const ctx = gqlCtx.getContext<{ req: Request; res: Response }>();
     return { req: ctx.req, res: ctx.res };
   }
-
-  protected override shouldSkip(): Promise<boolean> {
-    return Promise.resolve(process.env.THROTTLE_SKIP === 'true');
-  }
 }

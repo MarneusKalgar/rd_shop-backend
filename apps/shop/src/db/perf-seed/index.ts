@@ -2,10 +2,10 @@
  * Performance seed orchestrator.
  *
  * Usage (from apps/shop/):
- *   npx ts-node -r tsconfig-paths/register ./test/performance/seed/index.ts
- *   npx ts-node -r tsconfig-paths/register ./test/performance/seed/index.ts --scenario=product-search
- *   npx ts-node -r tsconfig-paths/register ./test/performance/seed/index.ts --scenario=order-creation
- *   npx ts-node -r tsconfig-paths/register ./test/performance/seed/index.ts --scenario=auth-stress
+ *   npx ts-node -r tsconfig-paths/register ./src/db/perf-seed/index.ts
+ *   npx ts-node -r tsconfig-paths/register ./src/db/perf-seed/index.ts --scenario=product-search
+ *   npx ts-node -r tsconfig-paths/register ./src/db/perf-seed/index.ts --scenario=order-creation
+ *   npx ts-node -r tsconfig-paths/register ./src/db/perf-seed/index.ts --scenario=auth-stress
  *
  * Also called directly from beforeAll() in Testcontainers perf scenarios.
  */
@@ -24,7 +24,7 @@ import { seedOrders } from './generate-orders';
 import { seedProducts } from './generate-products';
 import { seedUsers } from './generate-users';
 
-const MIGRATIONS_GLOB = join(__dirname, '../../../src/db/migrations/*{.ts,.js}');
+const MIGRATIONS_GLOB = join(__dirname, '../../db/migrations/*{.ts,.js}');
 
 type Scenario = 'all' | 'auth-stress' | 'order-creation' | 'product-search';
 

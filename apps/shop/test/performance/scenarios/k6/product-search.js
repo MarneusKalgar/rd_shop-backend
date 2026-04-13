@@ -12,7 +12,7 @@
  * Run:
  *   k6 run \
  *     --out json=test/performance/results/k6/product-search.json \
- *     test/performance/k6/product-search.js
+ *     test/performance/scenarios/k6/product-search.js
  *
  * Baseline thresholds (pre-optimisation):
  *   http_req_duration{p(95)} < 500ms   (p95 before indexes; relaxed)

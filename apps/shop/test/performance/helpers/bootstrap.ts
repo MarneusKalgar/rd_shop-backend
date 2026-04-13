@@ -89,11 +89,14 @@ export async function bootstrapPerfTest(): Promise<PerfTestContext> {
   //    Infrastructure not under test: RabbitMQ, gRPC client, throttler, health check.
   const moduleFixture = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(getOptionsToken())
-    .useValue([
-      { limit: 100_000, name: 'short', ttl: 1000 },
-      { limit: 100_000, name: 'medium', ttl: 10_000 },
-      { limit: 100_000, name: 'long', ttl: 60_000 },
-    ])
+    .useValue({
+      skipIf: () => true,
+      throttlers: [
+        { limit: 100_000, name: 'short', ttl: 1000 },
+        { limit: 100_000, name: 'medium', ttl: 10_000 },
+        { limit: 100_000, name: 'long', ttl: 60_000 },
+      ],
+    })
     .overrideProvider(RabbitMQService)
     .useValue({
       cancelConsumer: jest.fn().mockResolvedValue(undefined),

@@ -1,6 +1,7 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import { Response } from 'express';
 import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { finalize } from 'rxjs/operators';
 
 /**
  * Sets the X-Response-Time header on HTTP responses.
@@ -14,13 +15,12 @@ export class ResponseTimeInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const response = context
-      .switchToHttp()
-      .getResponse<{ setHeader(key: string, value: string): void }>();
+    const response = context.switchToHttp().getResponse<Response>();
     const startNs = process.hrtime.bigint();
 
     return next.handle().pipe(
-      tap(() => {
+      finalize(() => {
+        if (response.headersSent) return;
         const durationMs = Number(process.hrtime.bigint() - startNs) / 1_000_000;
         response.setHeader('X-Response-Time', `${durationMs.toFixed(2)}ms`);
       }),

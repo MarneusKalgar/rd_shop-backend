@@ -18,7 +18,7 @@
  * Run:
  *   k6 run \
  *     --out json=test/performance/results/k6/order-flow.json \
- *     test/performance/k6/order-flow.js
+ *     test/performance/scenarios/k6/order-flow.js
  *
  * Thresholds (baseline):
  *   POST /cart/checkout p(95) < 2000ms  (async: queued → worker → paid in background)

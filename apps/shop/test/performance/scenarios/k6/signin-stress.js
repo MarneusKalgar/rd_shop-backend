@@ -20,7 +20,7 @@
  * Run:
  *   k6 run \
  *     --out json=test/performance/results/k6/signin-stress-baseline.json \
- *     test/performance/k6/signin-stress.js
+ *     test/performance/scenarios/k6/signin-stress.js
  *
  * Baseline thresholds (bcrypt@10, 0.5 CPU, 10 VUs):
  *   p(95) < 12000ms  — bcrypt serialises through thread pool; high but expected
