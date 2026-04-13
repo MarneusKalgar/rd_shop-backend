@@ -26,11 +26,13 @@ rd_shop_backend_shop_dev-app         | [2026-04-09 13:27:22.391 +0000] WARN (177
 
 
 GQL='{"query":"{ orders { nodes { id } } }"}'
+# Note: Bearer token has been redacted from this evidence file
+# Token contained scopes: orders:read, orders:write, files:write, products:read
 for i in {1..5}; do
   curl -s -o /dev/null -w "%{http_code}\n" \
     -X POST http://localhost:8080/graphql \
     -H 'Content-Type: application/json' \
-    -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAdGVzdC5jb20iLCJyb2xlcyI6WyJ1c2VyIiwic3VwcG9ydCJdLCJzY29wZXMiOlsib3JkZXJzOnJlYWQiLCJvcmRlcnM6d3JpdGUiLCJmaWxlczp3cml0ZSIsInByb2R1Y3RzOnJlYWQiXSwic3ViIjoiNWU4YjU1NjMtMjQ5OC00ODkxLWI1ZmEtYjJjMGE0YmQxNTU4IiwiaWF0IjoxNzc1NzQxOTU4LCJleHAiOjE3NzU3NDU1NTh9.wWVH2PhDBvUya6J0RuklBrN5euNttwR4k4B_x4iabgM' \
+    -H 'Authorization: Bearer [JWT_REDACTED_FOR_SECURITY]' \
     -d "$GQL";
 done
 

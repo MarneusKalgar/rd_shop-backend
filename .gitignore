@@ -41,7 +41,8 @@ apps/shop/test/performance/results/*/*
 
 # dotenv environment variable files
 .env
-.env.production
+**/.env.development
+**/.env.production
 
 # temp directory
 .temp
