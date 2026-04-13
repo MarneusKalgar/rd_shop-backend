@@ -123,12 +123,15 @@ cd rd_shop
 # Install dependencies (shared across both services)
 npm install
 
-# Create environment files for each service
-touch apps/shop/.env.development
-touch apps/payments/.env.development
+# Copy environment template files (creates .env.development for each service)
+npm run setup:env
 
-# Fill in the required variables (see Environment Configuration below)
+# Review and customize the environment files as needed
+# - apps/shop/.env.development
+# - apps/payments/.env.development
 ```
+
+**Note:** `.env.development` files are gitignored for security. Each developer should run `npm run setup:env` after cloning to populate their local environment files.
 
 ## 🌍 Environment Configuration
 

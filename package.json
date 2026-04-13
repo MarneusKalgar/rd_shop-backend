@@ -6,6 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "setup:env": "cp apps/shop/.env.example apps/shop/.env.development && cp apps/payments/.env.example apps/payments/.env.development && echo '✓ Environment files created: apps/shop/.env.development, apps/payments/.env.development'",
     "build": "nest build",
     "build:common": "nest build common",
     "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
