@@ -399,3 +399,9 @@ The pipeline will fail at the SSH step if any of the above prerequisites are mis
 - **Non-root runtime** — containers run as UID 1001 / 65532.
 - **Immutable image tags** — each deploy references an exact digest (`sha-<sha>`), preventing tag mutation attacks.
 - **Production approval gate** — the `production` GitHub Environment must be configured with required reviewers to prevent accidental or unauthorized production deploys.
+
+---
+
+## Evidences
+
+Visual evidence of the CI/CD pipeline in action — workflow runs and branch protection settings — is documented in [ci-cd-evidences/index.md](ci-cd-evidences/index.md).
