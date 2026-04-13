@@ -12,6 +12,10 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# Test results
+apps/shop/test/performance/results/*/*
+!apps/shop/test/performance/results/*/.gitkeep
+
 # OS
 .DS_Store
 

@@ -73,9 +73,17 @@ export class EnvironmentVariables {
   @IsString()
   DATABASE_URL: string;
 
+  @IsNumber()
+  @IsOptional()
+  DB_SLOW_QUERY_THRESHOLD_MS?: number;
+
   @IsOptional()
   @IsString()
   EMAIL_VERIFICATION_EXPIRES_IN?: string;
+
+  @IsNumber()
+  @IsOptional()
+  EVENT_LOOP_LAG_THRESHOLD_MS?: number;
 
   @IsOptional()
   @IsString()
@@ -175,4 +183,8 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   SES_FROM_ADDRESS?: string;
+
+  @IsOptional()
+  @IsString()
+  THROTTLE_SKIP?: string;
 }

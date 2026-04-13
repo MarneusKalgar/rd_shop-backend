@@ -48,6 +48,7 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
   const databaseProvider = configService.get<string>('DATABASE_PROVIDER');
   const adapter = DatabaseAdapterFactory.create(databaseProvider);
   const baseConfig = adapter.getModuleOptions();
+  const slowQueryThresholdMs = configService.get<number>('DB_SLOW_QUERY_THRESHOLD_MS') ?? 1000;
 
   return {
     ...baseConfig,
@@ -67,5 +68,6 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
       AuditLog,
     ],
     logger: new ShopTypeOrmLogger(),
+    maxQueryExecutionTime: slowQueryThresholdMs,
   } as TypeOrmModuleOptions;
 };

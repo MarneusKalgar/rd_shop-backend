@@ -1,0 +1,18 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/../src/$1",
+    "^@test/(.*)$": "<rootDir>/$1",
+    "^@app/common(/.*)$": "<rootDir>/../../../libs/common/src$1",
+    "^@app/common$": "<rootDir>/../../../libs/common/src"
+  },
+  "rootDir": ".",
+  "setupFiles": ["<rootDir>/performance/test-env-setup.ts"],
+  "testEnvironment": "node",
+  "testRegex": "\\.perf\\.ts$",
+  "testTimeout": 180000,
+  "maxWorkers": 1,
+  "transform": {
+    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": "<rootDir>/tsconfig.json" }]
+  }
+}

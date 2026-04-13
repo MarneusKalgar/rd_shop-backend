@@ -7,7 +7,7 @@ import perfectionist from "eslint-plugin-perfectionist";
 
 export default [
   {
-    ignores: ['eslint.config.mjs', 'jest.config.js'],
+    ignores: ['eslint.config.mjs', 'jest.config.js', 'apps/shop/test/performance/scenarios/k6/**'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

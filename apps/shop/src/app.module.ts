@@ -38,11 +38,14 @@ import { UsersModule } from './users/users.module';
       inject: [ConfigService],
       useFactory: getTypeOrmModuleOptions,
     }),
-    ThrottlerModule.forRoot([
-      { limit: 3, name: 'short', ttl: 1000 },
-      { limit: 20, name: 'medium', ttl: 10000 },
-      { limit: 100, name: 'long', ttl: 60000 },
-    ]),
+    ThrottlerModule.forRoot({
+      skipIf: () => process.env.THROTTLE_SKIP === 'true',
+      throttlers: [
+        { limit: 3, name: 'short', ttl: 1000 },
+        { limit: 20, name: 'medium', ttl: 10000 },
+        { limit: 100, name: 'long', ttl: 60000 },
+      ],
+    }),
     // TODO: Uncomment when resolve problem with graphql module
     // GracefulShutdownModule.forRoot(getGracefulShutdownConfig()),
     AuthModule,

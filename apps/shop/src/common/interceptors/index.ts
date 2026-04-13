@@ -1,1 +1,1 @@
-export * from './transform-response';
+export * from './response-time.interceptor';
