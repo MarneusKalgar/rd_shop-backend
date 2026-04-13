@@ -7,10 +7,12 @@ import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
+import { ResponseTimeInterceptor } from './common/interceptors';
 import {
   getEnvVariable,
   safeClose,
   setupCors,
+  setupEventLoopMonitoring,
   setupHelmet,
   setupProcessErrorHandlers,
 } from './core';
@@ -49,6 +51,8 @@ async function bootstrap() {
 
     app.useGlobalFilters(new GlobalExceptionFilter());
 
+    app.useGlobalInterceptors(new ResponseTimeInterceptor());
+
     app.useGlobalPipes(
       new ValidationPipe({
         forbidNonWhitelisted: true,
@@ -68,6 +72,8 @@ async function bootstrap() {
     }
 
     const port = getEnvVariable(app, 'PORT');
+    const eventLoopThresholdMs = getEnvVariable(app, 'EVENT_LOOP_LAG_THRESHOLD_MS') ?? 100;
+    setupEventLoopMonitoring(app.get(Logger), Number(eventLoopThresholdMs));
 
     await app.listen(port);
 
