@@ -1,6 +1,6 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsDate, IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsDate, IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 import { DEFAULT_ORDERS_LIMIT, MAX_ORDERS_LIMIT, MIN_ORDERS_LIMIT } from '@/orders/constants';
 import { OrderStatus } from '@/orders/order.entity';
@@ -32,7 +32,7 @@ export class OrdersPaginationInput {
     nullable: true,
   })
   @IsOptional()
-  @IsUUID()
+  @IsString()
   cursor?: string;
 
   @Field(() => Int, {

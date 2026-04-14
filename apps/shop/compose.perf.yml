@@ -60,6 +60,7 @@ services:
       - perf-internal
 
   migrate-perf:
+    image: rd_shop_perf_migrate_tmp
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -83,6 +84,7 @@ services:
       - migrate
 
   seed-perf:
+    image: rd_shop_perf_seed_tmp
     build:
       context: ../..
       dockerfile: Dockerfile

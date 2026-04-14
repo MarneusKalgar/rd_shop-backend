@@ -12,11 +12,10 @@ import { Order, OrderStatus } from '../order.entity';
 
 export class FindOrdersFilterDto {
   @ApiPropertyOptional({
-    description: 'Cursor for pagination (order ID to start after)',
-    example: '550e8400-e29b-41d4-a716-446655440000',
+    description: 'Cursor for pagination (encoded id|epochMs)',
   })
   @IsOptional()
-  @IsUUID()
+  @IsString()
   cursor?: string;
 
   @ApiProperty({

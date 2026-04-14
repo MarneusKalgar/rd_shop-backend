@@ -183,8 +183,13 @@ export async function resetPgStatStatements(dataSource: DataSource): Promise<voi
 /**
  * Tears down the NestJS app and stops the Postgres container.
  * Call this in afterAll(); ryuk also cleans up the container on process exit.
+ *
+ * The short drain delay lets fire-and-forget async operations (e.g. AuditLogService)
+ * complete before the container is stopped, preventing "Connection terminated" noise.
  */
 export async function teardownPerfTest(ctx: PerfTestContext): Promise<void> {
+  // Allow in-flight fire-and-forget operations to settle.
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
   try {
     if (ctx.app) await ctx.app.close();
   } finally {

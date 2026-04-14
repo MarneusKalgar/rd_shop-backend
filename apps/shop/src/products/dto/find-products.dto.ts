@@ -8,7 +8,6 @@ import {
   IsISO31661Alpha2,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -60,9 +59,9 @@ export class FindProductsQueryDto {
   @Transform(toArray)
   country?: string[];
 
-  @ApiPropertyOptional({ description: 'Cursor (product ID) for keyset pagination' })
+  @ApiPropertyOptional({ description: 'Cursor for keyset pagination' })
   @IsOptional()
-  @IsUUID()
+  @IsString()
   cursor?: string;
 
   @ApiPropertyOptional({ description: 'Filter by active status', example: true })

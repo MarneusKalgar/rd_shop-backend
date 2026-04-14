@@ -75,6 +75,10 @@ export class EnvironmentVariables {
 
   @IsNumber()
   @IsOptional()
+  DB_POOL_SIZE?: number;
+
+  @IsNumber()
+  @IsOptional()
   DB_SLOW_QUERY_THRESHOLD_MS?: number;
 
   @IsOptional()

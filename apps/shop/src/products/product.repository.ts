@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 
+import { decodeCursor } from '@/common/utils';
+
 import { ProductCategory, ProductSortBy, SortOrder } from './constants';
 import { Product } from './product.entity';
 
@@ -156,25 +158,27 @@ export class ProductsRepository {
     }
 
     if (cursor) {
-      const cursorProduct = await this.repository.findOne({ where: { id: cursor } });
-      if (cursorProduct) {
-        const op = sortOrder === SortOrder.DESC ? '<' : '>';
-        if (sortBy === ProductSortBy.PRICE) {
+      const { id: cursorId, sortValue } = decodeCursor(cursor);
+      const op = sortOrder === SortOrder.DESC ? '<' : '>';
+
+      switch (sortBy) {
+        case ProductSortBy.PRICE:
           qb.andWhere(
             `(CAST(product.price AS numeric) ${op} CAST(:cursorPrice AS numeric) OR (CAST(product.price AS numeric) = CAST(:cursorPrice AS numeric) AND product.id ${op} :cursorId))`,
-            { cursorId: cursorProduct.id, cursorPrice: cursorProduct.price },
+            { cursorId, cursorPrice: sortValue },
           );
-        } else if (sortBy === ProductSortBy.TITLE) {
+          break;
+        case ProductSortBy.TITLE:
           qb.andWhere(
             `(product.title ${op} :cursorTitle OR (product.title = :cursorTitle AND product.id ${op} :cursorId))`,
-            { cursorId: cursorProduct.id, cursorTitle: cursorProduct.title },
+            { cursorId, cursorTitle: sortValue },
           );
-        } else {
+          break;
+        default:
           qb.andWhere(
             `(date_trunc('milliseconds', product.createdAt) ${op} :cursorDate OR (date_trunc('milliseconds', product.createdAt) = :cursorDate AND product.id ${op} :cursorId))`,
-            { cursorDate: cursorProduct.createdAt, cursorId: cursorProduct.id },
+            { cursorDate: new Date(Number(sortValue)), cursorId },
           );
-        }
       }
     }
 

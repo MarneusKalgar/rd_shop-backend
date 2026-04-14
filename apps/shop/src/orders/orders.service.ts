@@ -15,6 +15,7 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { AuthUser } from '@/auth/types';
+import { decodeCursor } from '@/common/utils';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProductsRepository } from '@/products/product.repository';
 import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
@@ -42,7 +43,7 @@ import {
   OrdersRepository,
 } from './repositories';
 import { FindOrdersWithFiltersResponse } from './types';
-import { getTotalSumInCents } from './utils';
+import { buildOrderNextCursor, getTotalSumInCents } from './utils';
 
 /**
  * Service responsible for order creation and querying with transaction safety.
@@ -286,12 +287,11 @@ export class OrdersService {
     const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(userId, params);
 
     if (cursor) {
-      const cursorOrder = await this.ordersRepository.findByCursor(cursor);
-      if (!cursorOrder) {
-        throw new BadRequestException(`Invalid cursor: no order found for id "${cursor}"`);
-      }
-
-      this.ordersQueryBuilder.applyCursorPagination(subquery, cursorOrder);
+      const { id: cursorId, sortValue } = decodeCursor(cursor);
+      this.ordersQueryBuilder.applyCursorPagination(subquery, {
+        createdAt: new Date(Number(sortValue)),
+        id: cursorId,
+      });
     }
 
     // Apply ordering and limit to the subquery to get the correct slice of orders for pagination
@@ -312,7 +312,7 @@ export class OrdersService {
     const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds, { withUser: false });
     const orders = await mainQuery.getMany();
 
-    const nextCursor = hasNextPage ? orders[orders.length - 1].id : null;
+    const nextCursor = buildOrderNextCursor(pageSlice, hasNextPage);
 
     return { nextCursor, orders };
   }
@@ -657,17 +657,12 @@ export class OrdersService {
         };
       });
 
-      await this.orderItemsRepository.createOrderItems(manager, orderItemsData);
+      order.items = await this.orderItemsRepository.createOrderItems(manager, orderItemsData);
+      order.user = user;
 
-      const createdOrder = await this.ordersRepository.findByIdWithRelations(order.id, manager);
+      this.logger.log(`Order created successfully: ${order.id}`);
 
-      if (!createdOrder) {
-        throw new Error('Order creation failed');
-      }
-
-      this.logger.log(`Order created successfully: ${createdOrder.id}`);
-
-      return createdOrder;
+      return order;
     });
 
     return createdOrder;
