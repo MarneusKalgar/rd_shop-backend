@@ -30,6 +30,22 @@ export function decodeCursor(cursor: string): CursorPayload {
 }
 
 /**
+ * Decodes a cursor whose sortValue encodes an epoch-millisecond timestamp.
+ * Validates that the sortValue is a finite integer before constructing a Date.
+ * Throws BadRequestException if invalid.
+ */
+export function decodeEpochCursor(cursor: string): { date: Date; id: string } {
+  const { id, sortValue } = decodeCursor(cursor);
+  const epoch = Number(sortValue);
+
+  if (!Number.isFinite(epoch)) {
+    throw new BadRequestException('Invalid cursor format');
+  }
+
+  return { date: new Date(epoch), id };
+}
+
+/**
  * Encodes a cursor from an entity ID and sort value.
  *
  * Plain string concat — no JSON, no base64, no allocations.

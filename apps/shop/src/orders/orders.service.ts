@@ -15,7 +15,7 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { AuthUser } from '@/auth/types';
-import { decodeCursor } from '@/common/utils';
+import { decodeEpochCursor } from '@/common/utils';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProductsRepository } from '@/products/product.repository';
 import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
@@ -297,9 +297,9 @@ export class OrdersService {
     const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(userId, params);
 
     if (cursor) {
-      const { id: cursorId, sortValue } = decodeCursor(cursor);
+      const { date: cursorDate, id: cursorId } = decodeEpochCursor(cursor);
       this.ordersQueryBuilder.applyCursorPagination(subquery, {
-        createdAt: new Date(Number(sortValue)),
+        createdAt: cursorDate,
         id: cursorId,
       });
     }

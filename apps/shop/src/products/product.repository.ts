@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 
-import { decodeCursor } from '@/common/utils';
+import { decodeCursor, decodeEpochCursor } from '@/common/utils';
 
 import { ProductCategory, ProductSortBy, SortOrder } from './constants';
 import { Product } from './product.entity';
@@ -177,7 +177,7 @@ export class ProductsRepository {
         default:
           qb.andWhere(
             `(date_trunc('milliseconds', product.createdAt) ${op} :cursorDate OR (date_trunc('milliseconds', product.createdAt) = :cursorDate AND product.id ${op} :cursorId))`,
-            { cursorDate: new Date(Number(sortValue)), cursorId },
+            { cursorDate: decodeEpochCursor(cursor).date, cursorId },
           );
       }
     }

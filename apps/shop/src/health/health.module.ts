@@ -7,6 +7,7 @@ import { RabbitMQModule } from '@/rabbitmq/rabbitmq.module';
 
 import { HealthController } from './health.controller';
 import {
+  EventLoopHealthIndicator,
   MinioHealthIndicator,
   PaymentsHealthIndicator,
   RabbitMQHealthIndicator,
@@ -15,6 +16,11 @@ import {
 @Module({
   controllers: [HealthController],
   imports: [TerminusModule, RabbitMQModule, PaymentsGrpcModule, FilesModule],
-  providers: [RabbitMQHealthIndicator, PaymentsHealthIndicator, MinioHealthIndicator],
+  providers: [
+    RabbitMQHealthIndicator,
+    PaymentsHealthIndicator,
+    MinioHealthIndicator,
+    EventLoopHealthIndicator,
+  ],
 })
 export class HealthModule {}

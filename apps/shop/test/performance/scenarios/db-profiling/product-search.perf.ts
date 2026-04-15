@@ -65,18 +65,17 @@ describe('[After A1] Product search — GIN trigram index', () => {
   });
 
   it('planner uses Bitmap Index Scan on title when seqscan is disabled', async () => {
-    const rows = await ctx.dataSource.query<{ 'QUERY PLAN': string }[]>(`
-      EXPLAIN (ANALYZE false, BUFFERS false, FORMAT text)
-      SELECT id, title FROM products WHERE title ILIKE '%wireless%' LIMIT 20
-    `);
-    // SET enable_seqscan scoped to this query via a subquery wrapper is not needed —
-    // ANALYZE above gives the planner accurate row counts; at 10K rows the GIN index wins.
-    // If the planner still prefers seqscan, we fall back to confirming via pg_indexes above.
-    const plan: string = rows.map((r) => r['QUERY PLAN']).join('\n');
-    console.log(`[After A1] title EXPLAIN plan:\n${plan}`);
+    const rows = await ctx.dataSource.transaction(async (manager) => {
+      await manager.query(`SET LOCAL enable_seqscan = off`);
+      return manager.query<{ 'QUERY PLAN': string }[]>(
+        `EXPLAIN (ANALYZE false, BUFFERS false, FORMAT text)
+         SELECT id, title FROM products WHERE title ILIKE '%wireless%' LIMIT 20`,
+      );
+    });
+    const plan: string = rows.map((r: { 'QUERY PLAN': string }) => r['QUERY PLAN']).join('\n');
+    console.log(`[After A1] title EXPLAIN plan (seqscan off):\n${plan}`);
     savePerfResults('product-search-explain-title', [{ plan }]);
-    // Primary assertion is the catalog check above; log plan for evidence only
-    expect(plan).toBeTruthy();
+    expect(plan).toMatch(/Bitmap Index Scan|Bitmap Heap Scan/i);
   });
 
   it('logs ILIKE mean_exec_time for before/after comparison (informational)', async () => {
