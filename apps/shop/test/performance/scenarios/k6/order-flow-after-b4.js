@@ -1,14 +1,21 @@
 /**
- * k6 load test — Complete Order Flow AFTER A3 (remove re-fetch after INSERT)
+ * k6 load test — Complete Order Flow AFTER B4 (conditional relation loading on cancel)
  *
- * A3 removes the SELECT that re-fetched the order inside the transaction after
- * INSERT. This tightens the row-level lock hold time, reducing contention under
- * concurrent load and lowering p95 checkout latency.
+ * B4 splits cancelOrder() into two phases:
+ *   Phase 1: status-check SELECT only (no JOIN) — used for early rejection
+ *   Phase 2: SELECT with JOIN to items+products — only when cancel proceeds
  *
- * Baseline (order-flow.js): order_create p(95) < 8000 ms at 20 VUs
- * After A3:                  order_create p(95) < 3000 ms at 20 VUs
+ * For orders that reach cancellation in PENDING state, phase 2 still runs, but
+ * rejected cancels (already CANCELLED / wrong state) now skip the JOIN entirely.
+ * Under load this reduces DB read volume and lock contention on the cancel path.
  *
- * Same scenario as order-flow.js — only the thresholds differ.
+ * Cumulative after both A3 + B4:
+ *   order_create p(95) < 3000 ms  (A3 removed re-fetch inside transaction)
+ *   order_cancel p(95) <  500 ms  (B4 removed unnecessary JOIN on most cancel paths)
+ *
+ * Pre-requisites (via compose.perf.yml seed-perf):
+ *   - 20 products seeded
+ *   - 100 users seeded: perf-user-1@test.local … perf-user-100@test.local / Perf@12345
  *
  * Environment variables:
  *   BASE_URL          — default http://localhost:8090
@@ -16,11 +23,7 @@
  *   PERF_K6_DURATION  — default "30s"
  *
  * Run:
- *   npm run perf:after:orders   (from apps/shop/)
- *   — or —
- *   k6 run \
- *     --out json=test/performance/results/k6/order-flow-after-a3.json \
- *     test/performance/scenarios/k6/order-flow-after-a3.js
+ *   npm run perf:after:orders:b4   (from apps/shop/)
  */
 
 import http from 'k6/http';
@@ -44,28 +47,27 @@ const orderCreateLatency = new Trend('custom_order_create_latency', true);
 const orderCancelLatency = new Trend('custom_order_cancel_latency', true);
 
 // ---------------------------------------------------------------------------
-// Thresholds — tightened post-A3 gates
+// Thresholds — cumulative A3 + B4 gates
 // ---------------------------------------------------------------------------
 export const options = {
   vus: VUS,
   duration: DURATION,
   thresholds: {
     http_req_failed: ['rate<0.01'],
-    // After A3: one fewer SELECT inside transaction → shorter lock hold time
-    // → less contention under concurrent load → lower p95
+    // After A3: one fewer SELECT inside transaction → p(95) tightened from 8000
     'http_req_duration{name:order_create}': ['p(95)<3000', 'p(99)<5000'],
-    // Cancel not affected by A3 — keep same as baseline
-    'http_req_duration{name:order_cancel}': ['p(95)<5000', 'p(99)<8000'],
+    // After B4: status-check only SELECT on rejected cancel → no JOIN overhead
+    // Baseline: p(95)<5000 — After B4: p(95)<500
+    'http_req_duration{name:order_cancel}': ['p(95)<500', 'p(99)<2000'],
     custom_error_rate: ['rate<0.01'],
   },
-  tags: { test_type: 'order_flow_after_a3' },
+  tags: { test_type: 'order_flow_after_b4' },
 };
 
 // ---------------------------------------------------------------------------
 // Per-VU state
 // ---------------------------------------------------------------------------
 let accessToken = null;
-let productIds = null;
 
 export function setup() {
   const loginRes = http.post(

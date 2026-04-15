@@ -21,9 +21,11 @@ import { getOptionsToken } from '@nestjs/throttler';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { MIGRATIONS_GLOB } from '@test/paths';
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import cookieParser from 'cookie-parser';
 import { DataSource } from 'typeorm';
 
-export { PerfResultRow, savePerfResults } from './save-results';
+export type { PerfResultRow } from './save-results';
+export { savePerfResults } from './save-results';
 
 import { AppModule } from '@/app.module';
 import { FileRecord } from '@/files/file-record.entity';
@@ -116,6 +118,7 @@ export async function bootstrapPerfTest(): Promise<PerfTestContext> {
   const app = moduleFixture.createNestApplication();
   app.enableVersioning({ defaultVersion: '1', type: VersioningType.URI });
   app.setGlobalPrefix('api', { exclude: ['/'] });
+  app.use(cookieParser());
   app.useGlobalPipes(
     new ValidationPipe({
       forbidNonWhitelisted: true,

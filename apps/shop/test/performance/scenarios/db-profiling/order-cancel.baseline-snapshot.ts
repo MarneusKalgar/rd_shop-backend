@@ -5,6 +5,7 @@
  * Baseline: 1 SELECT with JOINs regardless of order status.
  * After fix: 1 lightweight SELECT (status only) + conditional JOIN only for valid cancellations.
  */
+import { JwtService } from '@nestjs/jwt';
 import {
   bootstrapPerfTest,
   getPgStatStatements,
@@ -13,6 +14,7 @@ import {
   savePerfResults,
   teardownPerfTest,
 } from '@test/performance/helpers/bootstrap';
+import { IdRow } from '@test/performance/helpers/types';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 
@@ -27,7 +29,7 @@ async function seedAlreadyCancelledOrder(
   userId: string,
   productId: string,
 ): Promise<string> {
-  const [row] = await ds.query<{ id: string }[]>(
+  const [row] = await ds.query<IdRow[]>(
     `INSERT INTO orders (user_id, status) VALUES ($1, $2) RETURNING id`,
     [userId, OrderStatus.CANCELLED],
   );
@@ -48,15 +50,12 @@ describe('[Perf] Order cancel — relation loading baseline', () => {
   afterAll(() => teardownPerfTest(ctx));
 
   it('baseline: when cancel is rejected (already CANCELLED), logs query count', async () => {
-    const [user] = await ctx.dataSource.query<{ id: string }[]>(`SELECT id FROM users LIMIT 1`);
-    const [product] = await ctx.dataSource.query<{ id: string }[]>(
-      `SELECT id FROM products LIMIT 1`,
-    );
+    const [user] = await ctx.dataSource.query<IdRow[]>(`SELECT id FROM users LIMIT 1`);
+    const [product] = await ctx.dataSource.query<IdRow[]>(`SELECT id FROM products LIMIT 1`);
 
     const orderId = await seedAlreadyCancelledOrder(ctx.dataSource, user.id, product.id);
 
     // Re-sign JWT as this user
-    const { JwtService } = await import('@nestjs/jwt');
     const jwtService = ctx.app.get(JwtService);
     const token = await jwtService.signAsync({
       email: `perf-user-1@test.local`,

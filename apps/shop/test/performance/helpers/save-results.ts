@@ -2,10 +2,11 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 export interface PerfResultRow {
-  calls: number;
-  mean_ms: string;
-  query: string;
-  total_ms: string;
+  [key: string]: unknown;
+  calls?: number;
+  mean_ms?: string;
+  query?: string;
+  total_ms?: string;
 }
 
 const RESULTS_DIR = join(__dirname, '..', 'results', 'db-profiling');
@@ -24,5 +25,4 @@ export function savePerfResults(label: string, rows: PerfResultRow[]): void {
   const safeName = label.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
   const file = join(RESULTS_DIR, `${timestamp}-${safeName}.json`);
   writeFileSync(file, JSON.stringify({ label, rows, timestamp }, null, 2), 'utf-8');
-  console.log(`[Perf] Results saved → ${file}`);
 }

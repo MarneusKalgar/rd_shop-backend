@@ -145,6 +145,31 @@ services:
     profiles:
       - app
 
+  shop-perf-unconstrained:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_perf_shop_unconstrained
+    env_file:
+      - test/performance/.env.perf
+    environment:
+      NODE_ENV: production
+    ports:
+      - '8090:8090'
+    depends_on:
+      postgres-perf:
+        condition: service_healthy
+      rabbitmq-perf:
+        condition: service_healthy
+    networks:
+      - perf-internal
+      - perf-external
+    profiles:
+      - app-unconstrained
+
 networks:
   perf-internal:
     driver: bridge

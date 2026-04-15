@@ -5,6 +5,7 @@
  * Baseline: findByIdWithRelations() is called after INSERT — adds 1 SELECT under lock.
  * After fix: response assembled from in-memory entities — 0 extra SELECT.
  */
+import { JwtService } from '@nestjs/jwt';
 import {
   bootstrapPerfTest,
   getPgStatStatements,
@@ -13,6 +14,7 @@ import {
   savePerfResults,
   teardownPerfTest,
 } from '@test/performance/helpers/bootstrap';
+import { IdRow } from '@test/performance/helpers/types';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 
@@ -24,14 +26,14 @@ let testUserId: string;
 let testProductId: string;
 
 async function getFirstProductId(ds: DataSource): Promise<string> {
-  const [row] = await ds.query<{ id: string }[]>(
+  const [row] = await ds.query<IdRow[]>(
     `SELECT id FROM products WHERE is_active = true AND stock > 5 LIMIT 1`,
   );
   return row.id;
 }
 
 async function getFirstUserId(ds: DataSource): Promise<string> {
-  const [row] = await ds.query<{ id: string }[]>(
+  const [row] = await ds.query<IdRow[]>(
     `SELECT id FROM users WHERE 'orders:write' = ANY(scopes) LIMIT 1`,
   );
   return row.id;
@@ -47,7 +49,6 @@ describe('[Perf] Order creation — re-fetch under lock baseline', () => {
     testProductId = await getFirstProductId(ctx.dataSource);
 
     // Re-sign token as the test user
-    const { JwtService } = await import('@nestjs/jwt');
     const jwtService = ctx.app.get(JwtService);
     ctx.accessToken = await jwtService.signAsync({
       email: 'perf-user-1@test.local',

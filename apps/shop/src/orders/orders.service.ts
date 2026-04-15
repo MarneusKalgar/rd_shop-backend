@@ -117,19 +117,29 @@ export class OrdersService {
       await manager.query('SET LOCAL lock_timeout = 10000');
 
       const orderRepo = manager.getRepository(Order);
+
+      // Phase 1: status check only — no JOIN to items/products.
+      // Early-exit guards run here; we avoid loading relations for rejected cancels.
+      const orderShallow = await orderRepo.findOne({ where: { id: orderId } });
+
+      this.assertOrderOwnership(orderShallow, userId);
+
+      if (orderShallow.status === OrderStatus.CANCELLED) {
+        throw new ConflictException(`Order "${orderId}" is already cancelled`);
+      }
+
+      if (orderShallow.status === OrderStatus.CREATED) {
+        throw new BadRequestException(`Order "${orderId}" is in an invalid state for cancellation`);
+      }
+
+      // Phase 2: cancellation proceeds — load items + products for stock restore.
       const order = await orderRepo.findOne({
         relations: ['items', 'items.product'],
         where: { id: orderId },
       });
 
-      this.assertOrderOwnership(order, userId);
-
-      if (order.status === OrderStatus.CANCELLED) {
-        throw new ConflictException(`Order "${orderId}" is already cancelled`);
-      }
-
-      if (order.status === OrderStatus.CREATED) {
-        throw new BadRequestException(`Order "${orderId}" is in an invalid state for cancellation`);
+      if (!order) {
+        throw new NotFoundException(`Order "${orderId}" not found`);
       }
 
       const productIds = order.items.map((item) => item.productId);

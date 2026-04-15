@@ -1,11 +1,18 @@
 /**
- * k6 load test — Token Refresh Stress
+ * k6 load test — Token Refresh Stress — AFTER B1
  *
- * Measures the cheap JWT-verify path (POST /auth/refresh) at 30 VUs.
- * Tokens are pre-obtained in setup() sequentially so bcrypt never runs
- * during the measured phase — giving an uncontaminated refresh latency.
+ * B1 fix: switched from native `bcrypt` to `bcryptjs`.
+ * bcryptjs is pure JS and yields to the event loop after each round
+ * (via setImmediate), so concurrent refresh requests interleave rather
+ * than queue behind blocked libuv threads.
  *
- * For bcrypt saturation testing see signin-stress.js.
+ * The refresh endpoint runs 2 bcrypt ops:
+ *   1. bcrypt.compare(rawSecret, storedHash)   — validate old token
+ *   2. bcrypt.hash(newRawSecret, saltRounds)   — issue new token
+ *
+ * Baseline (auth-flow.js):  p(95) < 25 000 ms — native bcrypt saturates 4 libuv threads
+ * After B1 (this file):     p(95) <  8 000 ms — bcryptjs non-blocking; event loop freed
+ * After B5 (auth-flow-after-b5.js): p(95) < 200 ms — HMAC replaces bcrypt for tokens entirely
  *
  * Pre-requisites:
  *   - 100 users seeded with password "Perf@12345"
@@ -16,12 +23,8 @@
  *   PERF_K6_VUS       — default 30
  *   PERF_K6_DURATION  — default "30s"
  *
- * Thresholds (baseline):
- *   POST /auth/refresh p(95) < 200ms  (JWT verify + DB token lookup)
- *   http_req_failed    < 1%
- *
- * After B1 (bcrypt rounds env-var tuning), refresh should be unaffected.
- * After B2 (index on refresh_tokens.token), tighten refresh p(95) to 50ms.
+ * Run:
+ *   npm run perf:after:auth:b1   (from apps/shop/)
  */
 
 import http from 'k6/http';
@@ -51,25 +54,23 @@ export const options = {
   duration: DURATION,
   thresholds: {
     http_req_failed: ['rate<0.01'],
-    // Baseline: each refresh does 2 bcrypt ops (compare old + hash new token).
-    // At 30 VUs × 2 bcrypt ops on 0.5 CPU, thread pool saturates → ~13s avg.
-    // After B1 (bcryptjs, non-blocking): tighten to p(95) < 8000ms.
-    // After B5 (HMAC replaces bcrypt for tokens): tighten to p(95) < 200ms.
-    'http_req_duration{name:auth_refresh}': ['p(95)<25000'],
+    // After B1: bcryptjs yields between rounds → event loop freed.
+    // Still 2 bcrypt ops per refresh but no thread-pool saturation.
+    // Baseline was p(95)<25000; after B1 drops to <8000.
+    // After B5 (HMAC) this tightens further to <200ms.
+    'http_req_duration{name:auth_refresh}': ['p(95)<8000', 'p(99)<35000'],
     custom_error_rate: ['rate<0.01'],
   },
-  tags: { test_type: 'auth_stress' },
+  tags: { test_type: 'auth_refresh_after_b1' },
 };
 
 // ---------------------------------------------------------------------------
-// setup() — runs once before VUs start, single-threaded
-// Sign in each of the VUS users sequentially so bcrypt never contends.
-// Returns array of { accessToken, refreshToken } indexed by VU.
+// setup() — sign in each VU sequentially before load phase begins
 // ---------------------------------------------------------------------------
 export function setup() {
   const tokens = [];
   for (let i = 0; i < VUS; i++) {
-    const userIndex = (i % USER_COUNT) + 1; // 1-indexed
+    const userIndex = (i % USER_COUNT) + 1;
     const email = `perf-user-${userIndex}@test.local`;
     const res = http.post(
       `${BASE_URL}/api/v1/auth/signin`,
@@ -90,14 +91,10 @@ export function setup() {
   return tokens;
 }
 
-// Module-level per-VU state — each VU has its own JS runtime in k6 so these
-// are isolated per VU and persist across iterations (unlike local variables
-// inside default() which reset every call).
 let accessToken = null;
 let refreshToken = null;
 
 export default function (tokens) {
-  // Initialize from setup data on first iteration only
   if (!accessToken || !refreshToken) {
     const seed = tokens[__VU - 1] || {};
     accessToken = seed.accessToken || null;
@@ -131,7 +128,6 @@ export default function (tokens) {
     refreshLatency.add(res.timings.duration);
     errorRate.add(!ok);
 
-    // Rotate tokens for next iteration
     if (ok) {
       try {
         const b = JSON.parse(res.body);

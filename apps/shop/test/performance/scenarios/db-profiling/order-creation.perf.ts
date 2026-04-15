@@ -18,6 +18,7 @@
  *
  * Run: npm run test:perf (from apps/shop/)
  */
+import { JwtService } from '@nestjs/jwt';
 import {
   bootstrapPerfTest,
   getPgStatStatements,
@@ -26,6 +27,7 @@ import {
   savePerfResults,
   teardownPerfTest,
 } from '@test/performance/helpers/bootstrap';
+import { IdRow } from '@test/performance/helpers/types';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 
@@ -36,14 +38,14 @@ let ctx: PerfTestContext;
 let testProductId: string;
 
 async function getActiveProductId(ds: DataSource): Promise<string> {
-  const [row] = await ds.query<{ id: string }[]>(
+  const [row] = await ds.query<IdRow[]>(
     `SELECT id FROM products WHERE is_active = true AND stock > 5 LIMIT 1`,
   );
   return row.id;
 }
 
 async function getUserId(ds: DataSource): Promise<string> {
-  const [row] = await ds.query<{ id: string }[]>(
+  const [row] = await ds.query<IdRow[]>(
     `SELECT id FROM users WHERE 'orders:write' = ANY(scopes) LIMIT 1`,
   );
   return row.id;
@@ -58,7 +60,6 @@ describe('[After A3] Order creation — no re-fetch SELECT under lock', () => {
     const userId = await getUserId(ctx.dataSource);
     testProductId = await getActiveProductId(ctx.dataSource);
 
-    const { JwtService } = await import('@nestjs/jwt');
     const jwtService = ctx.app.get(JwtService);
     ctx.accessToken = await jwtService.signAsync({
       email: 'perf-user-1@test.local',
