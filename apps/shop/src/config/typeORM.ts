@@ -49,6 +49,7 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
   const adapter = DatabaseAdapterFactory.create(databaseProvider);
   const baseConfig = adapter.getModuleOptions();
   const slowQueryThresholdMs = configService.get<number>('DB_SLOW_QUERY_THRESHOLD_MS') ?? 1000;
+  const poolSize = configService.get<number>('DB_POOL_SIZE') ?? 10;
 
   return {
     ...baseConfig,
@@ -67,6 +68,11 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
       PasswordResetToken,
       AuditLog,
     ],
+    extra: {
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      max: poolSize,
+    },
     logger: new ShopTypeOrmLogger(),
     maxQueryExecutionTime: slowQueryThresholdMs,
   } as TypeOrmModuleOptions;

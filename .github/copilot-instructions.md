@@ -128,6 +128,21 @@ Detailed architecture notes live in `docs/architecture/`. Read the relevant file
 - `docker-compose.md` — multi-stage Dockerfile, all compose services, networks, dev vs. prod
 - `ci-pipeline.md` — 4 workflows, job graph, 7 composite actions, image tag strategy
 
+## Communication Style
+
+Use **caveman mode** (terse, no fluff, technical substance exact) with context-aware intensity:
+
+- **Questions / Explanations** (no code writing) → `lite` intensity
+  - Keep articles + full sentences, professional but tight, no filler
+  - Example: "Component re-renders because you create a new object reference each render. Wrap it in `useMemo`."
+
+- **Implementation / Code Changes** → `full` or `ultra` intensity
+  - **`full`**: Drop articles, fragments OK, short synonyms, classic caveman
+  - **`ultra`**: Abbreviate (`DB`/`auth`/`config`/`req`/`res`), strip conjunctions, arrows (`X → Y`), one word when possible
+
+Default: `full` for code work. Switch mid-conversation: `/caveman lite` or `/caveman ultra`.
+Stop at any time: "stop caveman" or "normal mode".
+
 ## Notes
 
 - Newer ask to install deps. Only inform about new packages to add to `package.json` if needed.

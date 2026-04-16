@@ -1,10 +1,21 @@
 /**
- * Perf scenario: order cancel
+ * Perf scenario: order cancel — AFTER B4
  *
- * Validates B4 optimization: cancelOrder() loads relations even when cancel will be rejected.
- * Baseline: 1 SELECT with JOINs regardless of order status.
- * After fix: 1 lightweight SELECT (status only) + conditional JOIN only for valid cancellations.
+ * Validates that cancelOrder() no longer loads items + products when the cancel
+ * is rejected early (wrong status). Only a status-check SELECT should fire.
+ *
+ * Assertions:
+ *   1. Rejected cancel (already CANCELLED order) → 1 SELECT on orders (no JOIN)
+ *      — no query touching order_items or products table
+ *   2. Successful cancel (PENDING order) → 2 SELECTs on orders
+ *      — first: status check; second: with JOIN to order_items + products
+ *
+ * Baseline (before B4): 1 SELECT with LEFT JOIN order_items + products even for rejected cancels.
+ * After B4: rejected cancel = 1 lightweight SELECT; successful cancel = 2 SELECTs (conditional JOIN).
+ *
+ * Run: npm run test:perf (from apps/shop/)
  */
+import { JwtService } from '@nestjs/jwt';
 import {
   bootstrapPerfTest,
   getPgStatStatements,
@@ -13,6 +24,7 @@ import {
   savePerfResults,
   teardownPerfTest,
 } from '@test/performance/helpers/bootstrap';
+import { IdRow } from '@test/performance/helpers/types';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 
@@ -22,14 +34,15 @@ import { OrderStatus } from '@/orders/order.entity';
 
 let ctx: PerfTestContext;
 
-async function seedAlreadyCancelledOrder(
+async function seedOrder(
   ds: DataSource,
   userId: string,
   productId: string,
+  status: OrderStatus,
 ): Promise<string> {
-  const [row] = await ds.query<{ id: string }[]>(
+  const [row] = await ds.query<IdRow[]>(
     `INSERT INTO orders (user_id, status) VALUES ($1, $2) RETURNING id`,
-    [userId, OrderStatus.CANCELLED],
+    [userId, status],
   );
   await ds.query(
     `INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES ($1, $2, 1, '9.99')`,
@@ -38,39 +51,39 @@ async function seedAlreadyCancelledOrder(
   return row.id;
 }
 
-describe('[Perf] Order cancel — relation loading baseline', () => {
+describe('[After B4] Order cancel — conditional relation loading', () => {
+  let userId: string;
+  let productId: string;
+  let token: string;
+
   beforeAll(async () => {
     ctx = await bootstrapPerfTest();
     await seedUsers(ctx.dataSource, 5);
     await seedProducts(ctx.dataSource, 5);
+
+    [{ id: userId }] = await ctx.dataSource.query<IdRow[]>(`SELECT id FROM users LIMIT 1`);
+    [{ id: productId }] = await ctx.dataSource.query<IdRow[]>(`SELECT id FROM products LIMIT 1`);
+
+    const jwtService = ctx.app.get(JwtService);
+    token = await jwtService.signAsync({
+      email: 'perf-user-1@test.local',
+      roles: ['user'],
+      scopes: ['orders:read', 'orders:write'],
+      sub: userId,
+    });
   }, 120_000);
 
   afterAll(() => teardownPerfTest(ctx));
 
-  it('baseline: when cancel is rejected (already CANCELLED), logs query count', async () => {
-    const [user] = await ctx.dataSource.query<{ id: string }[]>(`SELECT id FROM users LIMIT 1`);
-    const [product] = await ctx.dataSource.query<{ id: string }[]>(
-      `SELECT id FROM products LIMIT 1`,
-    );
-
-    const orderId = await seedAlreadyCancelledOrder(ctx.dataSource, user.id, product.id);
-
-    // Re-sign JWT as this user
-    const { JwtService } = await import('@nestjs/jwt');
-    const jwtService = ctx.app.get(JwtService);
-    const token = await jwtService.signAsync({
-      email: `perf-user-1@test.local`,
-      roles: ['user'],
-      scopes: ['orders:read', 'orders:write'],
-      sub: user.id,
-    });
+  it('rejected cancel (already CANCELLED): only 1 status-check SELECT, no JOIN to items/products', async () => {
+    const orderId = await seedOrder(ctx.dataSource, userId, productId, OrderStatus.CANCELLED);
 
     await resetPgStatStatements(ctx.dataSource);
 
     await request(ctx.app.getHttpServer() as unknown as string)
       .post(`/api/v1/orders/${orderId}/cancellation`)
       .set('Authorization', `Bearer ${token}`)
-      .expect(409); // ConflictException — already cancelled
+      .expect(409);
 
     const stats = await getPgStatStatements(ctx.dataSource, 'orders');
     const rows = stats.map((s) => ({
@@ -79,12 +92,49 @@ describe('[Perf] Order cancel — relation loading baseline', () => {
       query: s.query,
       total_ms: s.total_exec_time.toFixed(2),
     }));
-    console.log('[Baseline] Queries when cancel is rejected (CANCELLED status):');
-    console.table(rows.map((r) => ({ ...r, query: r.query.slice(0, 100) })));
-    savePerfResults('order-cancel-rejected-baseline', rows);
+    console.log('[After B4] Queries when cancel is rejected (CANCELLED status):');
+    console.table(rows.map((r) => ({ ...r, query: r.query.slice(0, 120) })));
+    savePerfResults('order-cancel-rejected-after-b4', rows);
 
-    // Baseline: 1 SELECT with JOIN to order_items + products
-    // After B4: 1 SELECT without JOINs (status check only)
-    expect(stats.length).toBeGreaterThanOrEqual(1);
+    // After B4: only 1 SELECT on orders (status check) — no JOIN to order_items/products
+    expect(stats.length).toBe(1);
+    expect(stats[0].query).not.toMatch(/order_items|products/i);
+  });
+
+  it('successful cancel (PENDING order): 2 SELECTs — status check + conditional items+products load', async () => {
+    const orderId = await seedOrder(ctx.dataSource, userId, productId, OrderStatus.PENDING);
+
+    await resetPgStatStatements(ctx.dataSource);
+
+    await request(ctx.app.getHttpServer() as unknown as string)
+      .post(`/api/v1/orders/${orderId}/cancellation`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const stats = await getPgStatStatements(ctx.dataSource, 'orders');
+    const rows = stats.map((s) => ({
+      calls: s.calls,
+      mean_ms: s.mean_exec_time.toFixed(2),
+      query: s.query,
+      total_ms: s.total_exec_time.toFixed(2),
+    }));
+    console.log('[After B4] Queries when cancel succeeds (PENDING order):');
+    console.table(rows.map((r) => ({ ...r, query: r.query.slice(0, 120) })));
+    savePerfResults('order-cancel-success-after-b4', rows);
+
+    // Phase 1: lightweight status SELECT (no JOIN) — same query shape re-used by findByIdWithItemRelations
+    // Phase 2: SELECT with LEFT JOIN order_items + products
+    // findByIdWithItemRelations: distinctAlias SELECT + main SELECT
+    // Total unique SELECT query shapes touching "orders": 4
+    const orderSelects = stats.filter((s) => /SELECT.*FROM.*orders/i.test(s.query));
+    expect(orderSelects.length).toBe(4);
+
+    // Phase 2 must have fired: a JOIN to order_items/products must exist
+    const withJoin = orderSelects.find((s) => /order_items|items/i.test(s.query));
+    expect(withJoin).toBeDefined();
+
+    // Phase 1 must have fired: a lightweight SELECT without order_items JOIN must exist
+    const withoutJoin = orderSelects.find((s) => !/order_items|items/i.test(s.query));
+    expect(withoutJoin).toBeDefined();
   });
 });

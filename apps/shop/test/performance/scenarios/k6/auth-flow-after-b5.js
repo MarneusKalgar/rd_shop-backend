@@ -1,11 +1,19 @@
 /**
- * k6 load test — Token Refresh Stress
+ * k6 load test — Token Refresh Stress — AFTER B5
  *
- * Measures the cheap JWT-verify path (POST /auth/refresh) at 30 VUs.
- * Tokens are pre-obtained in setup() sequentially so bcrypt never runs
- * during the measured phase — giving an uncontaminated refresh latency.
+ * B5 fix: replaced bcrypt with HMAC-SHA256 (keyed on TOKEN_HMAC_SECRET) for
+ * all opaque token operations — refresh, verification, and password-reset tokens.
  *
- * For bcrypt saturation testing see signin-stress.js.
+ * The refresh endpoint previously ran 2 bcrypt ops (~100 ms each):
+ *   1. bcrypt.compare(rawSecret, storedHash)   — validate incoming token
+ *   2. bcrypt.hash(newRawSecret, saltRounds)   — issue new token
+ *
+ * After B5 those are:
+ *   1. HMAC-SHA256 verify  (~1 µs, constant-time)
+ *   2. HMAC-SHA256 create  (~1 µs, synchronous)
+ *
+ * p(95) drops from ~25 000 ms (baseline) → ~8 000 ms (after B1 / bcryptjs)
+ *                                         → <200 ms (after B5 / HMAC).
  *
  * Pre-requisites:
  *   - 100 users seeded with password "Perf@12345"
@@ -16,12 +24,8 @@
  *   PERF_K6_VUS       — default 30
  *   PERF_K6_DURATION  — default "30s"
  *
- * Thresholds (baseline):
- *   POST /auth/refresh p(95) < 200ms  (JWT verify + DB token lookup)
- *   http_req_failed    < 1%
- *
- * After B1 (bcrypt rounds env-var tuning), refresh should be unaffected.
- * After B2 (index on refresh_tokens.token), tighten refresh p(95) to 50ms.
+ * Run:
+ *   npm run perf:after:auth:b5   (from apps/shop/)
  */
 
 import http from 'k6/http';
@@ -51,25 +55,22 @@ export const options = {
   duration: DURATION,
   thresholds: {
     http_req_failed: ['rate<0.01'],
-    // Baseline: each refresh does 2 bcrypt ops (compare old + hash new token).
-    // At 30 VUs × 2 bcrypt ops on 0.5 CPU, thread pool saturates → ~13s avg.
-    // After B1 (bcryptjs, non-blocking): tighten to p(95) < 8000ms.
-    // After B5 (HMAC replaces bcrypt for tokens): tighten to p(95) < 200ms.
-    'http_req_duration{name:auth_refresh}': ['p(95)<25000'],
+    // After B5: token ops are HMAC-SHA256 (~1 µs each).
+    // Remaining cost: DB row lookup + DB update + JWT sign.
+    // At 30 VUs, p(95) should be well under 200 ms.
+    'http_req_duration{name:auth_refresh}': ['p(95)<200', 'p(99)<23000'],
     custom_error_rate: ['rate<0.01'],
   },
-  tags: { test_type: 'auth_stress' },
+  tags: { test_type: 'auth_refresh_after_b5' },
 };
 
 // ---------------------------------------------------------------------------
-// setup() — runs once before VUs start, single-threaded
-// Sign in each of the VUS users sequentially so bcrypt never contends.
-// Returns array of { accessToken, refreshToken } indexed by VU.
+// setup() — sign in each VU sequentially before load phase begins
 // ---------------------------------------------------------------------------
 export function setup() {
   const tokens = [];
   for (let i = 0; i < VUS; i++) {
-    const userIndex = (i % USER_COUNT) + 1; // 1-indexed
+    const userIndex = (i % USER_COUNT) + 1;
     const email = `perf-user-${userIndex}@test.local`;
     const res = http.post(
       `${BASE_URL}/api/v1/auth/signin`,
@@ -90,14 +91,10 @@ export function setup() {
   return tokens;
 }
 
-// Module-level per-VU state — each VU has its own JS runtime in k6 so these
-// are isolated per VU and persist across iterations (unlike local variables
-// inside default() which reset every call).
 let accessToken = null;
 let refreshToken = null;
 
 export default function (tokens) {
-  // Initialize from setup data on first iteration only
   if (!accessToken || !refreshToken) {
     const seed = tokens[__VU - 1] || {};
     accessToken = seed.accessToken || null;
@@ -131,7 +128,6 @@ export default function (tokens) {
     refreshLatency.add(res.timings.duration);
     errorRate.add(!ok);
 
-    // Rotate tokens for next iteration
     if (ok) {
       try {
         const b = JSON.parse(res.body);

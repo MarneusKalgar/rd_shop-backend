@@ -60,6 +60,7 @@ services:
       - perf-internal
 
   migrate-perf:
+    image: rd_shop_perf_migrate_tmp
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -83,6 +84,7 @@ services:
       - migrate
 
   seed-perf:
+    image: rd_shop_perf_seed_tmp
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -140,8 +142,45 @@ services:
     networks:
       - perf-internal
       - perf-external
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8090/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     profiles:
       - app
+
+  shop-perf-unconstrained:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_perf_shop_unconstrained
+    env_file:
+      - test/performance/.env.perf
+    environment:
+      NODE_ENV: production
+    ports:
+      - '8090:8090'
+    depends_on:
+      postgres-perf:
+        condition: service_healthy
+      rabbitmq-perf:
+        condition: service_healthy
+    networks:
+      - perf-internal
+      - perf-external
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8090/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    profiles:
+      - app-unconstrained
 
 networks:
   perf-internal:

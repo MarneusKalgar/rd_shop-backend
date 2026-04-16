@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, MinLength } from 'class-validator';
 
 import { NodeEnvironment } from '@/utils/env';
 
@@ -72,6 +72,10 @@ export class EnvironmentVariables {
 
   @IsString()
   DATABASE_URL: string;
+
+  @IsNumber()
+  @IsOptional()
+  DB_POOL_SIZE?: number;
 
   @IsNumber()
   @IsOptional()
@@ -187,4 +191,8 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   THROTTLE_SKIP?: string;
+
+  @IsString()
+  @MinLength(32)
+  TOKEN_HMAC_SECRET: string;
 }

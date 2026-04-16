@@ -3,6 +3,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService, TypeOrmHealthIndicator } from '@nestjs/terminus';
 
 import {
+  EventLoopHealthIndicator,
   MinioHealthIndicator,
   PaymentsHealthIndicator,
   RabbitMQHealthIndicator,
@@ -17,28 +18,42 @@ export class HealthController {
     private readonly rabbitmq: RabbitMQHealthIndicator,
     private readonly payments: PaymentsHealthIndicator,
     private readonly minio: MinioHealthIndicator,
+    private readonly eventLoop: EventLoopHealthIndicator,
   ) {}
 
   @ApiOperation({
-    description: 'Lightweight liveness probe. Returns 200 if the process is running.',
+    description:
+      'Liveness probe. Returns 200 if the process is running and the event loop is not lagging beyond the configured threshold.',
     summary: 'Liveness check',
   })
   @ApiResponse({
-    description: 'Application is alive',
+    description: 'Application is alive and event loop is healthy',
     schema: {
       example: {
-        details: {},
+        details: { event_loop: { p99Ms: 4, status: 'up', thresholdMs: 100 } },
         error: {},
-        info: {},
+        info: { event_loop: { p99Ms: 4, status: 'up', thresholdMs: 100 } },
         status: 'ok',
       },
     },
     status: HttpStatus.OK,
   })
+  @ApiResponse({
+    description: 'Event loop lag exceeds threshold — process is effectively unresponsive',
+    schema: {
+      example: {
+        details: { event_loop: { p99Ms: 250, status: 'down', thresholdMs: 100 } },
+        error: { event_loop: { p99Ms: 250, status: 'down', thresholdMs: 100 } },
+        info: {},
+        status: 'error',
+      },
+    },
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+  })
   @Get('health')
   @HealthCheck()
   health() {
-    return this.healthCheckService.check([]);
+    return this.healthCheckService.check([() => this.eventLoop.check('event_loop')]);
   }
 
   @ApiOperation({
@@ -98,13 +113,19 @@ export class HealthController {
     schema: {
       example: {
         details: {
+          event_loop: { p99Ms: 4, status: 'up', thresholdMs: 100 },
           minio: { status: 'up' },
           payments: { status: 'down' },
           postgres: { status: 'up' },
           rabbitmq: { status: 'up' },
         },
         error: { payments: { status: 'down' } },
-        info: { minio: { status: 'up' }, postgres: { status: 'up' }, rabbitmq: { status: 'up' } },
+        info: {
+          event_loop: { p99Ms: 4, status: 'up', thresholdMs: 100 },
+          minio: { status: 'up' },
+          postgres: { status: 'up' },
+          rabbitmq: { status: 'up' },
+        },
         status: 'error',
       },
     },
@@ -118,6 +139,7 @@ export class HealthController {
         () => this.rabbitmq.check('rabbitmq'),
         () => this.minio.check('minio'),
         () => this.payments.check('payments'),
+        () => this.eventLoop.check('event_loop'),
       ]);
     } catch (error: unknown) {
       // Return the Terminus error body as-is with 200 so soft-dep failures

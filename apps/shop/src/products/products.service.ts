@@ -25,7 +25,7 @@ import {
 import { Product } from './product.entity';
 import { ProductsRepository } from './product.repository';
 import { ReviewsService } from './reviews.service';
-import { omitUndefined, throwOnUniqueViolation } from './utils';
+import { buildProductNextCursor, omitUndefined, throwOnUniqueViolation } from './utils';
 
 @Injectable()
 export class ProductsService {
@@ -105,7 +105,7 @@ export class ProductsService {
 
     const hasNextPage = products.length > limit;
     const page = hasNextPage ? products.slice(0, limit) : products;
-    const nextCursor = hasNextPage ? page[page.length - 1].id : null;
+    const nextCursor = buildProductNextCursor(page, sortBy, hasNextPage);
     const ratingMap = await this.reviewsService.getRatingInfoBatch(page.map((p) => p.id));
     const data = page.map((p) => {
       const rating = ratingMap.get(p.id) ?? { averageRating: null, reviewsCount: 0 };

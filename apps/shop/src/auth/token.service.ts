@@ -2,19 +2,18 @@ import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import * as bcrypt from 'bcrypt';
 import ms from 'ms';
 import { StringValue } from 'ms';
-import * as crypto from 'node:crypto';
 import { Repository } from 'typeorm';
 
 import { User } from '@/users/user.entity';
 
+import { ONE_TIME_TOKEN_SECRET_BYTES } from './constants';
 import { EmailVerificationToken } from './email-verification-token.entity';
 import { PasswordResetToken } from './password-reset-token.entity';
 import { RefreshToken } from './refresh-token.entity';
 import { JwtPayload } from './types';
-import { parseOpaqueToken } from './utils';
+import { createOpaqueToken, parseOpaqueToken, verifyOpaqueToken } from './utils';
 
 @Injectable()
 export class TokenService {
@@ -22,9 +21,9 @@ export class TokenService {
   get ttlMs(): number {
     return this.ttl;
   }
-  private passwordResetTtlMs: number;
+  private readonly hmacSecret: string;
 
-  private readonly saltRounds: number;
+  private passwordResetTtlMs: number;
   private ttl: number;
   private verificationTtlMs: number;
 
@@ -38,7 +37,7 @@ export class TokenService {
     @InjectRepository(PasswordResetToken)
     private readonly passwordResetTokenRepository: Repository<PasswordResetToken>,
   ) {
-    this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10);
+    this.hmacSecret = this.configService.getOrThrow<string>('TOKEN_HMAC_SECRET');
     this.setTtl();
     this.setVerificationTtl();
     this.setPasswordResetTtl();
@@ -117,7 +116,10 @@ export class TokenService {
    */
   async issuePasswordResetToken(userId: string): Promise<string> {
     const expiresAt = new Date(Date.now() + this.passwordResetTtlMs);
-    const { rawSecret, tokenHash } = await this.createOpaqueToken(32);
+    const { rawSecret, tokenHash } = createOpaqueToken(
+      this.hmacSecret,
+      ONE_TIME_TOKEN_SECRET_BYTES,
+    );
 
     const record = this.passwordResetTokenRepository.create({
       expiresAt,
@@ -146,7 +148,10 @@ export class TokenService {
    */
   async issueVerificationToken(userId: string): Promise<string> {
     const expiresAt = new Date(Date.now() + this.verificationTtlMs);
-    const { rawSecret, tokenHash } = await this.createOpaqueToken(32);
+    const { rawSecret, tokenHash } = createOpaqueToken(
+      this.hmacSecret,
+      ONE_TIME_TOKEN_SECRET_BYTES,
+    );
 
     const record = this.emailVerificationTokenRepository.create({
       expiresAt,
@@ -236,7 +241,7 @@ export class TokenService {
 
     if (!storedToken?.isUsable) throw new BadRequestException('Invalid or expired token');
 
-    const isValid = await bcrypt.compare(rawSecret, storedToken.tokenHash);
+    const isValid = verifyOpaqueToken(rawSecret, storedToken.tokenHash, this.hmacSecret);
     if (!isValid) throw new BadRequestException('Invalid or expired token');
 
     return storedToken;
@@ -260,7 +265,7 @@ export class TokenService {
     if (!storedToken) throw new UnauthorizedException('Invalid refresh token');
     if (!storedToken.isActive) throw new UnauthorizedException('Refresh token expired or revoked');
 
-    const isValid = await bcrypt.compare(rawSecret, storedToken.tokenHash);
+    const isValid = verifyOpaqueToken(rawSecret, storedToken.tokenHash, this.hmacSecret);
     if (!isValid) throw new UnauthorizedException('Invalid refresh token');
 
     return storedToken;
@@ -282,26 +287,16 @@ export class TokenService {
 
     if (!storedToken?.isUsable) throw new BadRequestException('Invalid or expired token');
 
-    const isValid = await bcrypt.compare(rawSecret, storedToken.tokenHash);
+    const isValid = verifyOpaqueToken(rawSecret, storedToken.tokenHash, this.hmacSecret);
     if (!isValid) throw new BadRequestException('Invalid or expired token');
 
     return storedToken;
   }
 
-  /**
-   * Generates a raw secret and its bcrypt hash.
-   * @param bytes  Length of the raw secret in bytes (default 64).
-   */
-  private async createOpaqueToken(bytes = 64): Promise<{ rawSecret: string; tokenHash: string }> {
-    const rawSecret = crypto.randomBytes(bytes).toString('hex');
-    const tokenHash = await bcrypt.hash(rawSecret, this.saltRounds);
-    return { rawSecret, tokenHash };
-  }
-
   /** Creates, persists, and returns a new refresh token cookie value for the given user. */
   private async createRefreshToken(userId: string): Promise<string> {
     const expiresAt = new Date(Date.now() + this.ttl);
-    const { rawSecret, tokenHash } = await this.createOpaqueToken();
+    const { rawSecret, tokenHash } = createOpaqueToken(this.hmacSecret);
 
     const token = this.refreshTokenRepository.create({
       expiresAt,
@@ -309,6 +304,7 @@ export class TokenService {
       tokenHash,
       userId,
     });
+
     await this.refreshTokenRepository.save(token);
 
     return `${token.id}:${rawSecret}`;
@@ -321,11 +317,13 @@ export class TokenService {
   private parseTtl(envKey: string, defaultValue: StringValue): number {
     const ttlConfig = (this.configService.get<string>(envKey) ?? defaultValue) as StringValue;
     const parsed = ms(ttlConfig);
+
     if (!parsed || !Number.isFinite(parsed) || parsed <= 0) {
       throw new Error(
         `Invalid ${envKey} value: "${ttlConfig}". Must be a positive duration string (e.g. "7d", "1h").`,
       );
     }
+
     return parsed;
   }
 }

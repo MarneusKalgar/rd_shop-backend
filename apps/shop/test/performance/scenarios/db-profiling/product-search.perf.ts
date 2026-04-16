@@ -1,11 +1,18 @@
 /**
- * Perf scenario: product-search
+ * Perf scenario: product-search — AFTER A1
  *
- * Validates A1 optimization: ILIKE '%term%' scan vs GIN trigram index.
- * Uses EXPLAIN ANALYZE to assert plan change before/after the migration.
+ * Validates that the GIN trigram index is in effect:
+ *   1. pg_indexes catalog confirms GIN index with gin_trgm_ops exists on title and description
+ *   2. With seqscan disabled, planner uses the GIN index (Bitmap Index Scan)
+ *   3. Each HTTP search request issues exactly 1 SELECT (no extra cursor pre-fetch)
  *
- * This test does NOT test runtime latency — it tests query plan correctness.
- * Runtime metrics are captured separately via k6 + compose.perf.yml.
+ * Why not a plain EXPLAIN assertion?
+ *   PostgreSQL's planner chooses Seq Scan on small/fresh tables even when a GIN index exists,
+ *   because without ANALYZE the row estimate is too low to justify an index path.
+ *   The catalog check is the authoritative "index exists with correct opclass" assertion.
+ *   SET enable_seqscan = OFF forces the planner to use any available index, confirming it is usable.
+ *
+ * Run: npm run test:perf (from apps/shop/)
  */
 import {
   bootstrapPerfTest,
@@ -21,15 +28,78 @@ import { seedProducts } from '@/db/perf-seed/generate-products';
 
 let ctx: PerfTestContext;
 
-describe('[Perf] Product search — ILIKE scan', () => {
+describe('[After A1] Product search — GIN trigram index', () => {
   beforeAll(async () => {
     ctx = await bootstrapPerfTest();
     await seedProducts(ctx.dataSource, 10_000);
+    // Update planner statistics so cost estimates reflect the actual row count
+    await ctx.dataSource.query('ANALYZE products');
   }, 180_000);
 
   afterAll(() => teardownPerfTest(ctx));
 
-  it('executes a single SELECT for a search request (no extra cursor lookup)', async () => {
+  it('GIN trigram index exists on title with gin_trgm_ops operator class', async () => {
+    const rows = await ctx.dataSource.query<{ indexdef: string; indexname: string }[]>(`
+      SELECT indexname, indexdef
+      FROM pg_indexes
+      WHERE tablename = 'products'
+        AND indexdef ILIKE '%gin_trgm_ops%'
+        AND indexname = 'IDX_products_title_trgm'
+    `);
+    expect(rows.length).toBe(1);
+    expect(rows[0].indexdef).toMatch(/USING gin/i);
+    expect(rows[0].indexdef).toMatch(/gin_trgm_ops/i);
+  });
+
+  it('GIN trigram index exists on description with gin_trgm_ops operator class', async () => {
+    const rows = await ctx.dataSource.query<{ indexdef: string; indexname: string }[]>(`
+      SELECT indexname, indexdef
+      FROM pg_indexes
+      WHERE tablename = 'products'
+        AND indexdef ILIKE '%gin_trgm_ops%'
+        AND indexname = 'IDX_products_description_trgm'
+    `);
+    expect(rows.length).toBe(1);
+    expect(rows[0].indexdef).toMatch(/USING gin/i);
+    expect(rows[0].indexdef).toMatch(/gin_trgm_ops/i);
+  });
+
+  it('planner uses Bitmap Index Scan on title when seqscan is disabled', async () => {
+    const rows = await ctx.dataSource.transaction(async (manager) => {
+      await manager.query(`SET LOCAL enable_seqscan = off`);
+      return manager.query<{ 'QUERY PLAN': string }[]>(
+        `EXPLAIN (ANALYZE false, BUFFERS false, FORMAT text)
+         SELECT id, title FROM products WHERE title ILIKE '%wireless%' LIMIT 20`,
+      );
+    });
+    const plan: string = rows.map((r: { 'QUERY PLAN': string }) => r['QUERY PLAN']).join('\n');
+    console.log(`[After A1] title EXPLAIN plan (seqscan off):\n${plan}`);
+    savePerfResults('product-search-explain-title', [{ plan }]);
+    expect(plan).toMatch(/Bitmap Index Scan|Bitmap Heap Scan/i);
+  });
+
+  it('logs ILIKE mean_exec_time for before/after comparison (informational)', async () => {
+    await resetPgStatStatements(ctx.dataSource);
+
+    for (let i = 0; i < 5; i++) {
+      await ctx.dataSource.query(
+        `SELECT id, title FROM products WHERE title ILIKE '%wireless%' LIMIT 20`,
+      );
+    }
+
+    const stats = await getPgStatStatements(ctx.dataSource, 'ilike');
+    expect(stats.length).toBeGreaterThan(0);
+
+    const meanMs = stats[0].mean_exec_time;
+    console.log(`[After A1] ILIKE mean_ms=${meanMs.toFixed(3)} (baseline ~0.10 ms at 10K rows)`);
+    savePerfResults('product-search-ilike-after-a1', [
+      { mean_ms: meanMs.toFixed(3), query: stats[0].query },
+    ]);
+    // Informational only — timing in Testcontainers is not stable enough for hard thresholds
+    expect(meanMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('HTTP search request issues exactly 1 SELECT query', async () => {
     await resetPgStatStatements(ctx.dataSource);
 
     await request(ctx.app.getHttpServer() as unknown as string)
@@ -38,46 +108,9 @@ describe('[Perf] Product search — ILIKE scan', () => {
       .expect(200);
 
     const stats = await getPgStatStatements(ctx.dataSource, 'ilike');
-    // One ILIKE query for the main search + at most one count query
-    expect(stats.length).toBeGreaterThanOrEqual(1);
-  });
+    const totalCalls = stats.reduce((sum, s) => sum + s.calls, 0);
 
-  it('uses a sequential scan on title/description without GIN index (baseline)', async () => {
-    const rows = await ctx.dataSource.query<{ 'QUERY PLAN': string }[]>(
-      `EXPLAIN (ANALYZE false, BUFFERS false, FORMAT text)
-       SELECT * FROM products WHERE title ILIKE '%wireless%' LIMIT 20`,
-    );
-    // EXPLAIN FORMAT text returns one row per plan line; join them all before matching.
-    const plan: string = rows.map((r) => r['QUERY PLAN']).join('\n');
-    // Without pg_trgm GIN index the planner must do a Seq Scan or Parallel Seq Scan
-    expect(plan).toMatch(/Seq Scan|Parallel Seq Scan/i);
-  });
-
-  it('reports ILIKE query mean time to establish a baseline', async () => {
-    await resetPgStatStatements(ctx.dataSource);
-
-    // Warm-up + measured run
-    for (let i = 0; i < 5; i++) {
-      await ctx.dataSource.query(
-        `SELECT id, title FROM products WHERE title ILIKE '%wireless%' LIMIT 20`,
-      );
-    }
-
-    // pg_stat_statements normalizes literals to $1 — search by keyword 'ilike', not by the literal value.
-    const stats = await getPgStatStatements(ctx.dataSource, 'ilike');
-    if (stats.length > 0) {
-      const rows = stats.map((s) => ({
-        calls: s.calls,
-        mean_ms: s.mean_exec_time.toFixed(2),
-        query: s.query,
-        total_ms: s.total_exec_time.toFixed(2),
-      }));
-      console.log(
-        `[Baseline] ILIKE search — calls=${stats[0].calls} mean=${stats[0].mean_exec_time.toFixed(2)}ms total=${stats[0].total_exec_time.toFixed(2)}ms`,
-      );
-      savePerfResults('product-search-ilike-baseline', rows);
-    }
-    // Not asserting a threshold — just logging for the before/after table
-    expect(stats.length).toBeGreaterThan(0);
+    console.log(`[After A1] ILIKE SQL calls per request: ${totalCalls}`);
+    expect(totalCalls).toBe(1);
   });
 });
