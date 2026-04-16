@@ -123,6 +123,18 @@ FROM prod-base AS prod-payments
 CMD ["node", "dist/apps/payments/main.js"]
 
 # ============================================
+# Stage: grpc-stub — perf test gRPC stub server
+# Accepts connections, completes H2 handshake, never responds to RPCs.
+# Used by grpc-stub-perf in compose.perf.yml to expose the timeout-retry
+# stall before B3 circuit-breaker is applied.
+# ============================================
+FROM prod-base AS grpc-stub
+
+COPY --from=build --chown=nestjs:nodejs /app/apps/shop/test/performance/scripts/grpc-stub-server.js ./grpc-stub-server.js
+
+CMD ["node", "grpc-stub-server.js"]
+
+# ============================================
 # Stage: strip - Remove source maps (for distroless image)
 # ============================================
 FROM node:24-alpine AS strip

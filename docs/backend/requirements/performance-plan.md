@@ -19,6 +19,8 @@
 - [Bottleneck Analysis Matrix](#bottleneck-analysis-matrix)
 - [Recommended Hot Scenario for Baseline](#recommended-hot-scenario-for-baseline)
 - [Implementation Priority](#implementation-priority)
+- [Measurement Runbook](#measurement-runbook)
+- [Cross-References](#cross-references)
 
 ---
 
@@ -600,16 +602,16 @@ return await this.authorizeBreaker.fire(request);
 
 **Testing (Compose):**
 
-```bash
-# 1. Start compose.perf.yml with a mock gRPC payments service that returns errors
-# 2. Send 10 order processing messages → gRPC calls fail
-# 3. Assert: after 5 failures, circuit opens (observe log: "Circuit breaker OPENED")
-# 4. Send more messages → assert they fail fast WITHOUT hitting gRPC (no timeout wait)
-# 5. Wait 10s → assert circuit transitions to half-open
-# 6. Fix the mock service → next call succeeds → circuit closes
-```
+> **Note: Unit tests for B3 are intentionally skipped.** The `grpc-stub-server` + k6 perf scenario provides meaningful end-to-end validation of breaker behaviour (queue drain fast, "Circuit breaker OPENED" in logs). Isolated unit tests for opossum state transitions add little coverage value given the library is well-tested upstream.
 
-Note: This test needs a controllable gRPC server (fail/succeed on demand). Compose with a mock service is more natural than Testcontainers here.
+```bash
+# 1. Start compose.perf.yml with grpc-stub-perf (gRPC server that never responds)
+# 2. Run perf:b3:before → observe queue backing up, timeout logs
+# 3. Rebuild app with breaker, run perf:after:orders:b3
+# 4. Assert: "Circuit breaker OPENED" in shop logs after 5 timeouts
+# 5. Assert: subsequent messages fail fast (no 5s wait), queue drains
+# 6. Assert: circuit transitions to HALF-OPEN after 10s, then CLOSED when stub is stopped
+```
 
 ### B4. Order Cancel — Loads All Relations Unnecessarily
 

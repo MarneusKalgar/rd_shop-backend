@@ -1,26 +1,25 @@
-import { status as GrpcStatus } from '@grpc/grpc-js';
 import {
   BadRequestException,
-  ConflictException,
   GatewayTimeoutException,
   Inject,
   Injectable,
   Logger,
-  NotFoundException,
   OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ClientGrpc } from '@nestjs/microservices';
+import CircuitBreaker from 'opossum';
 import { firstValueFrom, Observable, timeout, TimeoutError } from 'rxjs';
 
-import { PAYMENTS_GRPC_CLIENT } from './constants';
+import { BREAKER_OPTIONS, PAYMENTS_GRPC_CLIENT } from './constants';
 import {
   AuthorizeRequest,
   AuthorizeResponse,
   GetPaymentStatusRequest,
   GetPaymentStatusResponse,
 } from './interfaces';
+import { mapGrpcError } from './utils';
 
 interface PaymentsProtoService {
   authorize(request: AuthorizeRequest): Observable<AuthorizeResponse>;
@@ -29,6 +28,11 @@ interface PaymentsProtoService {
 
 @Injectable()
 export class PaymentsGrpcService implements OnModuleInit {
+  private authorizeBreaker: CircuitBreaker<[AuthorizeRequest], AuthorizeResponse>;
+  private getPaymentStatusBreaker: CircuitBreaker<
+    [GetPaymentStatusRequest],
+    GetPaymentStatusResponse
+  >;
   private readonly logger = new Logger(PaymentsGrpcService.name);
   private paymentsProtoService: PaymentsProtoService;
 
@@ -38,69 +42,74 @@ export class PaymentsGrpcService implements OnModuleInit {
   ) {}
 
   async authorize(request: AuthorizeRequest): Promise<AuthorizeResponse> {
-    const timeoutMs = this.configService.get<number>('PAYMENTS_GRPC_TIMEOUT_MS') ?? 5000;
-
     try {
-      return await firstValueFrom(
-        this.paymentsProtoService.authorize(request).pipe(timeout(timeoutMs)),
-      );
+      return await this.authorizeBreaker.fire(request);
     } catch (err) {
       if (err instanceof TimeoutError) {
-        this.logger.error(
-          `Payment authorization timed out after ${timeoutMs}ms for order=${request.orderId}`,
-        );
-        throw new GatewayTimeoutException(`Payment authorization timed out after ${timeoutMs}ms`);
+        this.logger.error(`Payment authorization timed out for order=${request.orderId}`);
+        throw new GatewayTimeoutException('Payment authorization timed out');
+      }
+      if ((err as Error).message === 'Breaker is open') {
+        this.logger.warn(`authorize circuit breaker OPEN for order=${request.orderId}`);
+        throw new ServiceUnavailableException('Payment service unavailable');
       }
       this.logger.error(`Payment authorization failed for order=${request.orderId}`, err);
-      this.mapGrpcError(err);
+      mapGrpcError(err);
     }
   }
 
   async getPaymentStatus(paymentId: string): Promise<GetPaymentStatusResponse> {
-    const timeoutMs = this.configService.get<number>('PAYMENTS_GRPC_TIMEOUT_MS') ?? 5000;
-
     if (!paymentId) {
       this.logger.error('getPaymentStatus called without paymentId');
       throw new BadRequestException('paymentId is required');
     }
 
     try {
-      return await firstValueFrom(
-        this.paymentsProtoService.getPaymentStatus({ paymentId }).pipe(timeout(timeoutMs)),
-      );
+      return await this.getPaymentStatusBreaker.fire({ paymentId });
     } catch (err) {
       if (err instanceof TimeoutError) {
-        this.logger.error(
-          `Get payment status timed out after ${timeoutMs}ms for paymentId=${paymentId}`,
-        );
-        throw new GatewayTimeoutException(`Get payment status timed out after ${timeoutMs}ms`);
+        this.logger.error(`Get payment status timed out for paymentId=${paymentId}`);
+        throw new GatewayTimeoutException('Get payment status timed out');
+      }
+      if ((err as Error).message === 'Breaker is open') {
+        this.logger.warn(`getPaymentStatus circuit breaker OPEN for paymentId=${paymentId}`);
+        throw new ServiceUnavailableException('Payment service unavailable');
       }
       this.logger.error(`Get payment status failed for paymentId=${paymentId}`, err);
-      this.mapGrpcError(err);
+      mapGrpcError(err);
     }
   }
 
   onModuleInit() {
     this.paymentsProtoService = this.client.getService<PaymentsProtoService>('Payments');
-  }
+    const timeoutMs = this.configService.get<number>('PAYMENTS_GRPC_TIMEOUT_MS') ?? 5000;
 
-  private mapGrpcError(err: unknown): never {
-    const grpc = err as { code?: number; message?: string };
-    const message = grpc.message ?? 'Payment service error';
+    this.authorizeBreaker = new CircuitBreaker(
+      (req: AuthorizeRequest) =>
+        firstValueFrom(this.paymentsProtoService.authorize(req).pipe(timeout(timeoutMs))),
+      BREAKER_OPTIONS,
+    ) as CircuitBreaker<[AuthorizeRequest], AuthorizeResponse>;
 
-    switch (grpc.code) {
-      case GrpcStatus.NOT_FOUND:
-        throw new NotFoundException(message);
-      case GrpcStatus.INVALID_ARGUMENT:
-        throw new BadRequestException(message);
-      case GrpcStatus.ALREADY_EXISTS:
-        throw new ConflictException(message);
-      case GrpcStatus.UNAVAILABLE:
-        throw new ServiceUnavailableException('Payment service is unavailable');
-      case GrpcStatus.DEADLINE_EXCEEDED:
-        throw new GatewayTimeoutException('Payment service request timed out');
-      default:
-        throw new ServiceUnavailableException(message);
-    }
+    this.getPaymentStatusBreaker = new CircuitBreaker(
+      (req: GetPaymentStatusRequest) =>
+        firstValueFrom(this.paymentsProtoService.getPaymentStatus(req).pipe(timeout(timeoutMs))),
+      BREAKER_OPTIONS,
+    ) as CircuitBreaker<[GetPaymentStatusRequest], GetPaymentStatusResponse>;
+
+    this.authorizeBreaker.on('open', () => this.logger.warn('authorize circuit breaker → OPEN'));
+    this.authorizeBreaker.on('halfOpen', () =>
+      this.logger.log('authorize circuit breaker → HALF-OPEN'),
+    );
+    this.authorizeBreaker.on('close', () => this.logger.log('authorize circuit breaker → CLOSED'));
+
+    this.getPaymentStatusBreaker.on('open', () =>
+      this.logger.warn('getPaymentStatus circuit breaker → OPEN'),
+    );
+    this.getPaymentStatusBreaker.on('halfOpen', () =>
+      this.logger.log('getPaymentStatus circuit breaker → HALF-OPEN'),
+    );
+    this.getPaymentStatusBreaker.on('close', () =>
+      this.logger.log('getPaymentStatus circuit breaker → CLOSED'),
+    );
   }
 }
