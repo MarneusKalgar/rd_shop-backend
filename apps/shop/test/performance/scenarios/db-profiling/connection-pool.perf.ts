@@ -25,17 +25,25 @@ import {
 import { Client } from 'pg';
 
 let ctx: PerfTestContext;
-
-// Must be set before bootstrapPerfTest() so AppModule's TypeORM config picks it up.
-// Default in typeORM.ts is 10; without this the pool is 10 and the assertion against 5 fails.
-process.env.DB_POOL_SIZE = '5';
+let originalPoolSize: string | undefined;
 
 describe('[A4] DB connection pool size enforcement', () => {
   beforeAll(async () => {
+    // Must be set before bootstrapPerfTest() so AppModule's TypeORM config picks it up.
+    // Default in typeORM.ts is 10; without this the pool is 10 and the assertion against 5 fails.
+    originalPoolSize = process.env.DB_POOL_SIZE;
+    process.env.DB_POOL_SIZE = '5';
     ctx = await bootstrapPerfTest();
   }, 120_000);
 
-  afterAll(() => teardownPerfTest(ctx));
+  afterAll(() => {
+    if (originalPoolSize === undefined) {
+      delete process.env.DB_POOL_SIZE;
+    } else {
+      process.env.DB_POOL_SIZE = originalPoolSize;
+    }
+    return teardownPerfTest(ctx);
+  });
 
   it('all 20 concurrent queries complete without error (pool queues excess, does not reject)', async () => {
     const CONCURRENT = 20;
