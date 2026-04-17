@@ -9,6 +9,7 @@ import { GlobalExceptionFilter } from './common/filters';
 import { ResponseTimeInterceptor } from './common/interceptors';
 import {
   getEnvVariable,
+  registerShutdownHandlers,
   safeClose,
   setupCors,
   setupEventLoopMonitoring,
@@ -73,13 +74,7 @@ async function bootstrap() {
 
     await app.listen(port);
 
-    process.on('SIGTERM', () => {
-      void (async () => {
-        app?.get(Logger).log('SIGTERM received — starting graceful shutdown', 'Bootstrap');
-        await safeClose(app);
-        process.exit(0);
-      })();
-    });
+    registerShutdownHandlers(app);
 
     if (!isProd) {
       const logger = app.get(Logger);

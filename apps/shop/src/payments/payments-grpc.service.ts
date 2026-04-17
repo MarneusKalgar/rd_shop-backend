@@ -49,7 +49,7 @@ export class PaymentsGrpcService implements OnModuleInit {
         this.logger.error(`Payment authorization timed out for order=${request.orderId}`);
         throw new GatewayTimeoutException('Payment authorization timed out');
       }
-      if ((err as Error).message === 'Breaker is open') {
+      if ((err as { code?: string }).code === 'EOPENBREAKER') {
         this.logger.warn(`authorize circuit breaker OPEN for order=${request.orderId}`);
         throw new ServiceUnavailableException('Payment service unavailable');
       }
@@ -71,7 +71,7 @@ export class PaymentsGrpcService implements OnModuleInit {
         this.logger.error(`Get payment status timed out for paymentId=${paymentId}`);
         throw new GatewayTimeoutException('Get payment status timed out');
       }
-      if ((err as Error).message === 'Breaker is open') {
+      if ((err as { code?: string }).code === 'EOPENBREAKER') {
         this.logger.warn(`getPaymentStatus circuit breaker OPEN for paymentId=${paymentId}`);
         throw new ServiceUnavailableException('Payment service unavailable');
       }

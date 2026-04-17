@@ -50,6 +50,19 @@ export const setupProcessErrorHandlers = (): void => {
  * @example
  * await safeClose(app);
  */
+export const registerShutdownHandlers = (app: INestApplication): void => {
+  const shutdown = (signal: string) => {
+    void (async () => {
+      app.get(Logger).log(`${signal} received — starting graceful shutdown`, 'Bootstrap');
+      await safeClose(app);
+      process.exit(0);
+    })();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+};
+
 export const safeClose = async (app: INestApplication | undefined): Promise<void> => {
   if (!app) {
     Logger.warn('No application instance to close');
