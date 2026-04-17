@@ -606,7 +606,7 @@ return await this.authorizeBreaker.fire(request);
 
 ```bash
 # 1. Start compose.perf.yml with grpc-stub-perf (gRPC server that never responds)
-# 2. Run perf:b3:before → observe queue backing up, timeout logs
+# 2. Run perf:grpc-breaker:before → observe queue backing up, timeout logs
 # 3. Rebuild app with breaker, run perf:after:orders:b3
 # 4. Assert: "Circuit breaker OPENED" in shop logs after 5 timeouts
 # 5. Assert: subsequent messages fail fast (no 5s wait), queue drains

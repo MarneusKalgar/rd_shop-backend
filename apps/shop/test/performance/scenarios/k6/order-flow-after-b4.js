@@ -23,7 +23,15 @@
  *   PERF_K6_DURATION  — default "30s"
  *
  * Run:
- *   npm run perf:after:orders:b4   (from apps/shop/)
+ *   npm run perf:after:orders:b4   (from apps/shop/) — standard order flow, shop-perf (authorize skipped)
+ *
+ * B3 circuit-breaker runs (reuses this script, different app profile):
+ *   npm run perf:grpc-breaker:before — before-state: pre-opossum build, shop-perf-grpc-breaker (stub active, authorize ON)
+ *                                      NOTE: cannot be reproduced from the current codebase — opossum is now
+ *                                      installed. The before-state data was captured before the circuit breaker
+ *                                      was implemented and is preserved in .temp/performance-before.md.
+ *   npm run perf:grpc-breaker:after  — after-state: shop-perf-grpc-breaker (stub active, breaker installed, authorize ON)
+ *                                      Requires: npm run perf:app:grpc-breaker (uses .env.perf + .env.perf.grpc-breaker overrides)
  */
 
 import http from 'k6/http';
