@@ -54,7 +54,6 @@ export class OrdersConnection {
   @Field(() => PageInfo, { description: 'Pagination information' })
   pageInfo: PageInfo;
 
-  // TODO
   @Field(() => Int, { description: 'Total count of items', nullable: true })
   totalCount?: number;
 }

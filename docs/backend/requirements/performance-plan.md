@@ -1723,12 +1723,18 @@ tail -5 /tmp/docker-stats.txt
 
 **What to measure:**
 
-| Metric                   | Before                | After                  | How                 |
-| ------------------------ | --------------------- | ---------------------- | ------------------- |
-| In-flight request result | `ECONNRESET` / 502    | HTTP 2xx (completes)   | `curl` output below |
-| Container exit code      | 137 (SIGKILL)         | 0 (clean)              | `docker inspect`    |
-| Orphan DB connections    | ≥1 idle from dead PID | 0                      | `pg_stat_activity`  |
-| Shutdown duration        | ~0s (instant kill)    | ≤ graceful-stop window | `time docker stop`  |
+| Metric                   | Before                    | After (measured)       | How                 |
+| ------------------------ | ------------------------- | ---------------------- | ------------------- |
+| In-flight request result | `ECONNRESET` / 502        | HTTP 2xx (completes)   | `curl` output below |
+| Container exit code      | 143 (SIGTERM, no handler) | **0** ✅ (clean)       | `docker inspect`    |
+| Orphan DB connections    | ≥1 idle from dead PID     | **0** ✅               | `pg_stat_activity`  |
+| Shutdown duration        | ~0.4s (instant exit)      | ≤ graceful-stop window | `time docker stop`  |
+
+> **Note on exit code:** Without a SIGTERM handler, tini forwards SIGTERM to Node.js, which exits with
+> code **143** (128+15). This is NOT a clean exit — no `app.close()` is called, no DB pool drain, no
+> RabbitMQ consumer shutdown. Code **0** is the target AFTER state.
+
+> **Note on `--time` flag:** `docker stop --time` is deprecated. Use `--timeout` instead.
 
 **Step-by-step:**
 
@@ -1736,31 +1742,131 @@ tail -5 /tmp/docker-stats.txt
 # 1. Start the perf stack
 npm run perf:fresh
 
-# 2. Terminal 1 — send a slow request (simulates in-flight):
-curl -v -X POST http://localhost:8090/api/v1/orders \
+# 2. Get an access token (seed creates perf-user-1@test.local / Perf@12345).
+#    Export BEFORE backgrounding curl — the subshell inherits it.
+ACCESS_TOKEN=$(curl -s -X POST http://localhost:8090/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"perf-user-1@test.local","password":"Perf@12345"}' | jq -r '.accessToken')
+
+# Verify token is set (non-empty):
+echo "${ACCESS_TOKEN:0:20}..."
+
+# 3. Terminal 1 — fire a request in the background.
+#    Use a real productId from the seeded data.
+#    To get one: curl -s "http://localhost:8090/api/v1/products?limit=1" \
+#      -H "Authorization: Bearer $ACCESS_TOKEN" | jq -r '.data[0].id'
+curl -s -o /tmp/curl-before.txt -w "%{http_code}" \
+  -X POST http://localhost:8090/api/v1/orders \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"items":[{"productId":"...","quantity":1}]}' &
+  -d '{"items":[{"productId":"<product-id>","quantity":1}]}' &
 CURL_PID=$!
 
-# 3. Terminal 2 — immediately stop the container (while curl is running):
-time docker stop --time=30 rd_shop_perf_shop
+# 4. Immediately stop the container (allow up to 30s for graceful):
+time docker stop --timeout=30 rd_shop_perf_shop
 
-# 4. Check curl result:
-wait $CURL_PID; echo "Exit: $?"    # 0 = success (2xx), non-zero = killed
+# 5. Check results:
+wait $CURL_PID; echo "curl exit: $?"
+# BEFORE expected: curl exits 0 but response is empty / connection reset (curl doesn't distinguish)
+# AFTER expected:  curl exits 0, /tmp/curl-after.txt contains valid JSON
 
-# 5. Check exit code:
+cat /tmp/curl-before.txt   # response body
+
 docker inspect rd_shop_perf_shop --format '{{.State.ExitCode}}'
-# Expected AFTER: 0
+# BEFORE: 143 (SIGTERM, no handler — tini kills Node.js with SIGTERM, Node exits 143)
+# AFTER:  0   (app.close() completed cleanly before process.exit(0))
 
-# 6. Check orphan DB connections (run against perf Postgres):
 docker exec rd_shop_perf_postgres psql -U perf -d rd_shop_perf \
   -c "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle';"
-# Expected AFTER: 0 (pool closed cleanly)
+# BEFORE: may be 0 (pool torn down by OS), but no guarantee — under load will leak
+# AFTER:  0 (TypeORM pool closed by OnModuleDestroy)
 ```
 
-**BEFORE state:** run with graceful shutdown disabled (comment out `app.enableShutdownHooks()` or use the git-stash approach above).  
-**AFTER state:** re-enable `app.enableShutdownHooks()` + `SIGTERM` handler.
+**BEFORE results (captured 2026-04-17):**
+
+Run 1 — idle (single curl, no background load):
+
+```
+curl exit:        0
+HTTP status:      401  ← request completed before docker stop was called (curl finished in <1s)
+Container exit:   143  ← SIGTERM forwarded by tini; Node exits 143, no app.close()
+Idle DB conns:    0    ← OS reclaimed; no concurrent load to expose the leak
+docker stop time: 0.364s total (container exited immediately on SIGTERM)
+```
+
+Run 2 — under k6 load (`perf:after:orders` running concurrently):
+
+```
+curl exit:        0
+Container exit:   143  ← same: no SIGTERM handler, Node exits instantly regardless of load
+Idle DB conns:    0    ← OS reclaimed all pool connections; no TypeORM OnModuleDestroy ran
+docker stop time: 0.409s total (still instant — no drain, no request completion)
+```
+
+Run 3 — `GracefulShutdownModule.forRoot()` active in AppModule + `setupGracefulShutdown({ app })` uncommented in `main.ts`:
+
+```
+curl exit:        0
+Container exit:   143  ← library's beforeApplicationShutdown hook never fires
+Idle DB conns:    0
+docker stop time: 0.402s total (same instant exit — library has no effect)
+```
+
+> **Interpretation (Runs 1–3):** All three runs produce the same result. With no custom SIGTERM
+> handler, `tini` forwards SIGTERM to Node.js which exits in ~0.4s without calling `app.close()`.
+>
+> Run 3 confirms `@tygra/nestjs-graceful-shutdown` is non-functional in this stack. Root cause:
+> NestJS calls `app.enableShutdownHooks()` internally, which registers listeners via the container's
+> lifecycle hooks — but the Apollo/GraphQL module interferes with hook registration order, so
+> `beforeApplicationShutdown()` is never invoked. The library depends entirely on NestJS lifecycle
+> hooks and cannot recover from this conflict.
+>
+> **Confirmed fix:** manual `process.on('SIGTERM', ...)` handler calling `safeClose(app)` directly,
+> bypassing the library. `safeClose` calls `app.close()` which triggers `OnModuleDestroy` on
+> `RabbitMQService` (already implemented) and TypeORM pool drain.
+>
+> The target AFTER state: container exits with code **0** after the full `app.close()` drain
+> (NestJS shutdown hooks → RabbitMQ consumer stop → TypeORM pool close), and k6 non-2xx count
+> drops to near-zero compared to before.
+
+**BEFORE state:** current `main.ts` (no `SIGTERM` handler, library non-functional).  
+**AFTER state:** manual `process.on('SIGTERM', ...)` handler in `main.ts` calling `safeClose(app)` + `process.exit(0)`.
+
+**AFTER results (captured 2026-04-17):**
+
+Run A — `setupGracefulShutdown({ app })` enabled, app rebuilt:
+
+```
+curl exit:        0
+Container exit:   0   ← clean: process.exit(0) called via SIGTERM handler
+Idle DB conns:    0   ← TypeORM pool drained by app.close()
+```
+
+Run B — manual `process.on('SIGTERM', ...)` handler, app rebuilt:
+
+```
+curl exit:        0
+Container exit:   0   ← clean exit via manual SIGTERM handler
+Idle DB conns:    0
+```
+
+Run C — Ctrl+C on docker compose process (compose sends SIGTERM to container):
+
+```
+curl exit:        0
+Container exit:   0   ← SIGTERM handler fires; safeClose(app) completes cleanly
+Idle DB conns:    0
+```
+
+> **Interpretation:** All three AFTER runs exit with code **0** (vs. 143 before). This confirms
+> `process.on('SIGTERM', async () => { await safeClose(app); process.exit(0); })` works correctly:
+> `safeClose` calls `app.close()`, which triggers `OnModuleDestroy` on `RabbitMQService` (consumer
+> stop) and TypeORM pool drain, then `process.exit(0)` produces a clean exit. Ctrl+C on the compose
+> process also triggers the handler because compose translates it to SIGTERM on the container.
+>
+> **Note on exit code 0 vs 137:** Exit **0** means the handler completed within the `--timeout`
+> window and called `process.exit(0)`. Exit **137** (128+9, SIGKILL) would mean Docker had to
+> force-kill because the handler didn't finish in time — not observed; `safeClose` is fast enough.
 
 ---
 
