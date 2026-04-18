@@ -5,7 +5,6 @@ import { DEFAULT_VALUES } from './constants';
 import { EnvironmentVariables } from './schema';
 import { DefaultEnvKey, EnvVariable } from './types';
 
-// TODO this function may be an overhead. Consider removing in the future.
 /**
  * Retrieves a type-safe environment variable from the application's ConfigService.
  * Automatically falls back to default values if the variable is not set.

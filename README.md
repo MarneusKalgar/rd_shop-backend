@@ -32,6 +32,7 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **CI/CD Pipeline** - Four-workflow GitHub Actions pipeline with PR quality gates, immutable image build, automatic stage deploy, and manual production deploy with approval gate (see [homework17.md](homework17.md))
 - **Health Check System** - Three-tier health endpoints (`/health`, `/ready`, `/status`) built with `@nestjs/terminus`; custom indicators for PostgreSQL, RabbitMQ, MinIO, and payments-service gRPC; liveness/readiness/full-status probes with Kubernetes-compatible semantics
 - **Security Hardening** - OWASP ASVS-aligned controls: HTTP security headers (Helmet), rate limiting (ThrottlerGuard — HTTP + GraphQL), structured audit log with correlation IDs, RBAC/ABAC with JWT, input validation, and secrets never logged (see [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md))
+- **Performance Optimization** - Baseline captured, 5 bottlenecks identified and resolved: GIN trigram index (−26 % search p95), cursor decode (−50 % pagination DB calls), order transaction re-fetch removal (−60 % order create p99), HMAC tokens (−99.999 % token op cost), gRPC circuit breaker (queue drain from +33 msg/s growth → 0) (see [homework-report.md](homework-report.md))
 
 ## 🛠️ Technology Stack
 
@@ -779,14 +780,13 @@ For full pipeline architecture, action dependency maps, artifact flow diagrams, 
 
 ## �🔄 Graceful Shutdown
 
-The application handles graceful shutdown automatically:
+The application handles graceful shutdown via a manual `SIGTERM` handler in `main.ts`:
 
-- Closes HTTP server
-- Waits for active requests to complete
-- Cleans up resources (database connections, Redis, etc.)
-- Exits cleanly on SIGTERM/SIGINT
-
-Configuration per environment in `src/config/graceful-shutdown.ts`
+- Receives SIGTERM (forwarded by tini/Docker)
+- Calls `app.close()` → triggers `OnModuleDestroy` lifecycle hooks
+- RabbitMQ consumer stops (no unacked message loss)
+- TypeORM pool drains cleanly
+- Exits with code 0
 
 ## 📚 Next Steps
 
@@ -804,6 +804,7 @@ See [TODO.md](TODO.md) for planned features:
 - [x] Health check endpoint (`/health`, `/ready`, `/status` with custom Terminus indicators)
 - [x] Rate limiting (global `GqlThrottlerGuard` — HTTP + GraphQL)
 - [x] Security hardening — headers, audit log, OWASP ASVS baseline (see [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md))
+- [x] Performance optimization — baseline, bottleneck analysis, 8 improvements with before/after data (see [homework-report.md](homework-report.md))
 - [ ] Redis caching
 - [ ] API documentation (Swagger)
 

@@ -4,16 +4,12 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
-// import { GracefulShutdownModule } from '@tygra/nestjs-graceful-shutdown';
 
 import { AuthModule } from './auth/auth.module';
 import { GqlThrottlerGuard } from './auth/guards';
 import { CartModule } from './cart/cart.module';
 import { QueryLoggerMiddleware } from './common/middlewares';
-import {
-  /*getGracefulShutdownConfig,*/ getPinoLoggerConfig,
-  getTypeOrmModuleOptions,
-} from './config';
+import { getPinoLoggerConfig, getTypeOrmModuleOptions } from './config';
 import { getEnvFile, validate } from './core/environment';
 import { FilesModule } from './files/files.module';
 import { GraphqlModule } from './graphql/graphql.module';
@@ -45,8 +41,6 @@ import { UsersModule } from './users/users.module';
         { limit: 100, name: 'long', ttl: 60000 },
       ],
     }),
-    // TODO: Uncomment when resolve problem with graphql module
-    // GracefulShutdownModule.forRoot(getGracefulShutdownConfig()),
     AuthModule,
     UsersModule,
     CartModule,

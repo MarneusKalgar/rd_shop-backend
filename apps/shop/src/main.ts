@@ -1,7 +1,6 @@
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-// import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
 import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
 
@@ -10,6 +9,7 @@ import { GlobalExceptionFilter } from './common/filters';
 import { ResponseTimeInterceptor } from './common/interceptors';
 import {
   getEnvVariable,
+  registerShutdownHandlers,
   safeClose,
   setupCors,
   setupEventLoopMonitoring,
@@ -32,9 +32,6 @@ async function bootstrap() {
 
     // Trust one level of proxy (Docker gateway / AWS ALB) for correct client IP resolution
     app.set('trust proxy', 1);
-
-    // TODO: Uncomment when resolve problem with graphql module
-    // setupGracefulShutdown({ app });
 
     app.enableVersioning({
       defaultVersion: '1',
@@ -76,6 +73,8 @@ async function bootstrap() {
     setupEventLoopMonitoring(app.get(Logger), Number(eventLoopThresholdMs));
 
     await app.listen(port);
+
+    registerShutdownHandlers(app);
 
     if (!isProd) {
       const logger = app.get(Logger);

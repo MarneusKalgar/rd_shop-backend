@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-04-17
+
+### Added
+
+- **Performance testing infra** — `compose.perf.yml` isolated stack (`shop-perf` at 0.5 vCPU / 512 MiB, `postgres-perf` with `pg_stat_statements` + tmpfs, `rabbitmq-perf`, `grpc-stub-perf`, `migrate-perf`, `seed-perf`); profile-based activation (`app`, `app-grpc-breaker`, `migrate`, `seed`)
+- **k6 load scenarios** — 10 scripts covering product-search, order-flow, auth-flow, signin-stress, and circuit-breaker before/after variants; configurable via `PERF_K6_VUS` / `PERF_K6_DURATION` env vars
+- **Testcontainers Tier 1 specs** — `product-search.perf.ts`, `cursor-pagination.perf.ts`, `order-creation.perf.ts`, `order-cancel.perf.ts`, `token-hmac.perf.ts`; each validates exact SQL call counts via `pg_stat_statements` and EXPLAIN plan index usage
+- **`grpc-stub-perf` service** — controllable gRPC stub that hangs all RPCs; used to isolate B3 circuit-breaker before-state measurement
+- **Bash lifecycle scripts** — `perf-migrate.sh`, `perf-seed.sh`, `perf-app-grpc-breaker.sh`
+- **`performance-evidences/`** — `before-after-table.md` + 7 B3 RabbitMQ/k6 screenshots
+- **`homework-report.md`** — full performance report: baseline, bottlenecks, improvements, trade-offs, acceptance criteria checklist
+- **`docs/backend/architecture/test-performance.md`** — performance testing infra documentation
+
+### Changed
+
+- **A1** — GIN trigram index on `products.name` / `products.description`; search p95 −26 % (293→216 ms), DB scans −80 % (5→1 SQL call)
+- **A2** — Cursor pagination decoded in-memory (`id|epochMs` format); page-2 DB calls −50 % (2→1)
+- **A3** — Removed post-INSERT re-fetch inside `executeOrderTransaction`; order create p99 −60 % (1797→726 ms)
+- **A4** — Explicit `DB_POOL_SIZE` env var wired to TypeORM `extra.max`; pool enforced at 5 in perf env
+- **B1** — `bcrypt` → `bcryptjs` on auth path; signin p95 −17 %, event loop blocking frequency halved
+- **B2** — Manual `process.on('SIGTERM', …)` handler; container exit 143 → 0 (clean shutdown, `app.close()` runs)
+- **B3** — `opossum` circuit breaker on `PaymentsGrpcService.authorize`; queue drain reversed (+33 msg/s growth → fully cleared), worker stall ~21 s → ~0 ms fast-fail after breaker opens
+- **B4** — Conditional relation loading in `cancelOrder`; order cancel p95 −25 % (218→164 ms)
+- **B5** — HMAC-SHA256 replaces bcrypt for opaque token hashing in `TokenService`; token op cost ~100 ms → ~1 µs; auth refresh p99 −21 %
+
+### Removed
+
+- `@tygra/nestjs-graceful-shutdown` library integration (non-functional due to Apollo/GraphQL module conflict); replaced by manual SIGTERM handler
+- `src/config/graceful-shutdown.ts` — library config file, no longer needed
+
 ## [0.2.1] - 2026-04-09
 
 ### Added
