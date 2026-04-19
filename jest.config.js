@@ -14,7 +14,7 @@ module.exports = {
       rootDir: 'apps/shop',
       testMatch: ['<rootDir>/src/**/*.spec.ts'],
       transform: {
-        '^.+\\.(t|j)s$': 'ts-jest',
+        '^.+\.(t|j)s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
       },
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
@@ -28,7 +28,7 @@ module.exports = {
       rootDir: 'apps/payments',
       testMatch: ['<rootDir>/src/**/*.spec.ts'],
       transform: {
-        '^.+\\.(t|j)s$': 'ts-jest',
+        '^.+\.(t|j)s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
       },
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',

@@ -23,7 +23,6 @@ import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
 import { simulateExternalService } from '@/utils';
 
-import { Product } from '../products/product.entity';
 import { User } from '../users/user.entity';
 import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY, ORDER_WORKER_SCOPE } from './constants';
 import { CreateOrderDto, FindOrdersFilterDto, OrderProcessMessageDto } from './dto';
@@ -42,6 +41,7 @@ import {
   OrdersQueryBuilder,
   OrdersRepository,
 } from './repositories';
+import { OrderStockService } from './services';
 import { FindOrdersWithFiltersResponse } from './types';
 import { buildOrderNextCursor, getTotalSumInCents } from './utils';
 
@@ -90,6 +90,7 @@ export class OrdersService {
     private readonly paymentsGrpcService: PaymentsGrpcService,
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogService: AuditLogService,
+    private readonly orderStockService: OrderStockService,
   ) {}
 
   /**
@@ -143,17 +144,7 @@ export class OrdersService {
       }
 
       const productIds = order.items.map((item) => item.productId);
-      const products = await this.productsRepository.findByIdsWithLock(manager, productIds);
-      const productMap = new Map(products.map((p) => [p.id, p]));
-
-      for (const item of order.items) {
-        const product = productMap.get(item.productId);
-        if (product) {
-          product.stock += item.quantity;
-        }
-      }
-
-      await this.productsRepository.saveProducts(manager, [...productMap.values()]);
+      await this.orderStockService.lockAndRestore(manager, order.items, productIds);
 
       order.status = OrderStatus.CANCELLED;
       await orderRepo.save(order);
@@ -582,16 +573,6 @@ export class OrdersService {
     return existingOrder;
   }
 
-  private decrementProductStock(
-    items: CreateOrderDto['items'],
-    productMap: Map<string, Product>,
-  ): void {
-    for (const item of items) {
-      const product = productMap.get(item.productId)!;
-      product.stock -= item.quantity;
-    }
-  }
-
   /**
    * Executes the order creation transaction with pessimistic locking.
    *
@@ -635,13 +616,11 @@ export class OrdersService {
       await manager.query('SET LOCAL statement_timeout = 30000');
       await manager.query('SET LOCAL lock_timeout = 10000');
 
-      const products = await this.productsRepository.findByIdsWithLock(manager, productIds);
-      const productMap = new Map(products.map((p) => [p.id, p]));
-
-      this.validateStockAndAvailability(items, productMap);
-      this.decrementProductStock(items, productMap);
-
-      await this.productsRepository.saveProducts(manager, [...productMap.values()]);
+      const productMap = await this.orderStockService.lockValidateAndDecrement(
+        manager,
+        items,
+        productIds,
+      );
 
       const order = await this.ordersRepository.createOrder(manager, {
         idempotencyKey,
@@ -771,31 +750,6 @@ export class OrdersService {
       const foundIds = new Set(productsPreCheck.map((p) => p.id));
       const missingId = productIds.find((id) => !foundIds.has(id));
       throw new NotFoundException(`Product with ID "${missingId}" not found`);
-    }
-  }
-
-  private validateStockAndAvailability(
-    items: CreateOrderDto['items'],
-    productMap: Map<string, Product>,
-  ): void {
-    for (const item of items) {
-      const product = productMap.get(item.productId);
-
-      if (!product) {
-        throw new NotFoundException(
-          `Product with ID "${item.productId}" not found or was deleted during order processing`,
-        );
-      }
-
-      if (!product.isActive) {
-        throw new ConflictException(`Product "${product.title}" is not available for purchase`);
-      }
-
-      if (product.stock < item.quantity) {
-        throw new ConflictException(
-          `Insufficient stock for product "${product.title}". Requested: ${item.quantity}, Available: ${product.stock}`,
-        );
-      }
     }
   }
 
