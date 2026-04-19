@@ -835,17 +835,17 @@ Separate cron workflow that deploys a fresh environment, runs e2e, tears it down
 
 The e2e suite is wire-compatible with AWS — it speaks HTTP/JSON against the public endpoint. Only the base URL changes:
 
-| Environment | `E2E_BASE_URL`                            | Source                       |
-| ----------- | ----------------------------------------- | ---------------------------- |
-| Local       | `http://localhost:8092` (from `.env.e2e`) | `.env.e2e` file (gitignored) |
-| Stage (AWS) | `https://api-stage.yourdomain.com`        | GitHub Environment var       |
-| Production  | not run against production                | N/A                          |
+| Environment | `E2E_BASE_URL`                            | Source                      |
+| ----------- | ----------------------------------------- | --------------------------- |
+| Local       | `http://localhost:8092` (from `.env.e2e`) | `.env.e2e` file (committed) |
+| Stage (AWS) | `https://api-stage.yourdomain.com`        | GitHub Environment var      |
+| Production  | not run against production                | N/A                         |
 
-No test code changes required when switching from local compose to ECS. The `E2E_BASE_URL` env var is already the single abstraction point (`apps/shop/test/e2e/orders/constants.ts`).
+No test code changes required when switching from local compose to ECS. The `E2E_BASE_URL` env var is the single abstraction point — defined in `apps/shop/test/e2e/helpers/index.ts` and re-exported from `apps/shop/test/e2e/orders/constants.ts`.
 
 ### Credentials in CI
 
-Local `.env.e2e` contains `E2E_USER_EMAIL` and `E2E_USER_PASSWORD` for a seeded test user. In CI these are GitHub Environment secrets on the `stage` environment — not in any committed file.
+Local `.env.e2e` contains non-secret defaults for local compose (committed to the repo). Sensitive CI values (`E2E_USER_EMAIL`, `E2E_USER_PASSWORD`) are GitHub Environment secrets on the `stage` environment. `E2E_BASE_URL` is a CI environment variable (not secret).
 
 | Variable            | Local source | CI source                             |
 | ------------------- | ------------ | ------------------------------------- |

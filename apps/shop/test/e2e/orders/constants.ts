@@ -1,1 +1,1 @@
-export const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8092';
+export { BASE_URL } from '../helpers';

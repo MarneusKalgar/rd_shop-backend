@@ -109,4 +109,13 @@ describe('Order querying (e2e)', () => {
       await supertest(BASE_URL).get(`/api/v1/orders/${orderId1}`).expect(401);
     });
   });
+
+  afterAll(async () => {
+    for (const id of [orderId1, orderId2]) {
+      await supertest(BASE_URL)
+        .post(`/api/v1/orders/${id}/cancellation`)
+        .set('Authorization', `Bearer ${token}`)
+        .catch(() => undefined);
+    }
+  });
 });

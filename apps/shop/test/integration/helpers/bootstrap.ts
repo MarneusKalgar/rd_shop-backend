@@ -34,6 +34,7 @@ import { DataSource } from 'typeorm';
 
 import { AppModule } from '@/app.module';
 import { FileRecord } from '@/files/file-record.entity';
+import { HEALTH_PATHS_TO_BYPASS } from '@/health/constants';
 import { PaymentsHealthIndicator } from '@/health/indicators/payments.health';
 import { OrderItem } from '@/orders/order-item.entity';
 import { Order } from '@/orders/order.entity';
@@ -122,7 +123,7 @@ export async function bootstrapIntegrationTest(): Promise<IntegrationTestContext
 
   const app = moduleFixture.createNestApplication();
   app.enableVersioning({ defaultVersion: '1', type: VersioningType.URI });
-  app.setGlobalPrefix('api', { exclude: ['/'] });
+  app.setGlobalPrefix('api', { exclude: [...HEALTH_PATHS_TO_BYPASS, '/'] });
   app.useGlobalPipes(
     new ValidationPipe({
       forbidNonWhitelisted: true,

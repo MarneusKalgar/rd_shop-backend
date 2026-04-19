@@ -77,6 +77,15 @@ describe('Order lifecycle (e2e)', () => {
       const { data: product } = res.body as unknown as { data: ProductBody };
       expect(product.stock).toBe(stockBefore - 1);
     });
+
+    afterAll(async () => {
+      if (orderId) {
+        await supertest(BASE_URL)
+          .post(`/api/v1/orders/${orderId}/cancellation`)
+          .set('Authorization', `Bearer ${token}`)
+          .catch(() => undefined);
+      }
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -135,16 +144,28 @@ describe('Order lifecycle (e2e)', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   describe('Flow 3: idempotency key deduplicates repeated checkout requests', () => {
+    let flow3OrderId: string | undefined;
+
     it('second checkout with same idempotencyKey returns the same order ID', async () => {
       const idempotencyKey = `e2e-idem-${Date.now()}`;
 
       // First checkout — creates the order
       const first = await addToCartAndCheckout(token, productId, 1, idempotencyKey);
+      flow3OrderId = first.orderId;
 
       // Second checkout — service finds existing order by key, returns it without double-creating
       const second = await addToCartAndCheckout(token, productId, 1, idempotencyKey);
 
       expect(second.orderId).toBe(first.orderId);
+    });
+
+    afterAll(async () => {
+      if (flow3OrderId) {
+        await supertest(BASE_URL)
+          .post(`/api/v1/orders/${flow3OrderId}/cancellation`)
+          .set('Authorization', `Bearer ${token}`)
+          .catch(() => undefined);
+      }
     });
   });
 });

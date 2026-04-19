@@ -118,18 +118,37 @@ describe('OrderWorkerService consumer — happy path', () => {
     });
 
     it('creates an ORDER_PAYMENT_AUTHORIZED audit log row', async () => {
-      // ARRANGE — the happy-path test above already ran processOrderMessage
+      // ARRANGE — seed a dedicated order so this test is self-contained
+      const auditOrderId = 'f47ac10b-58cc-4372-a567-004000000103';
+      const auditItemId = 'f47ac10b-58cc-4372-a567-004000000203';
+      await seedPendingOrder(ctx.dataSource, auditOrderId, auditItemId);
 
-      // ACT — allow async audit to complete (already waited in previous test, checking DB state)
+      // Use a unique paymentId — 'pay_integration_test_001' is already taken by pendingOrderId
+      ctx.paymentsGrpcMock.authorize.mockResolvedValueOnce({
+        paymentId: 'pay_integration_test_audit_001',
+        status: 'COMPLETED',
+      });
+
+      // ACT
+      await triggerConsumer(ctx, new OrderProcessMessageDto(auditOrderId));
+
+      // Allow fire-and-forget audit to settle
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
 
       // ASSERT
       const [auditRow] = await ctx.dataSource.query<{ action: string }[]>(
         `SELECT action FROM audit_logs WHERE target_id = $1 AND action = $2`,
-        [MOCK.pendingOrderId, AuditAction.ORDER_PAYMENT_AUTHORIZED],
+        [auditOrderId, AuditAction.ORDER_PAYMENT_AUTHORIZED],
       );
       expect(auditRow).toBeDefined();
       expect(auditRow.action).toBe(AuditAction.ORDER_PAYMENT_AUTHORIZED);
+
+      // Cleanup
+      await ctx.dataSource.query(`DELETE FROM processed_messages WHERE order_id = $1`, [
+        auditOrderId,
+      ]);
+      await ctx.dataSource.query(`DELETE FROM order_items WHERE id = $1::uuid`, [auditItemId]);
+      await ctx.dataSource.query(`DELETE FROM orders WHERE id = $1::uuid`, [auditOrderId]);
     });
   });
 

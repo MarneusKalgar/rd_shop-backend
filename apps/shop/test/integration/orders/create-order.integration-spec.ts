@@ -103,7 +103,8 @@ describe('POST /api/v1/cart/checkout — order creation', () => {
     // Clear cart before each test so each test starts with an empty cart
     await request(ctx.httpServer)
       .delete('/api/v1/cart')
-      .set('Authorization', `Bearer ${accessToken}`);
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(204);
     ctx.rabbitmqMock.publish.mockClear();
   });
 

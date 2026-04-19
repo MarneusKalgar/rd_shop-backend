@@ -201,7 +201,7 @@ e2e-payments-internal: bridge, internal: true  # payments ↔ postgres-payments
 
 #### Step 2 — `apps/shop/test/e2e/.env.e2e`
 
-All env vars for the e2e stack. Template values matching the port offsets above. Pattern: copy `.env.development`, change ports/project names, set `NODE_ENV=production`, `PORT=8092`, `GRPC_HOST=payments-e2e`, `GRPC_PORT=5001`.
+All env vars for the e2e stack. Template values matching the port offsets above. Pattern: copy `.env.development`, change ports/project names, set `NODE_ENV=production`, `PORT=8080` (container-internal listen port; host maps `8092:8080`), `GRPC_HOST=payments-e2e`, `GRPC_PORT=5001`.
 
 #### Step 3 — `apps/shop/test/e2e/scripts/e2e-migrate.sh`
 

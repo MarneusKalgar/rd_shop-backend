@@ -22,9 +22,9 @@ test/
       __mock__/index.ts    ordersMockData (userId, productId, 6 orderIds, 6 itemIds — fixed UUIDs)
       graphql-orders-pagination.integration-spec.ts
   e2e/
-    .env.e2e               shop env vars for e2e stack (gitignored)
-    .env.e2e.payments      payments env vars for e2e stack (gitignored)
-    test-env-setup.ts      loads .env.e2e; sets globalSetup for e2e suite
+    .env.e2e               shop env vars for e2e stack (committed — non-secret defaults)
+    .env.e2e.payments      payments env vars for e2e stack (committed — non-secret defaults)
+    test-env-setup.ts      loads .env.e2e with override:false; referenced as setupFiles in jest-e2e.json
     helpers/
       index.ts             barrel — re-exports all 4 helpers
       auth.ts              signupAndSignin(email, password) → JWT token

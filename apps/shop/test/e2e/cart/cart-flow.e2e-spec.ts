@@ -1,7 +1,5 @@
-import { addToCartAndCheckout, signupAndSignin, waitForReady } from '@test/e2e/helpers';
+import { addToCartAndCheckout, BASE_URL, signupAndSignin, waitForReady } from '@test/e2e/helpers';
 import supertest from 'supertest';
-
-const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8092';
 const E2E_USER_EMAIL = 'e2e-cart-test@example.com';
 const E2E_USER_PASSWORD = 'E2eCartPass1!';
 
@@ -144,8 +142,11 @@ describe('Cart flow (e2e)', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   describe('Flow 2: checkout creates an order and empties the cart', () => {
+    const flow2OrderIds: string[] = [];
+
     it('addToCartAndCheckout returns a PENDING order with the correct item', async () => {
       const { orderId, status } = await addToCartAndCheckout(token, productId, 1);
+      flow2OrderIds.push(orderId);
       expect(status).toBe('PENDING');
 
       const orderRes = await supertest(BASE_URL)
@@ -164,7 +165,8 @@ describe('Cart flow (e2e)', () => {
 
     it('cart is empty after checkout', async () => {
       // addToCartAndCheckout clears the cart, adds item, checks out — cart is cleared by the service
-      await addToCartAndCheckout(token, productId, 1);
+      const { orderId } = await addToCartAndCheckout(token, productId, 1);
+      flow2OrderIds.push(orderId);
 
       const res = await supertest(BASE_URL)
         .get('/api/v1/cart')
@@ -173,6 +175,15 @@ describe('Cart flow (e2e)', () => {
 
       const { data } = res.body as unknown as { data: CartBody };
       expect(data.items).toHaveLength(0);
+    });
+
+    afterAll(async () => {
+      for (const id of flow2OrderIds) {
+        await supertest(BASE_URL)
+          .post(`/api/v1/orders/${id}/cancellation`)
+          .set('Authorization', `Bearer ${token}`)
+          .catch(() => undefined);
+      }
     });
   });
 
