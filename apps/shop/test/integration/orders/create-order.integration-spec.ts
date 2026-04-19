@@ -24,6 +24,7 @@ import { OrderStatus } from '@/orders/order.entity';
 // Unique UUID namespace for this spec: 0010xxxxxxxx
 const MOCK = {
   idempotencyKey: 'create-order-idem-key-001',
+  inactiveProductId: 'f47ac10b-58cc-4372-a567-001000000004',
   outOfStockProductId: 'f47ac10b-58cc-4372-a567-001000000003',
   productId: 'f47ac10b-58cc-4372-a567-001000000002',
   unknownProductId: 'f47ac10b-58cc-4372-a567-001000099999',
@@ -61,6 +62,10 @@ describe('POST /api/v1/cart/checkout — order creation', () => {
       `INSERT INTO products (id, title, price, stock, is_active) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
       [MOCK.outOfStockProductId, 'Out Of Stock Product', '9.99', 0, true],
     );
+    await ctx.dataSource.query(
+      `INSERT INTO products (id, title, price, stock, is_active) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
+      [MOCK.inactiveProductId, 'Inactive Product', '9.99', 10, false],
+    );
 
     const jwtService = ctx.app.get(JwtService);
     accessToken = await jwtService.signAsync({
@@ -85,7 +90,7 @@ describe('POST /api/v1/cart/checkout — order creation', () => {
         );
         await ctx.dataSource.query(`DELETE FROM carts WHERE user_id = $1::uuid`, [MOCK.userId]);
         await ctx.dataSource.query(`DELETE FROM products WHERE id = ANY($1::uuid[])`, [
-          [MOCK.productId, MOCK.outOfStockProductId],
+          [MOCK.productId, MOCK.outOfStockProductId, MOCK.inactiveProductId],
         ]);
         await ctx.dataSource.query(`DELETE FROM users WHERE id = $1::uuid`, [MOCK.userId]);
       }
@@ -178,6 +183,13 @@ describe('POST /api/v1/cart/checkout — order creation', () => {
       // ARRANGE / ACT / ASSERT
       await authPost('/api/v1/cart/items')
         .send({ productId: MOCK.outOfStockProductId, quantity: 1 })
+        .expect(409);
+    });
+
+    it('returns 409 when product is inactive', async () => {
+      // ARRANGE / ACT / ASSERT
+      await authPost('/api/v1/cart/items')
+        .send({ productId: MOCK.inactiveProductId, quantity: 1 })
         .expect(409);
     });
   });

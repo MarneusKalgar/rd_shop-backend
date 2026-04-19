@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { join } from 'path';
+import { join } from 'node:path';
 
 /**
  * Load e2e environment variables into the Jest process.

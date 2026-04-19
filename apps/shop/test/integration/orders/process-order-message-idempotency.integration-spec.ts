@@ -50,7 +50,6 @@ async function seedPendingOrder(ds: DataSource, orderId: string, itemId: string)
 describe('OrderWorkerService consumer — idempotency guard', () => {
   beforeAll(async () => {
     ctx = await bootstrapIntegrationTest();
-    process.env.RABBITMQ_DISABLE_PAYMENTS_AUTHORIZATION = 'true';
     ctx.paymentsGrpcMock.authorize.mockResolvedValue({
       paymentId: 'pay_idem_001',
       status: 'COMPLETED',
@@ -98,6 +97,7 @@ describe('OrderWorkerService consumer — idempotency guard', () => {
       payload.messageId = MOCK.seqMessageId;
 
       // ACT
+      ctx.paymentsGrpcMock.authorize.mockClear();
       await triggerConsumer(ctx, { ...payload });
       await triggerConsumer(ctx, { ...payload }); // duplicate
 
@@ -113,7 +113,10 @@ describe('OrderWorkerService consumer — idempotency guard', () => {
         `SELECT status FROM orders WHERE id = $1`,
         [MOCK.seqOrderId],
       );
-      expect(order.status).toBe(OrderStatus.PROCESSED);
+      // authorize runs → order becomes PAID on success; second (duplicate) call must not re-process
+      expect(order.status).toBe(OrderStatus.PAID);
+      // authorize must be called exactly once — second (duplicate) call must not re-charge
+      expect(ctx.paymentsGrpcMock.authorize).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -128,6 +131,7 @@ describe('OrderWorkerService consumer — idempotency guard', () => {
       payload.messageId = MOCK.concMessageId;
 
       // ACT — fire both calls simultaneously
+      ctx.paymentsGrpcMock.authorize.mockClear();
       await expect(
         Promise.all([triggerConsumer(ctx, { ...payload }), triggerConsumer(ctx, { ...payload })]),
       ).resolves.not.toThrow();
@@ -138,6 +142,8 @@ describe('OrderWorkerService consumer — idempotency guard', () => {
         [MOCK.concMessageId],
       );
       expect(Number(count)).toBe(1);
+      // only one of the two concurrent calls must have reached authorize
+      expect(ctx.paymentsGrpcMock.authorize).toHaveBeenCalledTimes(1);
     });
   });
 });

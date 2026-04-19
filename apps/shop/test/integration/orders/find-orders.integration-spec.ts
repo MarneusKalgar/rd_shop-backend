@@ -207,4 +207,33 @@ describe('GET /api/v1/orders — cursor pagination and filtering', () => {
       expect(body.data).toHaveLength(0);
     });
   });
+
+  describe('date-range filter', () => {
+    it('includes all orders when range spans before and after seed time', async () => {
+      const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+      const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+
+      const res = await request(ctx.httpServer)
+        .get(
+          `/api/v1/orders?startDate=${encodeURIComponent(yesterday)}&endDate=${encodeURIComponent(tomorrow)}&limit=10`,
+        )
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      const body = res.body as FindOrdersBody;
+      expect(body.data.length).toBe(MOCK.orderIds.length);
+    });
+
+    it('returns empty list when startDate is set to the future', async () => {
+      const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+
+      const res = await request(ctx.httpServer)
+        .get(`/api/v1/orders?startDate=${encodeURIComponent(tomorrow)}&limit=10`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      const body = res.body as FindOrdersBody;
+      expect(body.data).toHaveLength(0);
+    });
+  });
 });

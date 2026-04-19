@@ -96,6 +96,7 @@ describe('authorizePayment — gRPC edge cases', () => {
       });
 
       // ACT
+      ctx.rabbitmqMock.publish.mockClear();
       await triggerConsumer(ctx, {
         ...new OrderProcessMessageDto(MOCK.noPaymentIdOrderId),
         messageId: MOCK.noPaymentIdMessageId,
@@ -108,6 +109,8 @@ describe('authorizePayment — gRPC edge cases', () => {
       );
       expect(order.status).toBe(OrderStatus.PROCESSED);
       expect(order.payment_id).toBeNull();
+      // no ORDER_PAID event must be emitted when paymentId is absent
+      expect(ctx.rabbitmqMock.publish).not.toHaveBeenCalled();
     });
   });
 

@@ -25,8 +25,11 @@ describe('Order querying (e2e)', () => {
     if (!available) throw new Error('No product with stock >= 2 found in seed data');
     productId = available.id;
 
-    ({ orderId: orderId1 } = await addToCartAndCheckout(token, productId));
-    ({ orderId: orderId2 } = await addToCartAndCheckout(token, productId));
+    const checkout1 = await addToCartAndCheckout(token, productId);
+    const checkout2 = await addToCartAndCheckout(token, productId);
+
+    orderId1 = checkout1.orderId;
+    orderId2 = checkout2.orderId;
   }, 130_000);
 
   // ──────────────────────────────────────────────────────────────────────────

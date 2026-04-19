@@ -31,8 +31,12 @@ describe('Order lifecycle (e2e)', () => {
 
   describe('Flow 1: happy path — order reaches PAID', () => {
     let orderId: string;
+    let stockBefore: number;
 
     it('creates an order via cart and receives PENDING status', async () => {
+      const productRes = await supertest(BASE_URL).get(`/api/v1/products/${productId}`).expect(200);
+      stockBefore = (productRes.body as unknown as { data: ProductBody }).data.stock;
+
       const { orderId: id, status } = await addToCartAndCheckout(token, productId);
       orderId = id;
       expect(status).toBe('PENDING');
@@ -65,7 +69,13 @@ describe('Order lifecycle (e2e)', () => {
 
       const { data } = res.body as unknown as { data: PaymentBody };
       expect(data.paymentId.length).toBeGreaterThan(0);
-      expect(['AUTHORIZED', 'CAPTURED', 'PENDING', 'FAILED']).toContain(data.status);
+      expect(data.status).toBe('AUTHORIZED');
+    });
+
+    it('product stock is decremented by 1 after order reaches PAID', async () => {
+      const res = await supertest(BASE_URL).get(`/api/v1/products/${productId}`).expect(200);
+      const { data: product } = res.body as unknown as { data: ProductBody };
+      expect(product.stock).toBe(stockBefore - 1);
     });
   });
 
