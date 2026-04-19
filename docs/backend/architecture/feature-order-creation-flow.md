@@ -199,6 +199,32 @@ Return { paymentId, status }
 | Payment authorization | `order.paymentId` null-check before gRPC call | Worker retry after gRPC partial failure |
 | gRPC authorize        | `orderId` unique index on `payments`          | Duplicate gRPC calls                    |
 
+---
+
+## Tests
+
+### Integration tests
+
+File: `apps/shop/test/integration/` (none yet for order creation — covered by e2e).
+
+The creation flow is not unit-tested at the controller layer because the critical path involves a DB transaction with pessimistic row locks; integration or e2e tests provide better signal.
+
+### e2e tests
+
+File: `apps/shop/test/e2e/orders/order-lifecycle.e2e-spec.ts`
+
+Runs against the full `compose.e2e.yml` stack (real Postgres, RabbitMQ, payments gRPC service).
+
+| Flow                            | What it tests                                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **PENDING → PAID**              | `addToCartAndCheckout` → order PENDING; `poll()` until PAID (worker + gRPC round-trip); asserts `paymentId` set                  |
+| **Cancel PAID + stock restore** | Create PAID order; capture product stock before; `POST /cancellation`; assert status CANCELLED + stock restored by item quantity |
+| **Idempotency**                 | `POST /cart/checkout` twice with same `idempotencyKey`; assert same `orderId` returned, no duplicate order created               |
+
+Helper used: `addToCartAndCheckout(token, productId, quantity?, idempotencyKey?)` from `@test/e2e/helpers` — clears cart first, adds item, calls `POST /cart/checkout`.
+
+See `docs/backend/architecture/test-infrastructure.md` for stack setup and npm scripts.
+
 ## Key entities
 
 **Order** — `apps/shop/src/orders/order.entity.ts`  

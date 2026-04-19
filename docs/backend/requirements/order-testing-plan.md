@@ -159,7 +159,170 @@ GET  /api/v1/orders                            → exactly one order in list
 | **Postman/Newman collections**             | Easy to share with non-devs; CLI runner exists                                                              | JSON-driven assertions are hard to maintain; no type safety; weak parallelism                | Avoid                                                                                            |
 | **Pact / contract testing**                | Versioned consumer-driven contracts between shop and payments                                               | High onboarding cost, requires broker infra                                                  | See "Contract testing" section below                                                             |
 
-**Recommendation:** Jest + Supertest + per-suite `docker-compose-e2e.yml` that boots the full stack (shop, payments, postgres×2, rabbitmq, minio) once per file via `globalSetup`. Use the smoke-test composite action's logic to wait for `/ready`. One file: `apps/shop/test/e2e/order-lifecycle.e2e-spec.ts`.
+**Recommendation:** Jest + Supertest + `compose.e2e.yml`, following the same npm-script-managed Docker lifecycle as the perf suite. Stack managed externally (npm scripts); Jest does **not** start/stop Docker. One spec file: `apps/shop/test/e2e/order-lifecycle.e2e-spec.ts`.
+
+### Implementation order
+
+Mirror the perf pattern exactly: `compose.e2e.yml` with profiles → shell scripts for migrate/seed → npm scripts → Jest config → helpers → spec.
+
+#### Step 1 — `apps/shop/compose.e2e.yml`
+
+Services (port offsets chosen to avoid conflict with dev/perf stacks):
+
+| Service                 | Role                    | Port on host                          |
+| ----------------------- | ----------------------- | ------------------------------------- |
+| `postgres-shop-e2e`     | Shop DB                 | 5436 (tmpfs, auto-wiped on `down -v`) |
+| `postgres-payments-e2e` | Payments DB             | 5437 (tmpfs)                          |
+| `rabbitmq-e2e`          | Message broker          | 5675 AMQP / 15675 UI                  |
+| `minio-e2e`             | File storage            | 9002 / 9003 console                   |
+| `minio-init-e2e`        | Bucket init (one-shot)  | —                                     |
+| `migrate-shop-e2e`      | Run shop migrations     | — profile: `migrate-shop`             |
+| `migrate-payments-e2e`  | Run payments migrations | — profile: `migrate-payments`         |
+| `seed-e2e`              | Seed shop DB            | — profile: `seed`                     |
+| `payments-e2e`          | gRPC service            | — internal only, profile: `app`       |
+| `shop-e2e`              | HTTP/GraphQL service    | 8092, profile: `app`                  |
+
+Key compose details:
+
+- `postgres-shop-e2e` and `postgres-payments-e2e`: use `tmpfs: [/var/lib/postgresql/data]` — data disappears on `down`, no volume needed, no manual cleanup
+- `shop-e2e` startup command: `cp /app/proto/payments.proto /app/apps/shop/src/proto/payments.proto && cd apps/shop && npm run start:prod` (same proto-copy as `compose.dev.yml`)
+- `payments-e2e` is on an internal-only bridge network shared with `shop-e2e`; no host port exposure
+- Both app services have `healthcheck` on `/health`
+- `migrate-shop-e2e` and `migrate-payments-e2e`: `image: rd_shop_e2e_migrate_shop_tmp` / `rd_shop_e2e_migrate_payments_tmp`, `pull_policy: build`, `restart: 'no'`, `profiles: [migrate-shop]` / `[migrate-payments]`
+- `seed-e2e`: `profiles: [seed]`, `ALLOW_SEED_IN_PRODUCTION: 'true'`, same pattern as `seed-perf`
+
+Networks:
+
+```
+e2e-internal:   bridge, internal: true   # shop ↔ postgres-shop + rabbitmq + payments
+e2e-external:   bridge                   # shop port 8092 reachable from test process on host
+e2e-payments-internal: bridge, internal: true  # payments ↔ postgres-payments
+```
+
+#### Step 2 — `apps/shop/test/e2e/.env.e2e`
+
+All env vars for the e2e stack. Template values matching the port offsets above. Pattern: copy `.env.development`, change ports/project names, set `NODE_ENV=production`, `PORT=8092`, `GRPC_HOST=payments-e2e`, `GRPC_PORT=5001`.
+
+#### Step 3 — `apps/shop/test/e2e/scripts/e2e-migrate.sh`
+
+```bash
+#!/usr/bin/env bash
+COMPOSE="docker compose -p rd_shop_e2e -f compose.e2e.yml"
+
+$COMPOSE --profile migrate-shop run --rm migrate-shop-e2e
+STATUS=$?
+docker rmi rd_shop_e2e_migrate_shop_tmp 2>/dev/null || true
+[ $STATUS -ne 0 ] && exit $STATUS
+
+$COMPOSE --profile migrate-payments run --rm migrate-payments-e2e
+STATUS=$?
+docker rmi rd_shop_e2e_migrate_payments_tmp 2>/dev/null || true
+
+exit $STATUS
+```
+
+Mirrors `perf-migrate.sh` — captures exit code, removes one-shot images.
+
+#### Step 4 — `apps/shop/test/e2e/scripts/e2e-seed.sh`
+
+```bash
+#!/usr/bin/env bash
+COMPOSE="docker compose -p rd_shop_e2e -f compose.e2e.yml"
+
+$COMPOSE --profile seed run --rm seed-e2e
+STATUS=$?
+
+$COMPOSE rm -f migrate-shop-e2e migrate-payments-e2e 2>/dev/null || true
+docker rmi rd_shop_e2e_seed_tmp rd_shop_e2e_migrate_shop_tmp rd_shop_e2e_migrate_payments_tmp 2>/dev/null || true
+
+exit $STATUS
+```
+
+#### Step 5 — npm scripts in `apps/shop/package.json`
+
+```jsonc
+"e2e:up":      "docker compose -p rd_shop_e2e -f compose.e2e.yml up -d postgres-shop-e2e postgres-payments-e2e rabbitmq-e2e minio-e2e",
+"e2e:migrate": "bash test/e2e/scripts/e2e-migrate.sh",
+"e2e:seed":    "bash test/e2e/scripts/e2e-seed.sh",
+"e2e:app":     "docker compose -p rd_shop_e2e -f compose.e2e.yml --profile app up -d",
+"e2e:fresh":   "npm run e2e:up && npm run e2e:migrate && npm run e2e:seed && npm run e2e:app",
+"e2e:down":    "docker compose -p rd_shop_e2e -f compose.e2e.yml down -v --remove-orphans",
+"test:e2e":    "jest --config test/jest-e2e.json --runInBand"
+```
+
+`down -v` destroys all volumes + tmpfs DBs — complete autoremove, no dangling state.
+
+#### Step 6 — Update `apps/shop/test/jest-e2e.json`
+
+Add what `jest-integration.json` has but `jest-e2e.json` currently lacks:
+
+```jsonc
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/../src/$1",
+    "^@test/(.*)$": "<rootDir>/$1",
+    "^@app/common(/.*)$": "<rootDir>/../../../libs/common/src$1",
+    "^@app/common$": "<rootDir>/../../../libs/common/src",
+  },
+  "rootDir": ".",
+  "setupFiles": ["<rootDir>/e2e/test-env-setup.ts"],
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "testTimeout": 30000,
+  "transform": {
+    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": "<rootDir>/tsconfig.json" }],
+  },
+}
+```
+
+No `globalSetup`/`globalTeardown` — Docker lifecycle is npm-script-managed (same as perf).
+
+#### Step 7 — `apps/shop/test/e2e/test-env-setup.ts`
+
+```typescript
+import dotenv from 'dotenv';
+import { join } from 'path';
+dotenv.config({ override: true, path: join(__dirname, '.env.e2e') });
+```
+
+Mirrors `test/integration/test-env-setup.ts`.
+
+#### Step 8 — `apps/shop/test/e2e/helpers/wait-for-ready.ts`
+
+```typescript
+export async function waitForReady(url: string, timeoutMs = 60_000): Promise<void> { ... }
+```
+
+Polls `GET url` every 2 s until 200 or timeout. Called once in `beforeAll` of the spec (not in globalSetup — the spec file is the only consumer).
+
+#### Step 9 — `apps/shop/test/e2e/helpers/auth.ts`
+
+```typescript
+export async function signIn(baseUrl: string, email: string, password: string): Promise<string>;
+```
+
+POST `/api/v1/auth/signin`, returns `accessToken`. Used by every flow.
+
+#### Step 10 — `apps/shop/test/e2e/helpers/poll.ts`
+
+```typescript
+export async function pollUntilStatus(
+  baseUrl: string,
+  orderId: string,
+  token: string,
+  targetStatus: OrderStatus,
+  timeoutMs = 10_000,
+): Promise<OrderDto>;
+```
+
+Retries `GET /api/v1/orders/:id` every 500 ms until `status === targetStatus` or timeout. Used to wait for `PAID` and `CANCELLED`.
+
+#### Step 11 — `apps/shop/test/e2e/order-lifecycle.e2e-spec.ts`
+
+`beforeAll`: call `waitForReady`, sign in once to get token, capture `BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8092'`.
+
+Three `describe` blocks matching Flows 1–3. Each flow creates its own isolated user + product (via API or direct `supertest` POST) to avoid inter-flow pollution under `--runInBand`.
 
 ### Contract testing (shop ↔ payments)
 
