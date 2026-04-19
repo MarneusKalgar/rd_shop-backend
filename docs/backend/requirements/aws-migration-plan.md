@@ -730,6 +730,32 @@ VM decommission          ──── After monitoring period
 
 ---
 
+## Time Estimate (8h/day, AI-assisted)
+
+> Assumes: one developer, 8h working days, AI pair-programming throughout, no prior AWS production experience but familiar with the codebase.
+
+| Phase                       | Scope                                                                                                                                                                                 | Est. Days     | Key bottlenecks                                                                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Prerequisites**           | IAM admin user + MFA, OIDC provider + deploy role, Pulumi login, root lockdown                                                                                                        | 0.5           | All manual console steps — no automation possible                                                                                                                        |
+| **Phase 0** — Foundation    | Pulumi project, VPC (2 AZs, public/private subnets, NAT instance), 5 security groups, 2 ECR repos + lifecycle policies                                                                | 1             | NAT instance vs NAT Gateway tradeoff; VPC CIDR planning                                                                                                                  |
+| **Phase 1** — Data layer    | 2 RDS instances, S3 + CloudFront + OAC, CloudFront public URL code changes (`FilesService` / `UsersService` / `ProductsService`), Secrets Manager + SSM, pg_dump → RDS data migration | 2             | Data migration verification (row counts, FK integrity); first CloudFront cache-hit debugging                                                                             |
+| **Phase 2** — Compute       | ECR push in CI, ECS cluster + EC2 launch template, shop task definition + ALB + target group, payments task definition + Cloud Map, ACM cert + Route 53                               | 2.5           | Largest phase. First ECS deploy almost always has issues (env injection, health check timing, bridge networking, stop-before-start memory); ECS Exec debugging adds time |
+| **Phase 3** — Message queue | AmazonMQ broker (Pulumi), AMQPS connection string (`RabbitMQService`), vhost/user config, verify message flow + DLQ                                                                   | 0.5           | AMQPS TLS handshake config; confirm `amqplib` accepts AmazonMQ endpoint format                                                                                           |
+| **Phase 4** — CI/CD         | OIDC assume-role, ECR push in `build-and-push.yml`, `deploy-stage.yml` rewrite (ecs update + wait + e2e gate), `deploy-production.yml`, remove SSH composite actions                  | 1.5           | OIDC trust policy scope (repo + branch conditions); `aws ecs wait` timeout tuning                                                                                        |
+| **Phase 5** — Observability | CloudWatch alarms (CPU/memory/5xx/unhealthy), log retention policies, Container Insights dashboards, secrets rotation                                                                 | 1             | RDS rotation Lambda testing; JWT dual-key window design                                                                                                                  |
+| **DNS cutover + buffer**    | Route 53 → ALB, monitoring period, rollback readiness                                                                                                                                 | 0.5           | Pre-lower DNS TTL 24h before cutover; propagation can take up to 48h otherwise                                                                                           |
+| **Total**                   |                                                                                                                                                                                       | **~9.5 days** |                                                                                                                                                                          |
+
+**Range:** 8 days (no surprises) → 12 days (ECS debugging, AmazonMQ auth issues, data migration retry).
+
+**Three highest-risk time sinks:**
+
+1. **Phase 2** — ECS first-deploy debugging is non-linear; t3.micro memory pressure may force task sizing iterations
+2. **Phase 1 data migration** — `pg_restore` to RDS surfaces extension mismatches, SSL mode issues, or permission gaps
+3. **DNS cutover** — forgetting to pre-lower TTL causes up to 48h propagation wait
+
+---
+
 ## Risks & Mitigations
 
 | Risk                                | Impact | Mitigation                                                                                                                                     |
@@ -742,6 +768,138 @@ VM decommission          ──── After monitoring period
 | NAT instance SPOF                   | Low    | Single AZ NAT instance; if it fails, outbound traffic stops. Use VPC endpoints for critical services (S3, ECR, Secrets Manager) as backup path |
 | Free tier expiration (12 months)    | Medium | Budget for ~$105/mo post-free-tier; evaluate Fargate Savings Plans or Reserved Instances at that point                                         |
 | Pulumi state corruption             | Medium | Use Pulumi Cloud (managed state) or S3 + DynamoDB locking; CI/CD serializes deploys                                                            |
+
+---
+
+## E2E Test Integration into CI/CD
+
+> **Decision: Option A — Post-Deploy Stage Gate**
+
+### Context
+
+A Jest + Supertest e2e test suite exists at `apps/shop/test/e2e/`. It covers:
+
+- Order lifecycle (PENDING → PAID, cancellation + stock restore, idempotency)
+- Order querying (GET by ID, list with pagination, cursor pagination, 401/404 edge cases)
+- Cart flow (add/upsert/remove items, checkout, empty-cart guard)
+
+The suite runs against a live HTTP stack. It requires a fully deployed shop + payments + postgres + rabbitmq to be meaningful. This rules out PR checks as a host.
+
+### Options evaluated
+
+#### Option A — Post-Deploy Stage Gate ✅ Chosen
+
+Run e2e tests in `deploy-stage.yml` immediately after `aws ecs wait services-stable`. The suite hits the already-deployed stage environment via its public URL.
+
+```
+deploy-stage.yml
+  ├── Assume stage IAM role (OIDC)
+  ├── pulumi up --stack stage
+  ├── aws ecs update-service --force-new-deployment
+  ├── aws ecs wait services-stable
+  ├── E2E gate ← inserted here
+  │     ├── npm run test:e2e:shop
+  │     └── on failure: block merge, CloudWatch alert
+  └── (success) tag image as stable
+```
+
+**Why this is correct:**
+
+- Tests run against real infrastructure after every deploy to stage
+- Failures block the `deploy-production.yml` trigger (production deploy only fires after stage succeeds)
+- No additional infra needed — stage environment already exists post-deploy
+- Timeout budget is generous: suite takes ~60–90s against a running stack
+
+#### Option B — PR-time compose stack
+
+Spin up `compose.e2e.yml` inside the PR check job, run tests, tear down.
+
+**Rejected because:**
+
+- Heavy: adds ~3–5 min to PR checks (Postgres cold start, migrations, seed)
+- Flaky: Docker-in-Docker on GitHub Actions hosted runners is unreliable for multi-container stacks
+- Wrong signal: tests pass against a local compose stack but fail against ECS (network config differences)
+- Duplicates what integration tests already cover (unit + integration suite already runs on PR)
+
+#### Option C — Nightly scheduled workflow
+
+Separate cron workflow that deploys a fresh environment, runs e2e, tears it down.
+
+**Not chosen now, valid future addition:**
+
+- Good for regression detection against the current production image
+- Complements Option A (stage gate catches regressions per-deploy; nightly catches time-based drift)
+- Implement after Option A is stable
+
+### AWS migration compatibility
+
+The e2e suite is wire-compatible with AWS — it speaks HTTP/JSON against the public endpoint. Only the base URL changes:
+
+| Environment | `E2E_BASE_URL`                            | Source                      |
+| ----------- | ----------------------------------------- | --------------------------- |
+| Local       | `http://localhost:8092` (from `.env.e2e`) | `.env.e2e` file (committed) |
+| Stage (AWS) | `https://api-stage.yourdomain.com`        | GitHub Environment var      |
+| Production  | not run against production                | N/A                         |
+
+No test code changes required when switching from local compose to ECS. The `E2E_BASE_URL` env var is the single abstraction point — defined in `apps/shop/test/e2e/helpers/index.ts` and re-exported from `apps/shop/test/e2e/orders/constants.ts`.
+
+### Credentials in CI
+
+Local `.env.e2e` contains non-secret defaults for local compose (committed to the repo). Sensitive CI values (`E2E_USER_EMAIL`, `E2E_USER_PASSWORD`) are GitHub Environment secrets on the `stage` environment. `E2E_BASE_URL` is a CI environment variable (not secret).
+
+| Variable            | Local source | CI source                             |
+| ------------------- | ------------ | ------------------------------------- |
+| `E2E_BASE_URL`      | `.env.e2e`   | GitHub Environment variable (`stage`) |
+| `E2E_USER_EMAIL`    | `.env.e2e`   | GitHub Environment secret (`stage`)   |
+| `E2E_USER_PASSWORD` | `.env.e2e`   | GitHub Environment secret (`stage`)   |
+
+### Implementation plan
+
+#### Step 1 — Now (local, already done)
+
+`compose.e2e.yml` + `jest-e2e.json` + specs exist. Local run:
+
+```bash
+npm run e2e:up        # docker compose up (shop + payments + postgres + rabbitmq)
+npm run e2e:migrate   # run migrations
+npm run e2e:seed      # seed test data
+npm run test:e2e:shop # jest --config jest-e2e.json
+npm run e2e:down      # docker compose down -v --remove-orphans
+```
+
+#### Step 2 — Phase 2 (post-ECS deploy): add e2e gate to `deploy-stage.yml`
+
+```yaml
+- name: Run e2e tests
+  env:
+    E2E_BASE_URL: ${{ vars.STAGE_BASE_URL }}
+    E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+    E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+  run: npm run test:e2e:shop
+  timeout-minutes: 10
+```
+
+Add to GitHub `stage` Environment: `STAGE_BASE_URL` variable + `E2E_USER_EMAIL` / `E2E_USER_PASSWORD` secrets.
+
+#### Step 3 — Phase 4 (CI/CD update): wire into OIDC deploy flow
+
+The e2e step runs after `aws ecs wait services-stable` and before the optional `tag-as-stable` step. Job-level `needs` ordering ensures production deploy only triggers when the stage e2e gate passes.
+
+```yaml
+jobs:
+  deploy-stage:
+    steps:
+      - ... # ecs update-service + wait
+      - name: Run e2e tests
+        ...
+  deploy-production:
+    needs: [deploy-stage]   # blocked if e2e fails
+    ...
+```
+
+#### Step 4 — Future: nightly regression run (Option C)
+
+Once Option A is stable, add a scheduled workflow that runs the e2e suite against the current production image on a nightly cron. This catches time-based drift (expired certs, DB drift, third-party API changes) without blocking deploys.
 
 ---
 
