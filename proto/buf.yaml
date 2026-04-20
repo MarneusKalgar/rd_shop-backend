@@ -1,0 +1,12 @@
+version: v2
+lint:
+  except:
+    # File lives in proto/ root, not proto/payments/ — moving it breaks the CI proto-copy path
+    - PACKAGE_DIRECTORY_MATCH
+    # Adding .v1 suffix is a breaking wire change for the existing NestJS gRPC client
+    - PACKAGE_VERSION_SUFFIX
+    # Renaming to PaymentsService would require changing NestJS @GrpcMethod / serviceName registration
+    - SERVICE_SUFFIX
+    # Existing enum values (AUTHORIZED, CAPTURED, etc.) are part of the wire contract;
+    # only PAYMENT_STATUS_UNSPECIFIED was added with the correct prefix
+    - ENUM_VALUE_PREFIX

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-04-20
+
+### Added
+
+- **Proto contract testing** — `proto/buf.yaml` (buf module config; `lint.except` for 4 NestJS-incompatible rules: `PACKAGE_DIRECTORY_MATCH`, `PACKAGE_VERSION_SUFFIX`, `SERVICE_SUFFIX`, `ENUM_VALUE_PREFIX`) and `proto/buf.breaking.yaml` (`WIRE_JSON` rule set) added to the repo; `bufbuild/buf-setup-action@v1` + `buf lint` + `buf breaking --against '../.git#branch=main,subdir=proto'` gate added to the `code-quality` CI composite action — any wire-breaking proto change now fails the PR
+- **Unit test coverage reporting** — `collectCoverageFrom` moved from root-level into each Jest project (`shop`, `payments`) so the project runner actually collects coverage; `coverageReporters: ['text', 'lcov', 'json-summary']` added at root; `npm run test:cov` now produces non-zero numbers
+- **Integration test coverage** — `npm run test:integration:shop:cov` script; `jest-integration.json` `rootDir` corrected from `"."` (test/) to `".."` (apps/shop/) so `src/**/*` globs resolve; `coverageDirectory: '../../coverage-integration'` and `coverageReporters` added to `jest-integration.json`
+- **CI coverage artifacts** — `code-quality` composite action prints unit `coverage-summary.json`; `integration-tests` job prints integration summary and uploads `coverage-integration/` as a build artifact with 7-day retention
+
+### Removed
+
+- **`.bufignore`** — no longer needed; buf scope is contained by `proto/buf.yaml` being placed inside the `proto/` directory (buf treats `proto/` as the module root when invoked via `cd proto && buf ...`)
+
+### Fixed
+
+- **`jest-integration.json` `rootDir`** — was `"."` (resolved to `apps/shop/test/`) causing `moduleNameMapper`, `setupFiles`, and `collectCoverageFrom` paths to be wrong; corrected to `".."` (resolves to `apps/shop/`)
+
 ## [0.2.3] - 2026-04-20
 
 ### Added

@@ -1,11 +1,25 @@
 name: Code Quality
 description: >
-  Runs lint, TypeScript type checking, and unit tests (with coverage upload).
+  Runs lint, TypeScript type checking, unit tests (with coverage upload),
+  and buf proto breaking-change check.
   Expects node_modules to already be present on the runner.
 
 runs:
   using: composite
   steps:
+    - name: Set up buf
+      uses: bufbuild/buf-setup-action@v1
+      with:
+        version: '1.50.0'
+
+    - name: Check proto breaking changes
+      shell: bash
+      run: cd proto && buf breaking --against '../.git#branch=main,subdir=proto' --config buf.breaking.yaml
+
+    - name: Lint proto
+      shell: bash
+      run: cd proto && buf lint
+
     - name: Lint
       shell: bash
       run: npm run lint:ci
