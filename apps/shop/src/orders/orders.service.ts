@@ -15,9 +15,7 @@ import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { AuthUser } from '@/auth/types';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProductsRepository } from '@/products/product.repository';
-import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
-import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
 import { simulateExternalService } from '@/utils';
 
 import { User } from '../users/user.entity';
@@ -33,6 +31,7 @@ import {
 } from './events';
 import { Order, OrderStatus } from './order.entity';
 import { OrderItemData, OrderItemsRepository, OrdersRepository } from './repositories';
+import { OrderPublisherService, PgErrorMapperService } from './services';
 import { OrdersQueryService, OrderStockService } from './services';
 import { FindOrdersWithFiltersResponse } from './types';
 import { assertOrderOwnership, getTotalSumInCents } from './utils';
@@ -73,7 +72,6 @@ export class OrdersService {
     private readonly ordersRepository: OrdersRepository,
     private readonly productsRepository: ProductsRepository,
     private readonly orderItemsRepository: OrderItemsRepository,
-    private readonly rabbitmqService: RabbitMQService,
 
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
@@ -83,6 +81,8 @@ export class OrdersService {
     private readonly auditLogService: AuditLogService,
     private readonly orderStockService: OrderStockService,
     private readonly ordersQueryService: OrdersQueryService,
+    private readonly orderPublisherService: OrderPublisherService,
+    private readonly pgErrorMapperService: PgErrorMapperService,
   ) {}
 
   /**
@@ -239,7 +239,7 @@ export class OrdersService {
 
     try {
       const createdOrder = await this.executeOrderTransaction(createOrderDto, user, productIds);
-      this.publishOrderProcessingMessage(createdOrder, idempotencyKey);
+      this.orderPublisherService.publishOrderProcessing(createdOrder, idempotencyKey);
       this.eventEmitter.emit(
         ORDER_CREATED_EVENT,
         new OrderCreatedEvent(createdOrder.id, user.email),
@@ -257,7 +257,7 @@ export class OrdersService {
       return createdOrder;
     } catch (error: unknown) {
       try {
-        return await this.handleOrderCreationPgErrors(error, userId, idempotencyKey);
+        return await this.pgErrorMapperService.handleCreationError(error, userId, idempotencyKey);
       } catch (finalError) {
         void this.auditLogService.log({
           action: AuditAction.ORDER_CREATION_FAILED,
@@ -568,76 +568,6 @@ export class OrdersService {
     });
 
     return createdOrder;
-  }
-
-  private async handleOrderCreationPgErrors(
-    error: unknown,
-    userId: string,
-    idempotencyKey?: string,
-  ): Promise<Order> {
-    const pgError = error as { code?: string; message?: string };
-
-    // Handle duplicate idempotency key race condition
-    if (pgError?.code === '23505' && idempotencyKey) {
-      this.logger.warn(
-        `Race condition detected for idempotency key "${idempotencyKey}". Returning existing order.`,
-      );
-
-      const existingOrder = await this.ordersRepository.findByIdempotencyKey(idempotencyKey);
-
-      if (existingOrder) {
-        return existingOrder;
-      }
-    }
-
-    // Handle timeout errors specifically
-    if (pgError?.code === '57014' || pgError?.message?.includes('statement timeout')) {
-      this.logger.error(
-        `Statement timeout during order creation for user ${userId}. Consider optimizing query or increasing timeout.`,
-      );
-      throw new Error('Order creation timed out due to high load. Please try again in a moment.');
-    }
-
-    if (pgError?.code === '55P03' || pgError?.message?.includes('lock timeout')) {
-      this.logger.error(`Lock timeout during order creation for user ${userId}.`);
-      throw new ConflictException(
-        'Unable to process order due to high concurrent activity. Please try again.',
-      );
-    }
-
-    this.logger.error('Order creation failed, transaction rolled back', error);
-    throw error;
-  }
-
-  /**
-   * Publishes order processing message to RabbitMQ after successful order creation.
-   *
-   * Message is published with persistent delivery mode to survive broker restarts.
-   * Publishing failures are logged but don't fail the order creation to maintain
-   * service availability. Consider implementing retry logic or outbox pattern for
-   * critical messaging requirements.
-   *
-   * @param order - Created order entity
-   * @param correlationId - Optional correlation ID (uses idempotencyKey if provided)
-   * @private
-   */
-  private publishOrderProcessingMessage(order: Order, correlationId?: string) {
-    const messageIdFromConfig = this.configService.get<string>(
-      'RABBITMQ_SIMULATE_DUPLICATE_MESSAGE_ID',
-    );
-
-    const forcedMessageId =
-      messageIdFromConfig && messageIdFromConfig.length > 0 ? messageIdFromConfig : undefined;
-
-    const message = new OrderProcessMessageDto(order.id, correlationId, forcedMessageId);
-
-    this.rabbitmqService.publish(
-      ORDER_PROCESS_QUEUE,
-      message as unknown as Record<string, unknown>,
-      { messageId: message.messageId },
-    );
-
-    this.logger.log(`Order processing message published for order: ${order.id}`);
   }
 
   private validateOrderItems(items: CreateOrderDto['items']): void {

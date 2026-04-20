@@ -12,6 +12,7 @@ module.exports = {
     {
       displayName: 'shop',
       rootDir: 'apps/shop',
+      setupFilesAfterEnv: ['<rootDir>/../../jest.setup.ts'],
       testMatch: ['<rootDir>/src/**/*.spec.ts'],
       transform: {
         '^.+\.(t|j)s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
@@ -26,6 +27,7 @@ module.exports = {
     {
       displayName: 'payments',
       rootDir: 'apps/payments',
+      setupFilesAfterEnv: ['<rootDir>/../../jest.setup.ts'],
       testMatch: ['<rootDir>/src/**/*.spec.ts'],
       transform: {
         '^.+\.(t|j)s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],

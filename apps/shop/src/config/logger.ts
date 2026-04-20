@@ -8,6 +8,11 @@ import { isProduction } from '@/utils/env';
 export const getPinoLoggerConfig = (): Params => {
   const isProd = isProduction();
 
+  let logLevel = process.env.APP_LOG_LEVEL ?? 'info';
+  if (process.env.NODE_ENV === 'test' && process.env.VERBOSE_TEST_LOGS !== 'true') {
+    logLevel = 'silent';
+  }
+
   return {
     // nestjs-pino defaults to path:'*' which throws in Express 5 (path-to-regexp v8).
     // '/{*path}' is the Express 5 equivalent that matches every route.
@@ -27,7 +32,7 @@ export const getPinoLoggerConfig = (): Params => {
         return id;
       },
 
-      level: process.env.APP_LOG_LEVEL ?? 'info',
+      level: logLevel,
 
       redact: ['req.headers.authorization', 'req.headers.cookie'],
 

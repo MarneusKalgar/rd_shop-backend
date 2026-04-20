@@ -15,6 +15,7 @@ import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 import { OrdersService } from './orders.service';
 import { OrderItemsRepository, OrdersQueryBuilder, OrdersRepository } from './repositories';
+import { OrderPublisherService, PgErrorMapperService } from './services';
 import { OrdersQueryService, OrderStockService } from './services';
 import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
 
@@ -33,6 +34,8 @@ import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
     OrdersService,
     OrderStockService,
     OrdersQueryService,
+    OrderPublisherService,
+    PgErrorMapperService,
     OrdersRepository,
     ProductsRepository,
     OrderItemsRepository,
