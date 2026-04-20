@@ -419,7 +419,7 @@ cd proto && buf lint
 cd proto && buf breaking --against '../.git#branch=origin/main,subdir=proto' --config buf.breaking.yaml
 ```
 
-`proto/buf.yaml` configures the `WIRE_JSON` breaking-change rule set and suppresses four lint rules that are incompatible with the NestJS/gRPC contract (`PACKAGE_DIRECTORY_MATCH`, `PACKAGE_VERSION_SUFFIX`, `SERVICE_SUFFIX`, `ENUM_VALUE_PREFIX`). Both commands run as PR gates in the `code-quality` CI job.
+`proto/buf.breaking.yaml` configures the `WIRE_JSON` breaking-change rule set. `proto/buf.yaml` contains lint configuration and suppresses four lint rules that are incompatible with the NestJS/gRPC contract (`PACKAGE_DIRECTORY_MATCH`, `PACKAGE_VERSION_SUFFIX`, `SERVICE_SUFFIX`, `ENUM_VALUE_PREFIX`). Both commands run as PR gates in the `code-quality` CI job.
 
 ## 🏗️ Architecture Overview
 
