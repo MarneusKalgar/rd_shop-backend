@@ -5,7 +5,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -13,28 +12,23 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { AuthUser } from '@/auth/types';
-import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProductsRepository } from '@/products/product.repository';
-import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
-import { simulateExternalService } from '@/utils';
 
 import { User } from '../users/user.entity';
-import { MAX_ORDER_QUANTITY, ORDER_WORKER_SCOPE } from './constants';
-import { CreateOrderDto, FindOrdersFilterDto, OrderProcessMessageDto } from './dto';
+import { MAX_ORDER_QUANTITY } from './constants';
+import { CreateOrderDto, FindOrdersFilterDto } from './dto';
 import {
   ORDER_CANCELLED_EVENT,
   ORDER_CREATED_EVENT,
-  ORDER_PAID_EVENT,
   OrderCancelledEvent,
   OrderCreatedEvent,
-  OrderPaidEvent,
 } from './events';
 import { Order, OrderStatus } from './order.entity';
 import { OrderItemData, OrderItemsRepository, OrdersRepository } from './repositories';
 import { OrderPublisherService, PgErrorMapperService } from './services';
 import { OrdersQueryService, OrderStockService } from './services';
 import { FindOrdersWithFiltersResponse } from './types';
-import { assertOrderOwnership, getTotalSumInCents } from './utils';
+import { assertOrderOwnership } from './utils';
 
 /**
  * Service responsible for order creation and querying with transaction safety.
@@ -74,9 +68,7 @@ export class OrdersService {
     private readonly orderItemsRepository: OrderItemsRepository,
 
     private readonly dataSource: DataSource,
-    private readonly configService: ConfigService,
 
-    private readonly paymentsGrpcService: PaymentsGrpcService,
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogService: AuditLogService,
     private readonly orderStockService: OrderStockService,
@@ -86,8 +78,6 @@ export class OrdersService {
   ) {}
 
   /**
-   * Cancels an order and restores product stock within a transaction.
-   *
    * **Allowed statuses:** PENDING, PROCESSED, PAID
    * **Rejected statuses:** CANCELLED (409), CREATED (400)
    *
@@ -287,187 +277,6 @@ export class OrdersService {
     orderId: string,
   ): Promise<{ paymentId: string; status: string }> {
     return await this.ordersQueryService.getOrderPayment(userId, orderId);
-  }
-
-  /**
-   * Processes an order after receiving a RabbitMQ message, then authorizes payment.
-   *
-   * **Inside DB transaction:**
-   * 1. SELECT from processed_messages — skip if already processed (fast-path idempotency)
-   * 2. INSERT into processed_messages — idempotency lock (UNIQUE violation = safe duplicate, return)
-   * 3. Fetch order by orderId — throw NotFoundException if missing (worker retries / DLQ)
-   * 4. Guard: skip if status is already PROCESSED or not PENDING (unexpected state)
-   * 5. Simulate failure / delay if configured via env (RABBITMQ_SIMULATE_FAILURE / _DELAY)
-   * 6. UPDATE order SET status = PROCESSED
-   * 7. COMMIT
-   *
-   * **After transaction (if order.paymentId is null):**
-   * 8. Call PaymentsGrpcService.authorize() — gRPC call to `apps/payments` microservice
-   *    → on success: UPDATE order SET status = PAID, paymentId = response.paymentId
-   *    → on failure: throws (worker should nack / retry)
-   *
-   * **Skipping payment authorization (HW10 / shop-only mode):**
-   * Set `RABBITMQ_DISABLE_PAYMENTS_AUTHORIZATION=true` in the environment to skip step 8.
-   * The order remains in `PROCESSED` status — useful when `apps/payments` is not running
-   * (e.g., standalone shop stack for HW10).
-   *
-   * Caller (worker) acks the message only after this method resolves successfully.
-   *
-   * @param payload - OrderProcessMessageDto containing messageId, orderId, correlationId
-   * @throws {NotFoundException} If order not found — worker should nack
-   * @throws {Error} If DB error occurs or payment authorization fails — worker should nack
-   */
-  async processOrderMessage(payload: OrderProcessMessageDto): Promise<void> {
-    const { correlationId, messageId, orderId } = payload;
-    const simulateFailure: boolean =
-      this.configService.get<string>('RABBITMQ_SIMULATE_FAILURE') === 'true';
-    const simulateDelay: number = this.configService.get<number>('RABBITMQ_SIMULATE_DELAY') ?? 0;
-    const disablePaymentsAuthorization: boolean =
-      this.configService.get<string>('RABBITMQ_DISABLE_PAYMENTS_AUTHORIZATION') === 'true';
-
-    const processedOrder = await this.dataSource.transaction(async (manager) => {
-      const processedMessageRepository = manager.getRepository(ProcessedMessage);
-
-      const alreadyProcessed = await processedMessageRepository.findOne({
-        where: { messageId },
-      });
-
-      if (alreadyProcessed) {
-        this.logger.warn(`Message [messageId: ${messageId}] already processed, skipping`);
-        return;
-      }
-
-      try {
-        await manager.insert(ProcessedMessage, {
-          idempotencyKey: correlationId ?? null,
-          messageId,
-          orderId: orderId ?? null,
-          processedAt: new Date(),
-          scope: ORDER_WORKER_SCOPE,
-        });
-      } catch (error) {
-        const pgError = error as { code?: string };
-        if (String(pgError?.code) === '23505') {
-          return;
-        }
-        this.logger.error(`Failed to insert ProcessedMessage for [messageId: ${messageId}]`, error);
-        throw new Error('Failed to acquire idempotency lock');
-      }
-
-      const orderRepository = manager.getRepository(Order);
-
-      const order = await orderRepository.findOne({ where: { id: orderId } });
-
-      if (!order) {
-        throw new NotFoundException(`Order "${orderId}" not found`);
-      }
-
-      if (order.status === OrderStatus.PROCESSED) {
-        this.logger.warn(`Order "${orderId}" already in PROCESSED state, skipping`);
-        return;
-      }
-
-      if (order.status !== OrderStatus.PENDING) {
-        this.logger.warn(`Order "${orderId}" has unexpected status "${order.status}", skipping`);
-        return;
-      }
-
-      if (simulateFailure) {
-        this.logger.warn(`Simulating processing failure for messageId: ${messageId}`);
-        throw new Error('Simulated processing failure');
-      }
-
-      if (simulateDelay) {
-        this.logger.warn(
-          `Simulating processing delay of ${simulateDelay}ms for messageId: ${messageId}`,
-        );
-        await simulateExternalService(simulateDelay);
-      }
-
-      order.status = OrderStatus.PROCESSED;
-      await orderRepository.save(order);
-
-      this.logger.log(`Order "${orderId}" marked as PROCESSED`);
-
-      return order;
-    });
-
-    if (disablePaymentsAuthorization) {
-      this.logger.warn(
-        `Payments authorization is disabled via configuration. Skipping payment authorization for orderId: ${orderId}`,
-      );
-      return;
-    }
-
-    if (processedOrder && !processedOrder.paymentId) {
-      await this.authorizePayment(processedOrder);
-    }
-  }
-
-  /**
-   * Authorizes payment for a PROCESSED order via the payments gRPC microservice.
-   *
-   * Re-fetches the order with all relations (items, products, user) to compute the total amount
-   * and obtain the user email for the ORDER_PAID event — avoiding a separate user lookup.
-   *
-   * On a successful gRPC response the order is updated to PAID and `paymentId` is persisted.
-   * If `response.paymentId` is absent the update is skipped and no event is emitted.
-   *
-   * @param order - The PROCESSED order (only `id` and `userId` are required at call-time)
-   * @throws {NotFoundException} If the order cannot be reloaded from the DB
-   * @throws {Error} Re-throws any gRPC or DB error so the worker can nack and retry
-   * @private
-   */
-  private async authorizePayment(order: Order): Promise<void> {
-    const orderWithItems = await this.ordersRepository.findByIdWithRelations(order.id);
-
-    if (!orderWithItems) {
-      this.logger.error(`Order "${order.id}" not found for payment authorization`);
-      throw new NotFoundException(`Order "${order.id}" not found for payment authorization`);
-    }
-
-    const amount = getTotalSumInCents(orderWithItems);
-
-    try {
-      const response = await this.paymentsGrpcService.authorize({
-        amount,
-        currency: 'USD',
-        orderId: order.id,
-      });
-
-      if (response.paymentId) {
-        await this.ordersRepository
-          .getRepository()
-          .update({ id: order.id }, { paymentId: response.paymentId, status: OrderStatus.PAID });
-
-        this.logger.log(
-          `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,
-        );
-
-        void this.auditLogService.log({
-          action: AuditAction.ORDER_PAYMENT_AUTHORIZED,
-          actorId: order.userId,
-          outcome: AuditOutcome.SUCCESS,
-          targetId: order.id,
-          targetType: 'Order',
-        });
-
-        this.eventEmitter.emit(
-          ORDER_PAID_EVENT,
-          new OrderPaidEvent(order.id, orderWithItems.user.email),
-        );
-      }
-    } catch (error) {
-      this.logger.error(`Payment authorization failed for order=${order.id}`, error);
-      void this.auditLogService.log({
-        action: AuditAction.ORDER_PAYMENT_FAILED,
-        actorId: order.userId,
-        outcome: AuditOutcome.FAILURE,
-        targetId: order.id,
-        targetType: 'Order',
-      });
-      throw error;
-    }
   }
 
   private async checkIdempotency(idempotencyKey?: string): Promise<null | Order> {

@@ -15,13 +15,13 @@ import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 import { OrdersService } from './orders.service';
 import { OrderItemsRepository, OrdersQueryBuilder, OrdersRepository } from './repositories';
-import { OrderPublisherService, PgErrorMapperService } from './services';
+import { OrderProcessingService, OrderPublisherService, PgErrorMapperService } from './services';
 import { OrdersQueryService, OrderStockService } from './services';
 import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
 
 @Module({
   controllers: [OrdersControllerV1],
-  exports: [OrdersService, OrdersRepository, OrderItemsRepository],
+  exports: [OrdersService, OrderProcessingService, OrdersRepository, OrderItemsRepository],
   imports: [
     TypeOrmModule.forFeature([Order, OrderItem, Product, User]),
     AuditLogModule,
@@ -34,6 +34,7 @@ import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
     OrdersService,
     OrderStockService,
     OrdersQueryService,
+    OrderProcessingService,
     OrderPublisherService,
     PgErrorMapperService,
     OrdersRepository,
