@@ -1,5 +1,18 @@
 # rd_shop — Orders Querying
 
+## Services hierarchy
+
+```
+OrdersService (facade — backward compat)
+└── OrdersQueryService     read path: findOrdersWithFilters, getOrderById, getOrderPayment
+    ├── OrdersRepository       custom query methods + findByIdWithItemRelations
+    ├── OrdersQueryBuilder     two-stage subquery/main-query split
+    └── PaymentsGrpcService    payment status lookup (getOrderPayment only)
+```
+
+All read methods enforce ownership via `assertOrderOwnership(order, userId)` — returns 404
+for both "not found" and "wrong owner" cases (IDOR prevention).
+
 ## REST endpoints — all scoped to the authenticated user
 
 | Endpoint                                    | Guard                      | Scope          | Returns                      |

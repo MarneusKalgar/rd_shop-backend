@@ -1,5 +1,23 @@
 # rd_shop — Full Order Flow
 
+## Services hierarchy
+
+```
+OrdersService (facade — backward compat)
+├── OrdersCommandService     write path: createOrder, cancelOrder
+│   ├── OrderStockService    pessimistic locking, stock decrement/restore, product pre-check
+│   ├── OrderPublisherService  publish OrderProcessMessageDto to RabbitMQ
+│   └── PgErrorMapperService  PostgreSQL error code → NestJS exception mapping
+└── OrdersQueryService       read path: findOrdersWithFilters, getOrderById, getOrderPayment
+
+OrderProcessingService       worker pipeline: idempotent message consumption → gRPC payment
+```
+
+All transactions open with `applyTransactionTimeouts` (`utils/index.ts`):
+
+- `SET LOCAL statement_timeout = 30000` — aborts slow queries (PG 57014)
+- `SET LOCAL lock_timeout = 10000` — aborts stalled pessimistic locks (PG 55P03)
+
 ## Status lifecycle
 
 ```
@@ -51,17 +69,18 @@ CartService.checkout(userId, dto):
   createOrderDto = { idempotencyKey, items, shipping }
 
   OrdersService.createOrder(userId, createOrderDto, context):
+    → OrdersCommandService.createOrder
 
     Pre-validation (outside transaction):
       validateUser(userId from JWT)          → 404 if not found
       validateOrderItems(items)              → 400 if qty ≤0 or >1000
       checkIdempotency(idempotencyKey)       → 201 + existing order if key seen before
-      validateProductsExist(productIds)      → 404 if any product missing
+      OrderStockService.validateExist(productIds) → 404 if any product missing
 
-    DB Transaction:
-      SET LOCAL statement_timeout = 30s
-      SET LOCAL lock_timeout = 10s
-      SELECT ... FOR UPDATE (pessimistic_write lock on all product rows in order)
+    executeOrderTransaction(dto, user, productIds):
+      DB Transaction:
+        applyTransactionTimeouts(manager)    → SET LOCAL statement/lock timeouts
+        SELECT ... FOR UPDATE (pessimistic_write lock on all product rows in order)
         → ProductsRepository.findByIdsWithLock(manager, productIds)
         → TypeORM .setLock('pessimistic_write') → PostgreSQL SELECT ... FOR UPDATE
       validateStockAndAvailability()         → 409 if !isActive or stock < qty
@@ -104,19 +123,22 @@ The user's profile acts as a **default** — clients can skip `shipping` entirel
 **Endpoint:** `POST /api/v1/orders/:orderId/cancellation` — guard: `JwtAuthGuard`
 
 ```
-DB Transaction:
-  SET LOCAL statement_timeout = 30s
-  SET LOCAL lock_timeout = 10s
-  Load order with items + products
-  assertOrderOwnership(order, userId)      → 404 if not owner
-  Guard: CANCELLED → 409, CREATED → 400
-  SELECT products FOR UPDATE (pessimistic lock)
-  Restore stock: product.stock += item.quantity for each item
-  SET order.status = CANCELLED
-  COMMIT
+OrdersService.cancelOrder → OrdersCommandService.cancelOrder
+
+executeCancelTransaction(orderId, userId):
+  DB Transaction:
+    applyTransactionTimeouts(manager)    → SET LOCAL statement/lock timeouts
+    Load order (shallow)
+    assertOrderOwnership(order, userId)  → 404 if not owner
+    Guard: CANCELLED → 409, CREATED → 400
+    Load order with items + products (full)
+    SELECT products FOR UPDATE (pessimistic lock)
+    Restore stock: product.stock += item.quantity for each item
+    SET order.status = CANCELLED
+    Reload order with full relations
+    COMMIT
 
 Post-commit:
-  validateUser(userId) → get email
   emit ORDER_CANCELLED_EVENT → OrderEmailListener → cancellation email
 
 Response: HTTP 200 { data: Order }
@@ -146,7 +168,7 @@ handleMessage(msg, channel):
 
 ## Phase 2.5 — DB transaction in worker
 
-**Method:** `OrdersService.processOrderMessage(payload)`
+**Method:** `OrderProcessingService.processOrderMessage(payload)`
 
 ```
 DB Transaction:

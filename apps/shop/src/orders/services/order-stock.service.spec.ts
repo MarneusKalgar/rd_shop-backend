@@ -35,6 +35,7 @@ describe('OrderStockService', () => {
         {
           provide: ProductsRepository,
           useValue: {
+            findByIds: jest.fn(),
             findByIdsWithLock: jest.fn(),
             saveProducts: jest.fn(),
           },
@@ -255,6 +256,32 @@ describe('OrderStockService', () => {
       expect(productsRepository.findByIdsWithLock.mock.calls).toEqual([[manager, ['prod-1']]]);
       expect(product.stock).toBe(8);
       expect(productsRepository.saveProducts.mock.calls).toEqual([[manager, [product]]]);
+    });
+  });
+
+  describe('validateExist', () => {
+    it('does not throw when all products are found', async () => {
+      productsRepository.findByIds.mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }] as Product[]);
+
+      await expect(service.validateExist(['p1', 'p2'])).resolves.toBeUndefined();
+    });
+
+    it('throws NotFoundException when a product is missing', async () => {
+      productsRepository.findByIds.mockResolvedValueOnce([{ id: 'p1' }] as Product[]);
+
+      await expect(service.validateExist(['p1', 'p2'])).rejects.toThrow(NotFoundException);
+    });
+
+    it('includes the missing product id in the error message', async () => {
+      productsRepository.findByIds.mockResolvedValueOnce([] as Product[]);
+
+      await expect(service.validateExist(['missing-id'])).rejects.toThrow(/missing-id/);
+    });
+
+    it('does not throw when productIds array is empty', async () => {
+      productsRepository.findByIds.mockResolvedValueOnce([] as Product[]);
+
+      await expect(service.validateExist([])).resolves.toBeUndefined();
     });
   });
 });

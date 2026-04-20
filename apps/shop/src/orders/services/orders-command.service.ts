@@ -12,7 +12,6 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { AuthUser } from '@/auth/types';
-import { ProductsRepository } from '@/products/product.repository';
 import { User } from '@/users/user.entity';
 
 import { CreateOrderDto } from '../dto';
@@ -24,7 +23,7 @@ import {
 } from '../events';
 import { Order, OrderStatus } from '../order.entity';
 import { OrderItemData, OrderItemsRepository, OrdersRepository } from '../repositories';
-import { assertOrderOwnership, validateOrderItems } from '../utils';
+import { applyTransactionTimeouts, assertOrderOwnership, validateOrderItems } from '../utils';
 import { OrderPublisherService } from './order-publisher.service';
 import { OrderStockService } from './order-stock.service';
 import { PgErrorMapperService } from './pg-error-mapper.service';
@@ -33,20 +32,22 @@ import { PgErrorMapperService } from './pg-error-mapper.service';
  * Handles the command side of the orders domain: order creation and cancellation.
  *
  * Owns all write operations, transaction logic, stock mutations, and event emission
- * for the order lifecycle's command path. Called by OrdersService (facade),
- * OrdersController, and CartService.
+ * for the order lifecycle's command path. Called by `OrdersService` (facade),
+ * `OrdersController`, and `CartService`.
  *
  * **createOrder flow:**
- * 1. Validate user + items (outside transaction, fast-fail)
- * 2. Idempotency short-circuit — return existing order if key already used
- * 3. Pre-check product existence (outside transaction)
- * 4. Begin transaction: lock products (FOR UPDATE), validate stock, decrement, create order + items
- * 5. Publish RabbitMQ message, emit ORDER_CREATED event, write audit log
+ * 1. Validate user + items outside the transaction (fast-fail)
+ * 2. Idempotency short-circuit — return existing order if the key was already used
+ * 3. Pre-check product existence via `OrderStockService.validateExist` (outside transaction)
+ * 4. `executeOrderTransaction`: acquire pessimistic locks, validate stock, decrement, create order + items
+ * 5. Post-commit: publish RabbitMQ message, emit `ORDER_CREATED_EVENT`, write audit log
  *
  * **cancelOrder flow:**
- * 1. Begin transaction: load order (shallow), assert ownership + status guards
- * 2. Load items + products, restore stock, set CANCELLED, reload with relations
- * 3. Emit ORDER_CANCELLED event, write audit log
+ * 1. `executeCancelTransaction`: load order (shallow), assert ownership + status guards,
+ *    restore stock under lock, set `CANCELLED`, reload with relations
+ * 2. Post-commit: emit `ORDER_CANCELLED_EVENT`, write audit log
+ *
+ * Both transactions open with `applyTransactionTimeouts` (30s statement / 10s lock).
  */
 @Injectable()
 export class OrdersCommandService {
@@ -56,7 +57,6 @@ export class OrdersCommandService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly ordersRepository: OrdersRepository,
-    private readonly productsRepository: ProductsRepository,
     private readonly orderItemsRepository: OrderItemsRepository,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
@@ -69,48 +69,7 @@ export class OrdersCommandService {
   async cancelOrder(user: AuthUser, orderId: string, context?: AuditEventContext): Promise<Order> {
     const { email: userEmail, sub: userId } = user;
 
-    const order = await this.dataSource.transaction(async (manager) => {
-      await manager.query('SET LOCAL statement_timeout = 30000');
-      await manager.query('SET LOCAL lock_timeout = 10000');
-
-      const orderRepo = manager.getRepository(Order);
-
-      const orderShallow = await orderRepo.findOne({ where: { id: orderId } });
-
-      assertOrderOwnership(orderShallow, userId);
-
-      if (orderShallow.status === OrderStatus.CANCELLED) {
-        throw new ConflictException(`Order "${orderId}" is already cancelled`);
-      }
-
-      if (orderShallow.status === OrderStatus.CREATED) {
-        throw new BadRequestException(`Order "${orderId}" is in an invalid state for cancellation`);
-      }
-
-      const order = await orderRepo.findOne({
-        relations: ['items', 'items.product'],
-        where: { id: orderId },
-      });
-
-      if (!order) {
-        throw new NotFoundException(`Order "${orderId}" not found`);
-      }
-
-      const productIds = order.items.map((item) => item.productId);
-      await this.orderStockService.lockAndRestore(manager, order.items, productIds);
-
-      order.status = OrderStatus.CANCELLED;
-      await orderRepo.save(order);
-
-      this.logger.log(`Order "${orderId}" cancelled, stock restored`);
-
-      const updatedOrder = await this.ordersRepository.findByIdWithItemRelations(orderId, manager);
-      if (!updatedOrder) {
-        throw new Error('Failed to reload cancelled order');
-      }
-
-      return updatedOrder;
-    });
+    const order = await this.executeCancelTransaction(orderId, userId);
 
     this.eventEmitter.emit(ORDER_CANCELLED_EVENT, new OrderCancelledEvent(order.id, userEmail));
 
@@ -151,7 +110,7 @@ export class OrdersCommandService {
     }
 
     const productIds = [...new Set(items.map((item) => item.productId))];
-    await this.validateProductsExist(productIds);
+    await this.orderStockService.validateExist(productIds);
 
     try {
       const createdOrder = await this.executeOrderTransaction(createOrderDto, user, productIds);
@@ -188,9 +147,7 @@ export class OrdersCommandService {
   }
 
   private async checkIdempotency(idempotencyKey?: string): Promise<null | Order> {
-    if (!idempotencyKey) {
-      return null;
-    }
+    if (!idempotencyKey) return null;
 
     const existingOrder = await this.ordersRepository.findByIdempotencyKey(idempotencyKey);
 
@@ -203,6 +160,50 @@ export class OrdersCommandService {
     return existingOrder;
   }
 
+  private async executeCancelTransaction(orderId: string, userId: string): Promise<Order> {
+    return this.dataSource.transaction(async (manager) => {
+      await applyTransactionTimeouts(manager);
+
+      const orderRepo = manager.getRepository(Order);
+
+      const orderShallow = await orderRepo.findOne({ where: { id: orderId } });
+
+      assertOrderOwnership(orderShallow, userId);
+
+      if (orderShallow.status === OrderStatus.CANCELLED) {
+        throw new ConflictException(`Order "${orderId}" is already cancelled`);
+      }
+
+      if (orderShallow.status === OrderStatus.CREATED) {
+        throw new BadRequestException(`Order "${orderId}" is in an invalid state for cancellation`);
+      }
+
+      const order = await orderRepo.findOne({
+        relations: ['items', 'items.product'],
+        where: { id: orderId },
+      });
+
+      if (!order) {
+        throw new NotFoundException(`Order "${orderId}" not found`);
+      }
+
+      const productIds = order.items.map((item) => item.productId);
+      await this.orderStockService.lockAndRestore(manager, order.items, productIds);
+
+      order.status = OrderStatus.CANCELLED;
+      await orderRepo.save(order);
+
+      this.logger.log(`Order "${orderId}" cancelled, stock restored`);
+
+      const updatedOrder = await this.ordersRepository.findByIdWithItemRelations(orderId, manager);
+      if (!updatedOrder) {
+        throw new Error('Failed to reload cancelled order');
+      }
+
+      return updatedOrder;
+    });
+  }
+
   private async executeOrderTransaction(
     createOrderDto: CreateOrderDto,
     user: User,
@@ -211,8 +212,7 @@ export class OrdersCommandService {
     const { idempotencyKey, items, shipping } = createOrderDto;
 
     return await this.dataSource.transaction(async (manager) => {
-      await manager.query('SET LOCAL statement_timeout = 30000');
-      await manager.query('SET LOCAL lock_timeout = 10000');
+      await applyTransactionTimeouts(manager);
 
       const productMap = await this.orderStockService.lockValidateAndDecrement(
         manager,
@@ -251,16 +251,6 @@ export class OrdersCommandService {
 
       return order;
     });
-  }
-
-  private async validateProductsExist(productIds: string[]): Promise<void> {
-    const productsPreCheck = await this.productsRepository.findByIds(productIds);
-
-    if (productsPreCheck.length !== productIds.length) {
-      const foundIds = new Set(productsPreCheck.map((p) => p.id));
-      const missingId = productIds.find((id) => !foundIds.has(id));
-      throw new NotFoundException(`Product with ID "${missingId}" not found`);
-    }
   }
 
   private async validateUser(userId: string): Promise<User> {

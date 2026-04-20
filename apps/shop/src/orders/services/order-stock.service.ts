@@ -82,6 +82,22 @@ export class OrderStockService {
   }
 
   /**
+   * Validates that all given product IDs exist in the database.
+   * Used as a fast pre-check before opening a transaction.
+   *
+   * @throws {NotFoundException} If any product ID is not found
+   */
+  async validateExist(productIds: string[]): Promise<void> {
+    const products = await this.productsRepository.findByIds(productIds);
+
+    if (products.length !== productIds.length) {
+      const foundIds = new Set(products.map((p) => p.id));
+      const missingId = productIds.find((id) => !foundIds.has(id));
+      throw new NotFoundException(`Product with ID "${missingId}" not found`);
+    }
+  }
+
+  /**
    * Validates that all items reference active products with sufficient stock.
    * Called inside a transaction after acquiring pessimistic locks.
    *

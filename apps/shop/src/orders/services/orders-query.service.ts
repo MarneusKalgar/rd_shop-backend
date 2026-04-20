@@ -16,6 +16,13 @@ import { OrdersQueryBuilder, OrdersRepository } from '../repositories';
 import { FindOrdersWithFiltersResponse } from '../types';
 import { assertOrderOwnership, buildOrderNextCursor } from '../utils';
 
+/**
+ * Handles the query side of the orders domain: listing, single-order retrieval,
+ * and payment status lookup.
+ *
+ * All methods enforce ownership via `assertOrderOwnership` — callers receive a 404
+ * for both "not found" and "wrong owner" cases (IDOR prevention).
+ */
 @Injectable()
 export class OrdersQueryService {
   private readonly logger = new Logger(OrdersQueryService.name);
@@ -26,6 +33,16 @@ export class OrdersQueryService {
     private readonly paymentsGrpcService: PaymentsGrpcService,
   ) {}
 
+  /**
+   * Returns a paginated, filtered list of orders belonging to `userId`.
+   *
+   * Uses a two-query split: a subquery selects `(id, createdAt)` with optional
+   * cursor/filter/limit, then a main query hydrates full relations for exactly
+   * those IDs. Avoids LIMIT applying to cross-joined rows.
+   *
+   * @param userId - The authenticated user's ID (from JWT `sub`)
+   * @param params - Filters and cursor pagination options (`FindOrdersFilterDto`)
+   */
   async findOrdersWithFilters(
     userId: string,
     params: FindOrdersFilterDto,
@@ -61,6 +78,11 @@ export class OrdersQueryService {
     return { nextCursor, orders };
   }
 
+  /**
+   * Loads a single order with its items and products, asserting ownership.
+   *
+   * @throws {NotFoundException} If the order does not exist or belongs to another user
+   */
   async getOrderById(userId: string, orderId: string): Promise<Order> {
     const order = await this.ordersRepository.findByIdWithItemRelations(orderId);
 
@@ -69,6 +91,13 @@ export class OrdersQueryService {
     return order;
   }
 
+  /**
+   * Returns the current payment status for an order by calling the payments gRPC service.
+   *
+   * @throws {NotFoundException} If the order does not exist or belongs to another user
+   * @throws {BadRequestException} If the order has no associated `paymentId`
+   * @throws {ServiceUnavailableException} On unhandled gRPC errors
+   */
   async getOrderPayment(
     userId: string,
     orderId: string,

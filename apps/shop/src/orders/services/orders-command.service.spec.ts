@@ -6,7 +6,6 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuthUser } from '@/auth/types';
-import { ProductsRepository } from '@/products/product.repository';
 import { User } from '@/users/user.entity';
 
 import { MAX_ORDER_QUANTITY } from '../constants';
@@ -87,7 +86,7 @@ describe('OrdersCommandService', () => {
   let findByIdempotencyKey: jest.Mock;
   let findByIdWithItemRelations: jest.Mock;
   let ordersRepoCreateOrder: jest.Mock;
-  let productsFindByIds: jest.Mock;
+  let validateExist: jest.Mock;
   let createOrderItems: jest.Mock;
   let transactionFn: jest.Mock;
   let eventEmit: jest.Mock;
@@ -102,7 +101,7 @@ describe('OrdersCommandService', () => {
     findByIdempotencyKey = jest.fn().mockResolvedValue(null);
     findByIdWithItemRelations = jest.fn().mockResolvedValue(makeOrder());
     ordersRepoCreateOrder = jest.fn().mockResolvedValue(makeOrder());
-    productsFindByIds = jest.fn().mockResolvedValue([{ id: 'prod-1', price: 100 }]);
+    validateExist = jest.fn().mockResolvedValue(undefined);
     createOrderItems = jest.fn().mockResolvedValue([]);
     transactionFn = jest.fn();
     eventEmit = jest.fn();
@@ -126,12 +125,14 @@ describe('OrdersCommandService', () => {
             findByIdWithItemRelations,
           },
         },
-        { provide: ProductsRepository, useValue: { findByIds: productsFindByIds } },
         { provide: OrderItemsRepository, useValue: { createOrderItems } },
         { provide: DataSource, useValue: { transaction: transactionFn } },
         { provide: EventEmitter2, useValue: { emit: eventEmit } },
         { provide: AuditLogService, useValue: { log: auditLog } },
-        { provide: OrderStockService, useValue: { lockAndRestore, lockValidateAndDecrement } },
+        {
+          provide: OrderStockService,
+          useValue: { lockAndRestore, lockValidateAndDecrement, validateExist },
+        },
         { provide: OrderPublisherService, useValue: { publishOrderProcessing } },
         { provide: PgErrorMapperService, useValue: { handleCreationError } },
       ],
@@ -180,7 +181,7 @@ describe('OrdersCommandService', () => {
     });
 
     it('throws NotFoundException when a product is not found in pre-check', async () => {
-      productsFindByIds.mockResolvedValue([]);
+      validateExist.mockRejectedValue(new NotFoundException('Product not found'));
 
       await expect(service.createOrder('user-1', makeDto())).rejects.toThrow(NotFoundException);
     });
