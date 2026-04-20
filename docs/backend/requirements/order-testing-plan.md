@@ -416,6 +416,110 @@ Add a coverage-floor check (`jest --coverage --coverageThreshold`) for `apps/sho
 
 ---
 
+## Part E — Design patterns used in the refactor
+
+### Architectural patterns
+
+**CQRS lite** — The primary split driver. Command side (`createOrder`, `cancelOrder`) owns transactions, stock mutations, and event emission. Query side (`findOrdersWithFilters`, `getOrderById`, `getOrderPayment`) has zero side effects and a smaller dependency graph. Different cohesion → different services.
+
+**Service Layer** — Each extracted service (`OrdersCommandService`, `OrdersQueryService`, `OrderProcessingService`, `OrderStockService`) represents a cohesive domain boundary. The controller, worker, and `CartService` call into the appropriate service; no single entry point accumulates 17 dependencies.
+
+**Facade** — `orders.service.ts` can be kept as a thin re-export facade after the split so that `CartService`, `OrdersWorkerService`, the GraphQL resolver, and the controller require zero import changes. The facade delegates every call to the new service that owns it. Deletable once all callers are migrated.
+
+---
+
+### Structural patterns
+
+**Anti-Corruption Layer (ACL)** — `pg-error-mapper.ts` translates PostgreSQL constraint violation codes (`23505` duplicate key, `57014` statement timeout, `55P03` lock timeout) into NestJS domain exceptions (`ConflictException`, `BadRequestException`). Infrastructure errors never cross the domain boundary as raw `QueryFailedError`.
+
+**Unit of Work** — `executeOrderTransaction` and the transaction block inside `cancelOrder` already implement this: multiple repository operations under one `DataSource.transaction()` commit atomically or roll back together. The pattern stays after the refactor — it simply moves into the service that owns the operation.
+
+**Repository Pattern** — Already present (`OrdersRepository`, `ProductsRepository`, `OrderItemsRepository`). Each new service depends on repositories, not raw `DataSource` where avoidable. The refactor respects this boundary.
+
+---
+
+### Behavioural patterns
+
+**Template Method** — `processOrderMessage` has a fixed skeleton: idempotency check → mark PROCESSED → `authorizePayment` → mark PAID → emit event. The steps are ordered and invariant; only `authorizePayment` varies. Extracting `OrderProcessingService` makes the sequence explicit and each step independently testable.
+
+**Observer** — Already used: `EventEmitter2` fires `ORDER_CANCELLED_EVENT` and `ORDER_PAID_EVENT`. After the refactor, `OrdersCommandService` emits cancel events and `OrderProcessingService` emits paid events. The pattern is preserved; ownership is clarified.
+
+**Chain of Responsibility** — The retry → DLQ path in `OrdersWorkerService` is this pattern: attempt 1 → re-queue → attempt N → DLQ. Currently the chain logic lives in the worker. The refactor does not move it, but isolating `OrderProcessingService` makes each link of the chain independently testable.
+
+---
+
+### SOLID principles
+
+| Principle | How it applies                                                                                                                                                                                            |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **SRP**   | Root cause of the refactor: 17 constructor deps and 3 unrelated domains in one class. Each extracted service has one reason to change.                                                                    |
+| **OCP**   | A new payment provider can be added to `OrderProcessingService` without touching `OrdersCommandService` or `OrdersQueryService`.                                                                          |
+| **LSP**   | Not directly applicable — no inheritance hierarchy in this domain.                                                                                                                                        |
+| **ISP**   | `CartService` only needs `createOrder`; `OrdersWorkerService` only needs `processOrderMessage`. Injecting the god service forces both to take 17 deps. The split exposes interfaces sized to each caller. |
+| **DIP**   | Each new service depends on repository abstractions and NestJS-injected interfaces, not on sibling services. `OrdersCommandService` does not know `OrderProcessingService` exists.                        |
+
+---
+
+### What does NOT apply (explicitly excluded)
+
+- **Strategy pattern** — `authorizePayment` does not switch between payment implementations at runtime. A strategy interface would be premature abstraction for the current single-provider setup.
+- **Decorator pattern** — No cross-cutting behaviour injection is needed here; `ValidationPipe` and guards already handle the HTTP layer.
+- **Abstract Factory** — Order creation is not polymorphic; there is only one order type.
+
+---
+
+## Part E — Design patterns used in the refactor
+
+### Architectural patterns
+
+**CQRS lite** — The primary split driver. Command side (`createOrder`, `cancelOrder`) owns transactions, stock mutations, and event emission. Query side (`findOrdersWithFilters`, `getOrderById`, `getOrderPayment`) has zero side effects and a smaller dependency graph. Different cohesion → different services.
+
+**Service Layer** — Each extracted service (`OrdersCommandService`, `OrdersQueryService`, `OrderProcessingService`, `OrderStockService`) represents a cohesive domain boundary. The controller, worker, and `CartService` call into the appropriate service; no single entry point accumulates 17 dependencies.
+
+**Facade** — `orders.service.ts` can be kept as a thin re-export facade after the split so that `CartService`, `OrdersWorkerService`, the GraphQL resolver, and the controller require zero import changes. The facade delegates every call to the new service that owns it. Deletable once all callers are migrated.
+
+---
+
+### Structural patterns
+
+**Anti-Corruption Layer (ACL)** — `pg-error-mapper.ts` translates PostgreSQL constraint violation codes (`23505` duplicate key, `57014` statement timeout, `55P03` lock timeout) into NestJS domain exceptions (`ConflictException`, `BadRequestException`). Infrastructure errors never cross the domain boundary as raw `QueryFailedError`.
+
+**Unit of Work** — `executeOrderTransaction` and the transaction block inside `cancelOrder` already implement this: multiple repository operations under one `DataSource.transaction()` commit atomically or roll back together. The pattern stays after the refactor — it simply moves into the service that owns the operation.
+
+**Repository Pattern** — Already present (`OrdersRepository`, `ProductsRepository`, `OrderItemsRepository`). Each new service depends on repositories, not raw `DataSource` where avoidable. The refactor respects this boundary.
+
+---
+
+### Behavioural patterns
+
+**Template Method** — `processOrderMessage` has a fixed skeleton: idempotency check → mark PROCESSED → `authorizePayment` → mark PAID → emit event. The steps are ordered and invariant; only `authorizePayment` varies. Extracting `OrderProcessingService` makes the sequence explicit and each step independently testable.
+
+**Observer** — Already used: `EventEmitter2` fires `ORDER_CANCELLED_EVENT` and `ORDER_PAID_EVENT`. After the refactor, `OrdersCommandService` emits cancel events and `OrderProcessingService` emits paid events. The pattern is preserved; ownership is clarified.
+
+**Chain of Responsibility** — The retry → DLQ path in `OrdersWorkerService` is this pattern: attempt 1 → re-queue → attempt N → DLQ. Currently the chain logic lives in the worker. The refactor does not move it, but isolating `OrderProcessingService` makes each link of the chain independently testable.
+
+---
+
+### SOLID principles
+
+| Principle | How it applies                                                                                                                                                                                            |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **SRP**   | Root cause of the refactor: 17 constructor deps and 3 unrelated domains in one class. Each extracted service has one reason to change.                                                                    |
+| **OCP**   | A new payment provider can be added to `OrderProcessingService` without touching `OrdersCommandService` or `OrdersQueryService`.                                                                          |
+| **LSP**   | Not directly applicable — no inheritance hierarchy in this domain.                                                                                                                                        |
+| **ISP**   | `CartService` only needs `createOrder`; `OrdersWorkerService` only needs `processOrderMessage`. Injecting the god service forces both to take 17 deps. The split exposes interfaces sized to each caller. |
+| **DIP**   | Each new service depends on repository abstractions and NestJS-injected interfaces, not on sibling services. `OrdersCommandService` does not know `OrderProcessingService` exists.                        |
+
+---
+
+### What does NOT apply (explicitly excluded)
+
+- **Strategy pattern** — `authorizePayment` does not switch between payment implementations at runtime. A strategy interface would be premature abstraction for the current single-provider setup.
+- **Decorator pattern** — No cross-cutting behaviour injection is needed here; `ValidationPipe` and guards already handle the HTTP layer.
+- **Abstract Factory** — Order creation is not polymorphic; there is only one order type.
+
+---
+
 ## Cross-references
 
 - [test-infrastructure.md](../architecture/test-infrastructure.md) — existing tier conventions, Testcontainers bootstrap pattern, mocked-providers list

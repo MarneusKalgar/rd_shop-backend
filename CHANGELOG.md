@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-04-20
+
+### Added
+
+- **`OrdersCommandService`** — extracted from `orders.service.ts` god class; owns `createOrder` and `cancelOrder` with all transaction logic, idempotency, stock mutation, and event emission
+- **`OrdersQueryService`** — read-only query handler: `findOrdersWithFilters`, `getOrderById`, `getOrderPayment`; constructor reduced to 3 deps (`OrdersRepository`, `OrdersQueryBuilder`, `PaymentsGrpcService`)
+- **`OrderProcessingService`** — worker-path processing extracted from the god class; `processOrderMessage` and `authorizePayment` now live in their own service, callable only by `OrderWorkerService`
+- **`OrderStockService`** — isolated stock operations: pessimistic locking, availability validation, stock decrement (`createOrder`), stock restore (`cancelOrder`), and `validateExist` pre-check
+- **`OrderPublisherService`** — thin RabbitMQ wrapper; publishes `OrderProcessMessageDto` with `messageId`
+- **`PgErrorMapperService`** — maps PostgreSQL error codes (`57014`, `55P03`, `23505`, `23503`) to NestJS domain exceptions
+- **`applyTransactionTimeouts(manager)`** util in `orders/utils/index.ts` — sets `SET LOCAL statement_timeout = 30000` and `SET LOCAL lock_timeout = 10000`; replaces duplicated inline `SET LOCAL` blocks in both transaction methods
+- **`validateOrderItems(items)`** util — fast-fail quantity validation extracted from `OrdersCommandService` to `orders/utils/index.ts`; runs before any transaction is opened
+- **`OrderStockService.validateExist(productIds)`** — product existence pre-check moved from `OrdersCommandService.validateProductsExist` to `OrderStockService`; `ProductsRepository` dep removed from command service
+- **`executeCancelTransaction(orderId, userId)`** private method in `OrdersCommandService` — encapsulates the full cancel transaction body (ownership assertion, stock restore, status update, relation reload)
+- **`apps/shop/src/orders/utils/index.spec.ts`** — 26 unit test cases across 5 suites: `assertOrderOwnership`, `getTotalSumInCents`, `validateOrderItems`, `buildOrderNextCursor`, `applyTransactionTimeouts`
+- **JSDoc** — all 5 exports in `orders/utils/index.ts`, class + method JSDoc in `OrdersQueryService`, `OrdersCommandService`, and `OrdersService` facade
+- **Architecture docs** — `docs/backend/architecture/feature-order-creation-flow.md` and `feature-order-querying-flow.md` updated with services hierarchy trees and corrected pseudocode
+
+### Changed
+
+- **`orders.service.ts`** — converted to a 53-line backward-compat facade; delegates all methods to `OrdersCommandService` or `OrdersQueryService` via constructor injection; existing callers (`OrdersController`, `CartService`, `OrdersResolver`) unchanged
+- **`OrdersCommandService`** — reduced from 809-line god class to 263 LOC, 8 constructor deps (down from 11); `ProductsRepository` dep removed after `validateExist` migration to `OrderStockService`
+- **`order-stock.service.spec.ts`** — added `findByIds` mock and `validateExist` suite (4 tests)
+- **`orders-command.service.spec.ts`** — removed `ProductsRepository` provider; replaced `productsFindByIds` mock with `validateExist` on `OrderStockService` mock; `makeAuthUser` typed as `Partial<AuthUser>` with `roles: []` and `scopes: []` defaults
+
 ## [0.2.2] - 2026-04-17
 
 ### Added

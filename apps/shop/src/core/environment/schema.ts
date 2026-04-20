@@ -195,4 +195,8 @@ export class EnvironmentVariables {
   @IsString()
   @MinLength(32)
   TOKEN_HMAC_SECRET: string;
+
+  @IsOptional()
+  @IsString()
+  VERBOSE_TEST_LOGS?: string;
 }

@@ -122,6 +122,11 @@ export async function bootstrapIntegrationTest(): Promise<IntegrationTestContext
     .compile();
 
   const app = moduleFixture.createNestApplication();
+
+  if (process.env.VERBOSE_TEST_LOGS !== 'true') {
+    app.useLogger(false);
+  }
+
   app.enableVersioning({ defaultVersion: '1', type: VersioningType.URI });
   app.setGlobalPrefix('api', { exclude: [...HEALTH_PATHS_TO_BYPASS, '/'] });
   app.useGlobalPipes(
