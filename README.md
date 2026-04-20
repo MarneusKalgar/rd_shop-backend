@@ -416,7 +416,7 @@ Protobuf breaking-change detection is enforced in CI via [buf](https://buf.build
 cd proto && buf lint
 
 # Check for wire-breaking changes against the main branch baseline
-cd proto && buf breaking --against '../.git#branch=main,subdir=proto' --config buf.breaking.yaml
+cd proto && buf breaking --against '../.git#branch=origin/main,subdir=proto' --config buf.breaking.yaml
 ```
 
 `proto/buf.yaml` configures the `WIRE_JSON` breaking-change rule set and suppresses four lint rules that are incompatible with the NestJS/gRPC contract (`PACKAGE_DIRECTORY_MATCH`, `PACKAGE_VERSION_SUFFIX`, `SERVICE_SUFFIX`, `ENUM_VALUE_PREFIX`). Both commands run as PR gates in the `code-quality` CI job.

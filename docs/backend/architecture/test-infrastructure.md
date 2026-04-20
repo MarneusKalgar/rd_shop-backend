@@ -135,7 +135,7 @@ Proto schema changes are guarded by [buf](https://buf.build/) running in the `co
 cd proto && buf lint
 
 # Check for wire-breaking changes vs main branch
-cd proto && buf breaking --against '../.git#branch=main,subdir=proto' --config buf.breaking.yaml
+cd proto && buf breaking --against '../.git#branch=origin/main,subdir=proto' --config buf.breaking.yaml
 ```
 
 `subdir=proto` scopes the git baseline to the `proto/` directory only. `../` walks up from `proto/` to the repo root where `.git` lives.
