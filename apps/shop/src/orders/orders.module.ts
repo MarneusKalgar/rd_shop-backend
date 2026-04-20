@@ -15,7 +15,7 @@ import { OrderItem } from './order-item.entity';
 import { Order } from './order.entity';
 import { OrdersService } from './orders.service';
 import { OrderItemsRepository, OrdersQueryBuilder, OrdersRepository } from './repositories';
-import { OrderStockService } from './services';
+import { OrdersQueryService, OrderStockService } from './services';
 import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
 
 @Module({
@@ -32,6 +32,7 @@ import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
   providers: [
     OrdersService,
     OrderStockService,
+    OrdersQueryService,
     OrdersRepository,
     ProductsRepository,
     OrderItemsRepository,

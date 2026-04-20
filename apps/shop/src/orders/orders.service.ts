@@ -1,11 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
-  HttpException,
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -15,7 +13,6 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { AuthUser } from '@/auth/types';
-import { decodeEpochCursor } from '@/common/utils';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProductsRepository } from '@/products/product.repository';
 import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
@@ -24,7 +21,7 @@ import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
 import { simulateExternalService } from '@/utils';
 
 import { User } from '../users/user.entity';
-import { DEFAULT_ORDERS_LIMIT, MAX_ORDER_QUANTITY, ORDER_WORKER_SCOPE } from './constants';
+import { MAX_ORDER_QUANTITY, ORDER_WORKER_SCOPE } from './constants';
 import { CreateOrderDto, FindOrdersFilterDto, OrderProcessMessageDto } from './dto';
 import {
   ORDER_CANCELLED_EVENT,
@@ -35,15 +32,10 @@ import {
   OrderPaidEvent,
 } from './events';
 import { Order, OrderStatus } from './order.entity';
-import {
-  OrderItemData,
-  OrderItemsRepository,
-  OrdersQueryBuilder,
-  OrdersRepository,
-} from './repositories';
-import { OrderStockService } from './services';
+import { OrderItemData, OrderItemsRepository, OrdersRepository } from './repositories';
+import { OrdersQueryService, OrderStockService } from './services';
 import { FindOrdersWithFiltersResponse } from './types';
-import { buildOrderNextCursor, getTotalSumInCents } from './utils';
+import { assertOrderOwnership, getTotalSumInCents } from './utils';
 
 /**
  * Service responsible for order creation and querying with transaction safety.
@@ -83,7 +75,6 @@ export class OrdersService {
     private readonly orderItemsRepository: OrderItemsRepository,
     private readonly rabbitmqService: RabbitMQService,
 
-    private readonly ordersQueryBuilder: OrdersQueryBuilder,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
 
@@ -91,6 +82,7 @@ export class OrdersService {
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogService: AuditLogService,
     private readonly orderStockService: OrderStockService,
+    private readonly ordersQueryService: OrdersQueryService,
   ) {}
 
   /**
@@ -123,7 +115,7 @@ export class OrdersService {
       // Early-exit guards run here; we avoid loading relations for rejected cancels.
       const orderShallow = await orderRepo.findOne({ where: { id: orderId } });
 
-      this.assertOrderOwnership(orderShallow, userId);
+      assertOrderOwnership(orderShallow, userId);
 
       if (orderShallow.status === OrderStatus.CANCELLED) {
         throw new ConflictException(`Order "${orderId}" is already cancelled`);
@@ -283,91 +275,18 @@ export class OrdersService {
     userId: string,
     params: FindOrdersFilterDto,
   ): Promise<FindOrdersWithFiltersResponse> {
-    const { cursor, limit = DEFAULT_ORDERS_LIMIT } = params;
-
-    const subquery = this.ordersQueryBuilder.buildOrderIdsSubquery(userId, params);
-
-    if (cursor) {
-      const { date: cursorDate, id: cursorId } = decodeEpochCursor(cursor);
-      this.ordersQueryBuilder.applyCursorPagination(subquery, {
-        createdAt: cursorDate,
-        id: cursorId,
-      });
-    }
-
-    // Apply ordering and limit to the subquery to get the correct slice of orders for pagination
-    this.ordersQueryBuilder.applyOrderingAndLimit(subquery, limit + 1);
-
-    // Using getRawMany() here to match cursor pagination logic
-    // and avoid performance issues with getManyAndCount() on complex queries.
-    // Total count can be added in the future if needed.
-    const paginatedOrders: { createdAt: Date; id: string }[] = await subquery.getRawMany();
-    if (!paginatedOrders.length) {
-      return { nextCursor: null, orders: [] };
-    }
-
-    const hasNextPage = paginatedOrders.length > limit;
-    const pageSlice = hasNextPage ? paginatedOrders.slice(0, limit) : paginatedOrders;
-
-    const orderIds = pageSlice.map((row) => row.id);
-    const mainQuery = this.ordersQueryBuilder.buildMainQuery(orderIds, { withUser: false });
-    const orders = await mainQuery.getMany();
-
-    const nextCursor = buildOrderNextCursor(pageSlice, hasNextPage);
-
-    return { nextCursor, orders };
+    return await this.ordersQueryService.findOrdersWithFilters(userId, params);
   }
 
-  /**
-   * Retrieves an order by its ID with all relations loaded.
-   *
-   * @param userId - The UUID of the user
-   * @param orderId - The UUID of the order to retrieve
-   * @returns Promise resolving to Order entity with items, products, and user
-   * @throws {NotFoundException} If order doesn't exist - HTTP 404
-   */
   async getOrderById(userId: string, orderId: string): Promise<Order> {
-    const order = await this.ordersRepository.findByIdWithItemRelations(orderId);
-
-    this.assertOrderOwnership(order, userId);
-
-    return order;
+    return await this.ordersQueryService.getOrderById(userId, orderId);
   }
 
-  /**
-   * Retrieves payment information for an order.
-   *
-   * @param userId - The UUID of the user
-   * @param orderId - The UUID of the order
-   * @returns Promise resolving to payment details (paymentId and status)
-   * @throws {NotFoundException} If order doesn't exist - HTTP 404
-   * @throws {BadRequestException} If order has no associated payment - HTTP 400
-   * @throws {HttpException} If payment service returns an error (mapped from gRPC) - HTTP 4xx/5xx
-   * @throws {ServiceUnavailableException} If payment service is unavailable - HTTP 503
-   */
   async getOrderPayment(
     userId: string,
     orderId: string,
   ): Promise<{ paymentId: string; status: string }> {
-    const order = await this.ordersRepository.findByIdWithItemRelations(orderId);
-
-    this.assertOrderOwnership(order, userId);
-
-    if (!order.paymentId) {
-      throw new BadRequestException(`Order "${orderId}" has no associated payment`);
-    }
-
-    try {
-      const paymentStatus = await this.paymentsGrpcService.getPaymentStatus(order.paymentId);
-      return paymentStatus;
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      this.logger.error(`Failed to fetch payment status for order ${orderId}`, error);
-      throw new ServiceUnavailableException('Failed to retrieve payment information');
-    }
+    return await this.ordersQueryService.getOrderPayment(userId, orderId);
   }
 
   /**
@@ -482,12 +401,6 @@ export class OrdersService {
 
     if (processedOrder && !processedOrder.paymentId) {
       await this.authorizePayment(processedOrder);
-    }
-  }
-
-  private assertOrderOwnership(order: null | Order, userId: string): asserts order is Order {
-    if (order?.userId !== userId) {
-      throw new NotFoundException(`Order with ID "${order?.id ?? 'unknown'}" not found`);
     }
   }
 
