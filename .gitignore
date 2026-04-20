@@ -21,6 +21,7 @@ apps/shop/test/performance/results/*/*
 
 # Tests
 /coverage
+/coverage-integration/
 /.nyc_output
 
 # IDEs and editors

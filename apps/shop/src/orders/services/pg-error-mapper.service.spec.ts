@@ -38,6 +38,16 @@ describe('PgErrorMapperService', () => {
         expect(findByIdempotencyKey).toHaveBeenCalledWith('idem-key-1');
       });
 
+      it('re-throws original error when found order belongs to a different user (IDOR prevention)', async () => {
+        const existing = makeOrder({ userId: 'user-other' });
+        findByIdempotencyKey.mockResolvedValueOnce(existing);
+        const error = { code: '23505' };
+
+        await expect(service.handleCreationError(error, 'user-1', 'idem-key-1')).rejects.toBe(
+          error,
+        );
+      });
+
       it('re-throws when idempotencyKey is absent', async () => {
         const error = { code: '23505' };
 

@@ -7,7 +7,7 @@ module.exports = {
   },
   testEnvironment: 'node',
   coverageDirectory: './coverage',
-  collectCoverageFrom: ['apps/**/*.(t|j)s'],
+  coverageReporters: ['text', 'lcov', 'json-summary'],
   projects: [
     {
       displayName: 'shop',
@@ -23,6 +23,15 @@ module.exports = {
         '^@app/common$': '<rootDir>/../../libs/common/src',
       },
       testEnvironment: 'node',
+      collectCoverageFrom: [
+        'src/**/*.(t|j)s',
+        '!src/**/*.spec.ts',
+        '!src/**/*.module.ts',
+        '!src/main.ts',
+        '!src/data-source.ts',
+        '!src/proto/**',
+        '!src/db/migrations/**',
+      ],
     },
     {
       displayName: 'payments',
@@ -38,6 +47,15 @@ module.exports = {
         '^@app/common$': '<rootDir>/../../libs/common/src',
       },
       testEnvironment: 'node',
+      collectCoverageFrom: [
+        'src/**/*.(t|j)s',
+        '!src/**/*.spec.ts',
+        '!src/**/*.module.ts',
+        '!src/main.ts',
+        '!src/data-source.ts',
+        '!src/proto/**',
+        '!src/db/migrations/**',
+      ],
     },
   ],
 };

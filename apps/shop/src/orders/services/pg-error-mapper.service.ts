@@ -43,6 +43,10 @@ export class PgErrorMapperService {
       const existingOrder = await this.ordersRepository.findByIdempotencyKey(idempotencyKey);
 
       if (existingOrder) {
+        if (existingOrder.userId !== userId) {
+          // Another user owns this idempotency key — do not leak their order.
+          throw error;
+        }
         return existingOrder;
       }
     }

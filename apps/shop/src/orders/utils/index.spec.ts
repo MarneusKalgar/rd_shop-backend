@@ -166,6 +166,10 @@ describe('buildOrderNextCursor', () => {
     const cursor = buildOrderNextCursor(slice, true)!;
     expect(cursor).not.toContain('a');
   });
+
+  it('returns null when hasNextPage is true but pageSlice is empty', () => {
+    expect(buildOrderNextCursor([], true)).toBeNull();
+  });
 });
 
 // ─── applyTransactionTimeouts ─────────────────────────────────────────────────

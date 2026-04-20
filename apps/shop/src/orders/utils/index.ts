@@ -81,6 +81,7 @@ export const buildOrderNextCursor = (
   hasNextPage: boolean,
 ): null | string => {
   if (!hasNextPage) return null;
+  if (!pageSlice.length) return null;
   const last = pageSlice[pageSlice.length - 1];
   return encodeCursor(last.id, String(new Date(last.createdAt).getTime()));
 };

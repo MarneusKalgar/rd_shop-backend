@@ -187,7 +187,7 @@ export class OrdersCommandService {
         throw new NotFoundException(`Order "${orderId}" not found`);
       }
 
-      const productIds = order.items.map((item) => item.productId);
+      const productIds = [...new Set(order.items.map((item) => item.productId))];
       await this.orderStockService.lockAndRestore(manager, order.items, productIds);
 
       order.status = OrderStatus.CANCELLED;
