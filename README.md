@@ -30,9 +30,11 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **gRPC Payments Integration** - Independent payments-service communicating over gRPC; order worker authorizes payment after processing, updating order to `PAID` (see [homework14.md](homework14.md))
 - **GraphQL Authentication** - JWT-protected GraphQL queries via `GqlJwtAuthGuard`; user identity derived from Bearer token
 - **CI/CD Pipeline** - Four-workflow GitHub Actions pipeline with PR quality gates, immutable image build, automatic stage deploy, and manual production deploy with approval gate (see [homework17.md](homework17.md))
+- **Proto Contract Testing** - buf lint and buf breaking-change gate in CI (`WIRE_JSON` rule set); any wire-incompatible proto change fails the PR before code is merged
 - **Health Check System** - Three-tier health endpoints (`/health`, `/ready`, `/status`) built with `@nestjs/terminus`; custom indicators for PostgreSQL, RabbitMQ, MinIO, and payments-service gRPC; liveness/readiness/full-status probes with Kubernetes-compatible semantics
 - **Security Hardening** - OWASP ASVS-aligned controls: HTTP security headers (Helmet), rate limiting (ThrottlerGuard — HTTP + GraphQL), structured audit log with correlation IDs, RBAC/ABAC with JWT, input validation, and secrets never logged (see [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md))
 - **Performance Optimization** - Baseline captured, 5 bottlenecks identified and resolved: GIN trigram index (−26 % search p95), cursor decode (−50 % pagination DB calls), order transaction re-fetch removal (−60 % order create p99), HMAC tokens (−99.999 % token op cost), gRPC circuit breaker (queue drain from +33 msg/s growth → 0) (see [homework-report.md](homework-report.md))
+- **Test Coverage Reporting** - Per-project `collectCoverageFrom` in Jest config (unit + integration); lcov + json-summary reporters; integration coverage artifact uploaded to CI
 
 ## 🛠️ Technology Stack
 
@@ -392,15 +394,32 @@ npm test
 # Run unit tests in watch mode
 npm run test:watch
 
-# Generate unit test coverage
+# Generate unit test coverage (lcov + json-summary)
 npm run test:cov
 
 # Run integration tests — requires Docker (Testcontainers)
 npm run test:integration:shop
 
+# Generate integration test coverage
+npm run test:integration:shop:cov
+
 # Debug unit tests
 npm run test:debug
 ```
+
+### Proto contract tests
+
+Protobuf breaking-change detection is enforced in CI via [buf](https://buf.build/):
+
+```bash
+# Lint the proto schema (style rules)
+cd proto && buf lint
+
+# Check for wire-breaking changes against the main branch baseline
+cd proto && buf breaking --against '../.git#branch=origin/main,subdir=proto' --config buf.breaking.yaml
+```
+
+`proto/buf.breaking.yaml` configures the `WIRE_JSON` breaking-change rule set. `proto/buf.yaml` contains lint configuration and suppresses four lint rules that are incompatible with the NestJS/gRPC contract (`PACKAGE_DIRECTORY_MATCH`, `PACKAGE_VERSION_SUFFIX`, `SERVICE_SUFFIX`, `ENUM_VALUE_PREFIX`). Both commands run as PR gates in the `code-quality` CI job.
 
 ## 🏗️ Architecture Overview
 

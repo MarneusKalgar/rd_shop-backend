@@ -2,11 +2,12 @@
 
 ## Tier layout
 
-| Tier        | Suffix                  | Config                                 | Command                         | Notes                                          |
-| ----------- | ----------------------- | -------------------------------------- | ------------------------------- | ---------------------------------------------- |
-| Unit        | `*.spec.ts`             | `jest.config.js` (root)                | `npm test`                      | `apps/*/src/`; all deps mocked via `jest.fn()` |
-| Integration | `*.integration-spec.ts` | `apps/shop/test/jest-integration.json` | `npm run test:integration:shop` | real Postgres via Testcontainers; infra mocked |
-| e2e         | `*.e2e-spec.ts`         | `apps/shop/test/jest-e2e.json`         | `npm run test:e2e:shop`         | full docker-compose stack; real HTTP calls     |
+| Tier           | Suffix                  | Config                                 | Command                                  | Coverage command                    | Notes                                          |
+| -------------- | ----------------------- | -------------------------------------- | ---------------------------------------- | ----------------------------------- | ---------------------------------------------- |
+| Unit           | `*.spec.ts`             | `jest.config.js` (root)                | `npm test`                               | `npm run test:cov`                  | `apps/*/src/`; all deps mocked via `jest.fn()` |
+| Integration    | `*.integration-spec.ts` | `apps/shop/test/jest-integration.json` | `npm run test:integration:shop`          | `npm run test:integration:shop:cov` | real Postgres via Testcontainers; infra mocked |
+| e2e            | `*.e2e-spec.ts`         | `apps/shop/test/jest-e2e.json`         | `npm run test:e2e:shop`                  | —                                   | full docker-compose stack; real HTTP calls     |
+| Contract (buf) | —                       | `proto/buf.yaml` / `buf.breaking.yaml` | `cd proto && buf lint && buf breaking …` | —                                   | proto wire-compat gate; runs in CI only        |
 
 ## File layout under `apps/shop/test/`
 
@@ -77,6 +78,67 @@ Proto file path: `apps/shop/src/proto/` — gitignored, populated at build time 
 - Referenced as `setupFiles` in `jest-integration.json`
 - Runs before any spec file is imported → ensures `NODE_ENV=test` and `.env.test` loaded before `AppModule` eval
 - `.env.test` path: `apps/shop/test/integration/.env.test` (allowlisted in `.gitignore` via `!` exception)
+
+## Coverage reporting
+
+### Unit coverage
+
+```bash
+npm run test:cov
+```
+
+Reporters: `text` (terminal table), `lcov` (`coverage/lcov.info` for HTML reports), `json-summary` (`coverage/coverage-summary.json`).
+
+`collectCoverageFrom` is declared per-project inside `jest.config.js` (not at root level — root-level globs do not reach project runners). Both `shop` and `payments` projects exclude: `*.spec.ts`, `*.module.ts`, `main.ts`, `data-source.ts`, `src/proto/**`, `src/db/migrations/**`.
+
+### Integration coverage
+
+```bash
+npm run test:integration:shop:cov
+```
+
+Output directory: `coverage-integration/` (repo root). Same reporters as unit.
+
+**`rootDir` constraint** — `jest-integration.json` `rootDir` must be `".."` (resolves to `apps/shop/`), not `"."` (test/). Jest resolves `collectCoverageFrom` globs relative to `rootDir`; a `rootDir` of `test/` would make `src/**/*` globs unresolvable.
+
+### CI integration
+
+- `code-quality` job: reads `coverage/coverage-summary.json` and prints a summary table after unit tests run
+- `integration-tests` job: same for `coverage-integration/coverage-summary.json`; uploads `coverage-integration/` as a build artifact (7-day retention)
+
+## Contract tests (buf)
+
+Proto schema changes are guarded by [buf](https://buf.build/) running in the `code-quality` CI job.
+
+### Config files
+
+| File                      | Purpose                                                              |
+| ------------------------- | -------------------------------------------------------------------- |
+| `proto/buf.yaml`          | buf module root; `lint.except` for 4 NestJS-incompatible style rules |
+| `proto/buf.breaking.yaml` | breaking-change rule set: `WIRE_JSON`                                |
+
+**Why `proto/` is the module root** — placing `buf.yaml` inside `proto/` limits buf's workspace autodiscovery to that directory. Running `cd proto && buf ...` makes buf treat `proto/` as the module root, preventing it from scanning `node_modules/` or `apps/` proto copies.
+
+### Suppressed lint rules
+
+| Rule                      | Reason suppressed                                                  |
+| ------------------------- | ------------------------------------------------------------------ |
+| `PACKAGE_DIRECTORY_MATCH` | `payments.proto` lives in `proto/` root, not `proto/payments/`     |
+| `PACKAGE_VERSION_SUFFIX`  | Renaming `payments` → `payments.v1` is a wire-breaking change      |
+| `SERVICE_SUFFIX`          | `Payments` → `PaymentsService` breaks NestJS `@GrpcMethod` binding |
+| `ENUM_VALUE_PREFIX`       | `AUTHORIZED`/`FAILED` are already in the wire contract             |
+
+### CI commands
+
+```bash
+# Lint proto schema style
+cd proto && buf lint
+
+# Check for wire-breaking changes vs main branch
+cd proto && buf breaking --against '../.git#branch=origin/main,subdir=proto' --config buf.breaking.yaml
+```
+
+`subdir=proto` scopes the git baseline to the `proto/` directory only. `../` walks up from `proto/` to the repo root where `.git` lives.
 
 ## e2e test stack
 
