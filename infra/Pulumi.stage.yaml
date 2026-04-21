@@ -1,0 +1,4 @@
+config:
+  aws:region: eu-central-1
+  rd-shop-infra:projectPrefix: rd-shop
+  rd-shop-infra:sharedInfraOwnerStack: stage
