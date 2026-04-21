@@ -7,24 +7,24 @@ import {
   sharedInfraOwnerStack,
   stack,
 } from './src/bootstrap';
-import { createFoundationCompute } from './src/foundation/compute';
-import { createFoundationDatabases } from './src/foundation/databases';
+import { createFoundationCompute } from './src/compute/compute';
+import { createFoundationDatabases } from './src/data/databases';
+import { createFoundationFileStorage } from './src/data/file-storage';
+import { createFoundationRuntimeConfig } from './src/data/runtime-config';
+import { createFoundationSes } from './src/data/ses';
 import { createFoundationEcr } from './src/foundation/ecr';
-import { createFoundationFileStorage } from './src/foundation/file-storage';
 import { createFoundationNetwork } from './src/foundation/network';
-import { createFoundationRuntimeConfig } from './src/foundation/runtime-config';
 import { createFoundationSecurityGroups } from './src/foundation/security-groups';
-import { createFoundationSes } from './src/foundation/ses';
 
 // Step 1: bootstrap/runtime context lives in src/bootstrap.ts.
 // Step 2: foundation network owns Phase 0.2 resources.
 // Step 3: foundation security owns Phase 0.3 resources.
 // Step 4: foundation ECR owns Phase 0.4 shared registries.
-// Step 5: foundation databases own Phase 1.1 RDS resources.
-// Step 6: foundation file storage owns Phase 1.2 S3 resources.
-// Step 7: foundation runtime config owns Phase 1.3/1.4 secrets and parameters.
-// Step 8: foundation SES owns Phase 1.5 sender identity resources.
-// Step 9: foundation compute owns Phase 2.2 ECS cluster and EC2 capacity.
+// Step 5: data module owns Phase 1.1 RDS resources.
+// Step 6: data module owns Phase 1.2 S3 resources.
+// Step 7: data module owns Phase 1.3/1.4 secrets and parameters.
+// Step 8: data module owns Phase 1.5 sender identity resources.
+// Step 9: compute module owns Phase 2.2 ECS cluster and EC2 capacity.
 // Step 10: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
