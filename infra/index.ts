@@ -7,6 +7,7 @@ import {
   sharedInfraOwnerStack,
   stack,
 } from './src/bootstrap';
+import { createFoundationDatabases } from './src/foundation/databases';
 import { createFoundationEcr } from './src/foundation/ecr';
 import { createFoundationNetwork } from './src/foundation/network';
 import { createFoundationSecurityGroups } from './src/foundation/security-groups';
@@ -15,15 +16,25 @@ import { createFoundationSecurityGroups } from './src/foundation/security-groups
 // Step 2: foundation network owns Phase 0.2 resources.
 // Step 3: foundation security owns Phase 0.3 resources.
 // Step 4: foundation ECR owns Phase 0.4 shared registries.
-// Step 5: index.ts stays thin and exports values other phases and CI need.
+// Step 5: foundation databases own Phase 1.1 RDS resources.
+// Step 6: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
 const foundationSecurityGroups = createFoundationSecurityGroups({
   vpcId: foundationNetwork.vpcId,
 });
+const foundationDatabases = createFoundationDatabases({
+  privateSubnetIds: foundationNetwork.privateSubnetIds,
+  securityGroupIds: {
+    rdsPayments: foundationSecurityGroups.securityGroupIds.rdsPayments,
+    rdsShop: foundationSecurityGroups.securityGroupIds.rdsShop,
+  },
+});
 
 export const availabilityZones = foundationNetwork.availabilityZones;
 export const currentStack = stack;
+export const databaseParameterGroupName = foundationDatabases.databaseParameterGroupName;
+export const databaseSubnetGroupName = foundationDatabases.databaseSubnetGroupName;
 export const natElasticIpAllocationId = foundationNetwork.natElasticIpAllocationId;
 export const natInstanceId = foundationNetwork.natInstanceId;
 export const natInstanceType = foundationNetwork.natInstanceType;
@@ -31,11 +42,28 @@ export const natPublicIp = foundationNetwork.natPublicIp;
 export const privateRouteTableId = foundationNetwork.privateRouteTableId;
 export const privateSubnetCidrs = foundationNetwork.privateSubnetCidrs;
 export const privateSubnetIds = foundationNetwork.privateSubnetIds;
+export const paymentsDatabaseAddress = foundationDatabases.paymentsDatabaseAddress;
+export const paymentsDatabaseEndpoint = foundationDatabases.paymentsDatabaseEndpoint;
+export const paymentsDatabaseEngineVersion = foundationDatabases.paymentsDatabaseEngineVersion;
+export const paymentsDatabaseIdentifier = foundationDatabases.paymentsDatabaseIdentifier;
+export const paymentsDatabaseMasterUserSecretArn =
+  foundationDatabases.paymentsDatabaseMasterUserSecretArn;
+export const paymentsDatabaseName = foundationDatabases.paymentsDatabaseName;
+export const paymentsDatabasePort = foundationDatabases.paymentsDatabasePort;
+export const paymentsDatabaseUsername = foundationDatabases.paymentsDatabaseUsername;
 export const project = projectPrefix;
 export const publicRouteTableId = foundationNetwork.publicRouteTableId;
 export const publicSubnetCidrs = foundationNetwork.publicSubnetCidrs;
 export const publicSubnetIds = foundationNetwork.publicSubnetIds;
 export const resourceNamePrefix = resourcePrefix;
+export const shopDatabaseAddress = foundationDatabases.shopDatabaseAddress;
+export const shopDatabaseEndpoint = foundationDatabases.shopDatabaseEndpoint;
+export const shopDatabaseEngineVersion = foundationDatabases.shopDatabaseEngineVersion;
+export const shopDatabaseIdentifier = foundationDatabases.shopDatabaseIdentifier;
+export const shopDatabaseMasterUserSecretArn = foundationDatabases.shopDatabaseMasterUserSecretArn;
+export const shopDatabaseName = foundationDatabases.shopDatabaseName;
+export const shopDatabasePort = foundationDatabases.shopDatabasePort;
+export const shopDatabaseUsername = foundationDatabases.shopDatabaseUsername;
 export const securityGroupIds = foundationSecurityGroups.securityGroupIds;
 export const sharedInfraManagedByThisStack = isSharedInfraOwner;
 export const sharedInfraOwner = sharedInfraOwnerStack;

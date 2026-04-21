@@ -1,6 +1,13 @@
 config:
   aws:region: eu-central-1
+  rd-shop-infra:databaseAllocatedStorageGiB: 20
+  rd-shop-infra:databaseBackupRetentionDays: 7
+  rd-shop-infra:databaseEngineMajorVersion: '16'
+  rd-shop-infra:databaseMultiAz: false
   rd-shop-infra:natInstanceType: t3.micro
+  rd-shop-infra:paymentsDatabaseInstanceClass: db.t4g.micro
+  rd-shop-infra:paymentsDatabaseName: rd_shop_payments
+  rd-shop-infra:paymentsDatabaseUsername: payments
   rd-shop-infra:privateSubnetCidrs:
     - 10.42.10.0/24
     - 10.42.11.0/24
@@ -9,4 +16,7 @@ config:
     - 10.42.0.0/24
     - 10.42.1.0/24
   rd-shop-infra:sharedInfraOwnerStack: stage
+  rd-shop-infra:shopDatabaseInstanceClass: db.t4g.micro
+  rd-shop-infra:shopDatabaseName: rd_shop
+  rd-shop-infra:shopDatabaseUsername: shop
   rd-shop-infra:vpcCidr: 10.42.0.0/16
