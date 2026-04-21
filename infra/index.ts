@@ -13,6 +13,7 @@ import { createFoundationFileStorage } from './src/foundation/file-storage';
 import { createFoundationNetwork } from './src/foundation/network';
 import { createFoundationRuntimeConfig } from './src/foundation/runtime-config';
 import { createFoundationSecurityGroups } from './src/foundation/security-groups';
+import { createFoundationSes } from './src/foundation/ses';
 
 // Step 1: bootstrap/runtime context lives in src/bootstrap.ts.
 // Step 2: foundation network owns Phase 0.2 resources.
@@ -21,7 +22,8 @@ import { createFoundationSecurityGroups } from './src/foundation/security-groups
 // Step 5: foundation databases own Phase 1.1 RDS resources.
 // Step 6: foundation file storage owns Phase 1.2 S3 resources.
 // Step 7: foundation runtime config owns Phase 1.3/1.4 secrets and parameters.
-// Step 8: index.ts stays thin and exports values other phases and CI need.
+// Step 8: foundation SES owns Phase 1.5 sender identity resources.
+// Step 9: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
 const foundationSecurityGroups = createFoundationSecurityGroups({
@@ -50,6 +52,7 @@ const foundationRuntimeConfig = createFoundationRuntimeConfig({
     filesBucketName: foundationFileStorage.filesBucketName,
   },
 });
+const foundationSes = createFoundationSes();
 
 export const availabilityZones = foundationNetwork.availabilityZones;
 export const currentStack = stack;
@@ -93,6 +96,12 @@ export const shopDatabaseUsername = foundationDatabases.shopDatabaseUsername;
 export const shopRuntimeParameterNames = foundationRuntimeConfig.shopRuntimeParameterNames;
 export const shopRuntimeSecretArn = foundationRuntimeConfig.shopRuntimeSecretArn;
 export const shopRuntimeSecretName = foundationRuntimeConfig.shopRuntimeSecretName;
+export const shopSesFromAddress = foundationSes.shopSesFromAddress;
+export const shopSesIdentity = foundationSes.shopSesIdentity;
+export const shopSesIdentityArn = foundationSes.shopSesIdentityArn;
+export const shopSesIdentityType = foundationSes.shopSesIdentityType;
+export const shopSesVerificationStatus = foundationSes.shopSesVerificationStatus;
+export const shopSesVerifiedForSendingStatus = foundationSes.shopSesVerifiedForSendingStatus;
 export const securityGroupIds = foundationSecurityGroups.securityGroupIds;
 export const sharedInfraManagedByThisStack = isSharedInfraOwner;
 export const sharedInfraOwner = sharedInfraOwnerStack;

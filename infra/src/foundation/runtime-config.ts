@@ -143,6 +143,7 @@ function buildConnectionUrl({
   port: string;
   username: string;
 }) {
+  // URI userinfo must keep reserved characters encoded; the pg connection parser decodes before auth.
   return `postgresql://${username}:${encodeURIComponent(password)}@${host}:${port}/${databaseName}?sslmode=require`;
 }
 
