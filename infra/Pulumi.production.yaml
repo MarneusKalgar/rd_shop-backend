@@ -1,4 +1,12 @@
 config:
   aws:region: eu-central-1
+  rd-shop-infra:natInstanceType: t3.micro
+  rd-shop-infra:privateSubnetCidrs:
+    - 10.52.10.0/24
+    - 10.52.11.0/24
   rd-shop-infra:projectPrefix: rd-shop
+  rd-shop-infra:publicSubnetCidrs:
+    - 10.52.0.0/24
+    - 10.52.1.0/24
   rd-shop-infra:sharedInfraOwnerStack: stage
+  rd-shop-infra:vpcCidr: 10.52.0.0/16
