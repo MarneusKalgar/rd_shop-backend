@@ -7,6 +7,7 @@ import {
   sharedInfraOwnerStack,
   stack,
 } from './src/bootstrap';
+import { createFoundationCompute } from './src/foundation/compute';
 import { createFoundationDatabases } from './src/foundation/databases';
 import { createFoundationEcr } from './src/foundation/ecr';
 import { createFoundationFileStorage } from './src/foundation/file-storage';
@@ -23,7 +24,8 @@ import { createFoundationSes } from './src/foundation/ses';
 // Step 6: foundation file storage owns Phase 1.2 S3 resources.
 // Step 7: foundation runtime config owns Phase 1.3/1.4 secrets and parameters.
 // Step 8: foundation SES owns Phase 1.5 sender identity resources.
-// Step 9: index.ts stays thin and exports values other phases and CI need.
+// Step 9: foundation compute owns Phase 2.2 ECS cluster and EC2 capacity.
+// Step 10: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
 const foundationSecurityGroups = createFoundationSecurityGroups({
@@ -53,14 +55,31 @@ const foundationRuntimeConfig = createFoundationRuntimeConfig({
   },
 });
 const foundationSes = createFoundationSes();
+const foundationCompute = createFoundationCompute({
+  privateSubnetIds: foundationNetwork.privateSubnetIds,
+  securityGroupId: foundationSecurityGroups.securityGroupIds.ecs,
+});
 
 export const availabilityZones = foundationNetwork.availabilityZones;
 export const currentStack = stack;
 export const databaseParameterGroupName = foundationDatabases.databaseParameterGroupName;
 export const databaseSubnetGroupName = foundationDatabases.databaseSubnetGroupName;
+export const ecsAutoScalingGroupArn = foundationCompute.ecsAutoScalingGroupArn;
+export const ecsAutoScalingGroupName = foundationCompute.ecsAutoScalingGroupName;
+export const ecsCapacityProviderArn = foundationCompute.ecsCapacityProviderArn;
+export const ecsCapacityProviderName = foundationCompute.ecsCapacityProviderName;
+export const ecsClusterArn = foundationCompute.ecsClusterArn;
+export const ecsClusterName = foundationCompute.ecsClusterName;
 export const filesBucketArn = foundationFileStorage.filesBucketArn;
 export const filesBucketName = foundationFileStorage.filesBucketName;
 export const filesBucketRegionalDomainName = foundationFileStorage.filesBucketRegionalDomainName;
+export const ecsInstanceProfileArn = foundationCompute.ecsInstanceProfileArn;
+export const ecsInstanceProfileName = foundationCompute.ecsInstanceProfileName;
+export const ecsInstanceRoleArn = foundationCompute.ecsInstanceRoleArn;
+export const ecsInstanceRoleName = foundationCompute.ecsInstanceRoleName;
+export const ecsLaunchTemplateId = foundationCompute.ecsLaunchTemplateId;
+export const ecsLaunchTemplateLatestVersion = foundationCompute.ecsLaunchTemplateLatestVersion;
+export const ecsOptimizedAmiId = foundationCompute.ecsOptimizedAmiId;
 export const natElasticIpAllocationId = foundationNetwork.natElasticIpAllocationId;
 export const natInstanceId = foundationNetwork.natInstanceId;
 export const natInstanceType = foundationNetwork.natInstanceType;
