@@ -1,3 +1,5 @@
+/* eslint-disable perfectionist/sort-modules */
+
 import * as aws from '@pulumi/aws';
 
 import {
@@ -8,6 +10,10 @@ import {
   repositoryUrl,
   stackName,
 } from '../bootstrap';
+
+const retainedTaggedImageCount = 20;
+const untaggedImageExpirationDays = 7;
+const retainedTagPrefixes = ['sha-', 'development', 'latest'] as const;
 
 // Phase 0.4 foundation:
 // create shared image registries once per AWS account, then let later phases push/deploy from them.
@@ -20,9 +26,9 @@ const lifecyclePolicy = JSON.stringify({
       description: 'Keep last 20 tagged images',
       rulePriority: 1,
       selection: {
-        countNumber: 20,
+        countNumber: retainedTaggedImageCount,
         countType: 'imageCountMoreThan',
-        tagPrefixList: ['sha-', 'development', 'latest'],
+        tagPrefixList: retainedTagPrefixes,
         tagStatus: 'tagged',
       },
     },
@@ -33,7 +39,7 @@ const lifecyclePolicy = JSON.stringify({
       description: 'Expire untagged images after 7 days',
       rulePriority: 2,
       selection: {
-        countNumber: 7,
+        countNumber: untaggedImageExpirationDays,
         countType: 'sinceImagePushed',
         countUnit: 'days',
         tagStatus: 'untagged',
@@ -48,7 +54,7 @@ export const repositoryNames = {
   shop: `${projectPrefix}/shop`,
 } as const;
 
-// Creates one repository plus its lifecycle policy so both resources stay coupled.
+// Creates one repository plus lifecycle policy so both resources stay coupled.
 function createRepository(logicalName: string, repositoryName: string) {
   const repository = new aws.ecr.Repository(stackName(logicalName), {
     imageScanningConfiguration: {
@@ -63,33 +69,38 @@ function createRepository(logicalName: string, repositoryName: string) {
     },
   });
 
-  const lifecycle = new aws.ecr.LifecyclePolicy(`${stackName(logicalName)}-lifecycle`, {
+  new aws.ecr.LifecyclePolicy(`${stackName(logicalName)}-lifecycle`, {
     policy: lifecyclePolicy,
     repository: repository.name,
   });
 
-  return { lifecycle, repository };
+  return repository;
 }
 
-// Only owner stack creates shared repos. Other stacks still export names/arns/urls for reuse.
-const paymentsRepository = isSharedInfraOwner
-  ? createRepository('payments-ecr', repositoryNames.payments)
-  : undefined;
+// Phase 0.4 orchestrator.
+// Shared ECR repos exist once per account, so only owner stack creates physical resources.
+export function createFoundationEcr() {
+  const paymentsRepository = isSharedInfraOwner
+    ? createRepository('payments-ecr', repositoryNames.payments)
+    : undefined;
 
-const shopRepository = isSharedInfraOwner
-  ? createRepository('shop-ecr', repositoryNames.shop)
-  : undefined;
+  const shopRepository = isSharedInfraOwner
+    ? createRepository('shop-ecr', repositoryNames.shop)
+    : undefined;
 
-// Helpful for previews: shows whether this stack actually owns physical ECR resources.
-export const createdSharedRepositories = {
-  payments: paymentsRepository?.repository.name ?? null,
-  shop: shopRepository?.repository.name ?? null,
-};
+  return {
+    // Helpful for previews: shows whether this stack actually owns physical ECR resources.
+    createdSharedRepositories: {
+      payments: paymentsRepository?.name ?? null,
+      shop: shopRepository?.name ?? null,
+    },
 
-// Export stable repository metadata so CI/CD and later phases do not need to recompute it.
-export const paymentsRepositoryArn = repositoryArn(repositoryNames.payments);
-export const paymentsRepositoryName = repositoryNames.payments;
-export const paymentsRepositoryUrl = repositoryUrl(repositoryNames.payments);
-export const shopRepositoryArn = repositoryArn(repositoryNames.shop);
-export const shopRepositoryName = repositoryNames.shop;
-export const shopRepositoryUrl = repositoryUrl(repositoryNames.shop);
+    // Export stable repository metadata so CI/CD and later phases do not need to recompute it.
+    paymentsRepositoryArn: repositoryArn(repositoryNames.payments),
+    paymentsRepositoryName: repositoryNames.payments,
+    paymentsRepositoryUrl: repositoryUrl(repositoryNames.payments),
+    shopRepositoryArn: repositoryArn(repositoryNames.shop),
+    shopRepositoryName: repositoryNames.shop,
+    shopRepositoryUrl: repositoryUrl(repositoryNames.shop),
+  };
+}
