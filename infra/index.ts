@@ -9,6 +9,7 @@ import {
 } from './src/bootstrap';
 import { createFoundationDatabases } from './src/foundation/databases';
 import { createFoundationEcr } from './src/foundation/ecr';
+import { createFoundationFileStorage } from './src/foundation/file-storage';
 import { createFoundationNetwork } from './src/foundation/network';
 import { createFoundationSecurityGroups } from './src/foundation/security-groups';
 
@@ -17,7 +18,8 @@ import { createFoundationSecurityGroups } from './src/foundation/security-groups
 // Step 3: foundation security owns Phase 0.3 resources.
 // Step 4: foundation ECR owns Phase 0.4 shared registries.
 // Step 5: foundation databases own Phase 1.1 RDS resources.
-// Step 6: index.ts stays thin and exports values other phases and CI need.
+// Step 6: foundation file storage owns Phase 1.2 S3 resources.
+// Step 7: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
 const foundationSecurityGroups = createFoundationSecurityGroups({
@@ -30,11 +32,15 @@ const foundationDatabases = createFoundationDatabases({
     rdsShop: foundationSecurityGroups.securityGroupIds.rdsShop,
   },
 });
+const foundationFileStorage = createFoundationFileStorage();
 
 export const availabilityZones = foundationNetwork.availabilityZones;
 export const currentStack = stack;
 export const databaseParameterGroupName = foundationDatabases.databaseParameterGroupName;
 export const databaseSubnetGroupName = foundationDatabases.databaseSubnetGroupName;
+export const filesBucketArn = foundationFileStorage.filesBucketArn;
+export const filesBucketName = foundationFileStorage.filesBucketName;
+export const filesBucketRegionalDomainName = foundationFileStorage.filesBucketRegionalDomainName;
 export const natElasticIpAllocationId = foundationNetwork.natElasticIpAllocationId;
 export const natInstanceId = foundationNetwork.natInstanceId;
 export const natInstanceType = foundationNetwork.natInstanceType;

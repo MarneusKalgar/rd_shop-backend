@@ -4,6 +4,10 @@ config:
   rd-shop-infra:databaseBackupRetentionDays: 7
   rd-shop-infra:databaseEngineMajorVersion: '16'
   rd-shop-infra:databaseMultiAz: false
+  rd-shop-infra:filesBucketCorsAllowedHeaders:
+    - '*'
+  rd-shop-infra:filesBucketCorsAllowedOrigins:
+    - '*'
   rd-shop-infra:natInstanceType: t3.micro
   rd-shop-infra:paymentsDatabaseInstanceClass: db.t4g.micro
   rd-shop-infra:paymentsDatabaseName: rd_shop_payments

@@ -19,8 +19,9 @@ export class EnvironmentVariables {
   @IsString()
   APP_URL?: string;
 
+  @IsOptional()
   @IsString()
-  AWS_ACCESS_KEY_ID: string;
+  AWS_ACCESS_KEY_ID?: string;
 
   @IsOptional()
   @IsString()
@@ -52,8 +53,9 @@ export class EnvironmentVariables {
   @IsString()
   AWS_S3_PUBLIC_ENDPOINT?: string;
 
+  @IsOptional()
   @IsString()
-  AWS_SECRET_ACCESS_KEY: string;
+  AWS_SECRET_ACCESS_KEY?: string;
 
   @IsOptional()
   @IsString()
