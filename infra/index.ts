@@ -8,6 +8,7 @@ import {
   stack,
 } from './src/bootstrap';
 import { createFoundationCompute } from './src/compute/compute';
+import { createComputeServices } from './src/compute/services';
 import { createFoundationDatabases } from './src/data/databases';
 import { createFoundationFileStorage } from './src/data/file-storage';
 import { createFoundationRuntimeConfig } from './src/data/runtime-config';
@@ -25,7 +26,8 @@ import { createFoundationSecurityGroups } from './src/foundation/security-groups
 // Step 7: data module owns Phase 1.3/1.4 secrets and parameters.
 // Step 8: data module owns Phase 1.5 sender identity resources.
 // Step 9: compute module owns Phase 2.2 ECS cluster and EC2 capacity.
-// Step 10: index.ts stays thin and exports values other phases and CI need.
+// Step 10: compute module owns Phase 2.3/2.4 ECS task definitions and services.
+// Step 11: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
 const foundationSecurityGroups = createFoundationSecurityGroups({
@@ -59,6 +61,29 @@ const foundationCompute = createFoundationCompute({
   privateSubnetIds: foundationNetwork.privateSubnetIds,
   securityGroupId: foundationSecurityGroups.securityGroupIds.ecs,
 });
+const computeServices = createComputeServices({
+  capacityProviderName: foundationCompute.ecsCapacityProviderName,
+  clusterArn: foundationCompute.ecsClusterArn,
+  ecr: {
+    paymentsRepositoryUrl: foundationEcr.paymentsRepositoryUrl,
+    shopRepositoryUrl: foundationEcr.shopRepositoryUrl,
+  },
+  fileStorage: {
+    filesBucketArn: foundationFileStorage.filesBucketArn,
+  },
+  network: {
+    vpcId: foundationNetwork.vpcId,
+  },
+  runtimeConfig: {
+    paymentsRuntimeParameterNames: foundationRuntimeConfig.paymentsRuntimeParameterNames,
+    paymentsRuntimeSecretArn: foundationRuntimeConfig.paymentsRuntimeSecretArn,
+    shopRuntimeParameterNames: foundationRuntimeConfig.shopRuntimeParameterNames,
+    shopRuntimeSecretArn: foundationRuntimeConfig.shopRuntimeSecretArn,
+  },
+  ses: {
+    shopSesIdentityArn: foundationSes.shopSesIdentityArn,
+  },
+});
 
 export const availabilityZones = foundationNetwork.availabilityZones;
 export const currentStack = stack;
@@ -80,11 +105,19 @@ export const ecsInstanceRoleName = foundationCompute.ecsInstanceRoleName;
 export const ecsLaunchTemplateId = foundationCompute.ecsLaunchTemplateId;
 export const ecsLaunchTemplateLatestVersion = foundationCompute.ecsLaunchTemplateLatestVersion;
 export const ecsOptimizedAmiId = foundationCompute.ecsOptimizedAmiId;
+export const ecsTaskExecutionRoleArn = computeServices.ecsTaskExecutionRoleArn;
+export const ecsTaskExecutionRoleName = computeServices.ecsTaskExecutionRoleName;
 export const natElasticIpAllocationId = foundationNetwork.natElasticIpAllocationId;
 export const natInstanceId = foundationNetwork.natInstanceId;
 export const natInstanceType = foundationNetwork.natInstanceType;
 export const natPublicIp = foundationNetwork.natPublicIp;
+export const paymentsDiscoveryServiceArn = computeServices.paymentsDiscoveryServiceArn;
+export const paymentsDiscoveryServiceId = computeServices.paymentsDiscoveryServiceId;
+export const paymentsDiscoveryServiceName = computeServices.paymentsDiscoveryServiceName;
 export const privateRouteTableId = foundationNetwork.privateRouteTableId;
+export const privateDnsNamespaceArn = computeServices.privateDnsNamespaceArn;
+export const privateDnsNamespaceId = computeServices.privateDnsNamespaceId;
+export const privateDnsNamespaceName = computeServices.privateDnsNamespaceName;
 export const privateSubnetCidrs = foundationNetwork.privateSubnetCidrs;
 export const privateSubnetIds = foundationNetwork.privateSubnetIds;
 export const paymentsDatabaseAddress = foundationDatabases.paymentsDatabaseAddress;
@@ -103,6 +136,14 @@ export const publicSubnetIds = foundationNetwork.publicSubnetIds;
 export const paymentsRuntimeParameterNames = foundationRuntimeConfig.paymentsRuntimeParameterNames;
 export const paymentsRuntimeSecretArn = foundationRuntimeConfig.paymentsRuntimeSecretArn;
 export const paymentsRuntimeSecretName = foundationRuntimeConfig.paymentsRuntimeSecretName;
+export const paymentsImageUri = computeServices.paymentsImageUri;
+export const paymentsLogGroupName = computeServices.paymentsLogGroupName;
+export const paymentsServiceArn = computeServices.paymentsServiceArn;
+export const paymentsServiceDiscoveryHost = computeServices.paymentsServiceDiscoveryHost;
+export const paymentsServiceName = computeServices.paymentsServiceName;
+export const paymentsTaskDefinitionArn = computeServices.paymentsTaskDefinitionArn;
+export const paymentsTaskRoleArn = computeServices.paymentsTaskRoleArn;
+export const paymentsTaskRoleName = computeServices.paymentsTaskRoleName;
 export const resourceNamePrefix = resourcePrefix;
 export const shopDatabaseAddress = foundationDatabases.shopDatabaseAddress;
 export const shopDatabaseEndpoint = foundationDatabases.shopDatabaseEndpoint;
@@ -115,12 +156,19 @@ export const shopDatabaseUsername = foundationDatabases.shopDatabaseUsername;
 export const shopRuntimeParameterNames = foundationRuntimeConfig.shopRuntimeParameterNames;
 export const shopRuntimeSecretArn = foundationRuntimeConfig.shopRuntimeSecretArn;
 export const shopRuntimeSecretName = foundationRuntimeConfig.shopRuntimeSecretName;
+export const shopImageUri = computeServices.shopImageUri;
+export const shopLogGroupName = computeServices.shopLogGroupName;
 export const shopSesFromAddress = foundationSes.shopSesFromAddress;
 export const shopSesIdentity = foundationSes.shopSesIdentity;
 export const shopSesIdentityArn = foundationSes.shopSesIdentityArn;
 export const shopSesIdentityType = foundationSes.shopSesIdentityType;
 export const shopSesVerificationStatus = foundationSes.shopSesVerificationStatus;
 export const shopSesVerifiedForSendingStatus = foundationSes.shopSesVerifiedForSendingStatus;
+export const shopServiceArn = computeServices.shopServiceArn;
+export const shopServiceName = computeServices.shopServiceName;
+export const shopTaskDefinitionArn = computeServices.shopTaskDefinitionArn;
+export const shopTaskRoleArn = computeServices.shopTaskRoleArn;
+export const shopTaskRoleName = computeServices.shopTaskRoleName;
 export const securityGroupIds = foundationSecurityGroups.securityGroupIds;
 export const sharedInfraManagedByThisStack = isSharedInfraOwner;
 export const sharedInfraOwner = sharedInfraOwnerStack;
