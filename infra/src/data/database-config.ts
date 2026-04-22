@@ -1,7 +1,8 @@
 import { config, stack } from '../bootstrap';
 
 const defaultAllocatedStorageGiB = 20;
-const defaultBackupRetentionDays = 7;
+const defaultNonProductionBackupRetentionDays = 1;
+const defaultProductionBackupRetentionDays = 7;
 const defaultDatabaseEngine = 'postgres';
 const defaultDatabaseEngineMajorVersion = '16';
 const defaultDatabaseMultiAz = false;
@@ -44,7 +45,8 @@ export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
   const allocatedStorageGiB =
     config.getNumber('databaseAllocatedStorageGiB') ?? defaultAllocatedStorageGiB;
   const backupRetentionDays =
-    config.getNumber('databaseBackupRetentionDays') ?? defaultBackupRetentionDays;
+    config.getNumber('databaseBackupRetentionDays') ??
+    (isProduction ? defaultProductionBackupRetentionDays : defaultNonProductionBackupRetentionDays);
   const databaseMultiAz = config.getBoolean('databaseMultiAz') ?? defaultDatabaseMultiAz;
 
   validateEngineMajorVersion(engineMajorVersion);

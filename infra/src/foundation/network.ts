@@ -187,6 +187,27 @@ export function createFoundationNetwork() {
       subnetIds: privateSubnetIds,
       vpcId: vpc.id,
     }),
+    ecs: createInterfaceEndpoint({
+      logicalName: 'vpce-ecs',
+      securityGroupId: endpointSecurityGroup.id,
+      serviceSuffix: endpointServiceSuffixes.ecs,
+      subnetIds: privateSubnetIds,
+      vpcId: vpc.id,
+    }),
+    ecsAgent: createInterfaceEndpoint({
+      logicalName: 'vpce-ecs-agent',
+      securityGroupId: endpointSecurityGroup.id,
+      serviceSuffix: endpointServiceSuffixes.ecsAgent,
+      subnetIds: privateSubnetIds,
+      vpcId: vpc.id,
+    }),
+    ecsTelemetry: createInterfaceEndpoint({
+      logicalName: 'vpce-ecs-telemetry',
+      securityGroupId: endpointSecurityGroup.id,
+      serviceSuffix: endpointServiceSuffixes.ecsTelemetry,
+      subnetIds: privateSubnetIds,
+      vpcId: vpc.id,
+    }),
     logs: createInterfaceEndpoint({
       logicalName: 'vpce-logs',
       securityGroupId: endpointSecurityGroup.id,
@@ -234,6 +255,9 @@ export function createFoundationNetwork() {
     vpcEndpointIds: {
       ecrApi: interfaceEndpoints.ecrApi.id,
       ecrDkr: interfaceEndpoints.ecrDkr.id,
+      ecs: interfaceEndpoints.ecs.id,
+      ecsAgent: interfaceEndpoints.ecsAgent.id,
+      ecsTelemetry: interfaceEndpoints.ecsTelemetry.id,
       logs: interfaceEndpoints.logs.id,
       s3: s3Endpoint.id,
       secretsManager: interfaceEndpoints.secretsManager.id,

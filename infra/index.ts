@@ -17,7 +17,7 @@ import { createFoundationSes } from './src/data/ses';
 import { createFoundationEcr } from './src/foundation/ecr';
 import { createFoundationNetwork } from './src/foundation/network';
 import { createFoundationSecurityGroups } from './src/foundation/security-groups';
-import { createMessageQueue } from './src/messaging/mq';
+import { createMessageBroker } from './src/messaging/mq';
 
 // Step 1: bootstrap/runtime context lives in src/bootstrap.ts.
 // Step 2: foundation network owns Phase 0.2 resources.
@@ -27,10 +27,10 @@ import { createMessageQueue } from './src/messaging/mq';
 // Step 6: data module owns Phase 1.2 S3 resources.
 // Step 7: data module owns Phase 1.3/1.4 secrets and parameters.
 // Step 8: data module owns Phase 1.5 sender identity resources.
-// Step 9: messaging module owns Phase 3 AmazonMQ broker resources.
+// Step 9: messaging module owns Phase 3 dedicated RabbitMQ broker resources.
 // Step 10: compute module owns Phase 2.2 ECS cluster and EC2 capacity.
 // Step 11: compute module owns Phase 2.3/2.4 ECS task definitions and services.
-// Step 12: compute module owns Phase 2.4/2.5 public ALB, ACM, and Route 53 wiring.
+// Step 12: compute module owns Phase 2.4/2.5 public ingress wiring: ALB plus ACM/Route53 or CloudFront.
 // Step 13: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
@@ -45,18 +45,29 @@ const foundationDatabases = createFoundationDatabases({
   },
 });
 const foundationFileStorage = createFoundationFileStorage();
-const messageQueue = createMessageQueue({
+const messageQueue = createMessageBroker({
   privateSubnetIds: foundationNetwork.privateSubnetIds,
   securityGroupId: foundationSecurityGroups.securityGroupIds.mq,
+});
+const computeEdge = createComputeEdge({
+  albSecurityGroupId: foundationSecurityGroups.securityGroupIds.alb,
+  publicSubnetIds: foundationNetwork.publicSubnetIds,
+  vpcId: foundationNetwork.vpcId,
 });
 const foundationRuntimeConfig = createFoundationRuntimeConfig({
   databases: {
     payments: {
+      databaseHost: foundationDatabases.paymentsDatabaseAddress,
       databaseName: foundationDatabases.paymentsDatabaseName,
+      databasePort: foundationDatabases.paymentsDatabasePort,
+      databaseUsername: foundationDatabases.paymentsDatabaseUsername,
       masterUserSecretArn: foundationDatabases.paymentsDatabaseMasterUserSecretArn,
     },
     shop: {
+      databaseHost: foundationDatabases.shopDatabaseAddress,
       databaseName: foundationDatabases.shopDatabaseName,
+      databasePort: foundationDatabases.shopDatabasePort,
+      databaseUsername: foundationDatabases.shopDatabaseUsername,
       masterUserSecretArn: foundationDatabases.shopDatabaseMasterUserSecretArn,
     },
   },
@@ -67,16 +78,12 @@ const foundationRuntimeConfig = createFoundationRuntimeConfig({
     host: messageQueue.mqBrokerHost,
     port: messageQueue.mqBrokerPort,
   },
+  publicAppUrl: computeEdge?.publicEndpointUrl,
 });
 const foundationSes = createFoundationSes();
 const foundationCompute = createFoundationCompute({
   privateSubnetIds: foundationNetwork.privateSubnetIds,
   securityGroupId: foundationSecurityGroups.securityGroupIds.ecs,
-});
-const computeEdge = createComputeEdge({
-  albSecurityGroupId: foundationSecurityGroups.securityGroupIds.alb,
-  publicSubnetIds: foundationNetwork.publicSubnetIds,
-  vpcId: foundationNetwork.vpcId,
 });
 const computeServices = createComputeServices({
   capacityProviderName: foundationCompute.ecsCapacityProviderName,
@@ -87,6 +94,7 @@ const computeServices = createComputeServices({
   },
   edge: computeEdge
     ? {
+        shopLoadBalancerDependency: computeEdge.shopLoadBalancerDependency,
         shopTargetGroupArn: computeEdge.shopTargetGroupArn,
       }
     : undefined,
@@ -145,7 +153,15 @@ export const publicCertificateArn = computeEdge?.publicCertificateArn ?? null;
 export const publicCertificateDomainName = computeEdge?.publicCertificateDomainName ?? null;
 export const publicCertificateValidationRecordFqdn =
   computeEdge?.publicCertificateValidationRecordFqdn ?? null;
+export const publicCloudFrontDistributionArn = computeEdge?.publicCloudFrontDistributionArn ?? null;
+export const publicCloudFrontDistributionDomainName =
+  computeEdge?.publicCloudFrontDistributionDomainName ?? null;
+export const publicCloudFrontDistributionHostedZoneId =
+  computeEdge?.publicCloudFrontDistributionHostedZoneId ?? null;
+export const publicCloudFrontDistributionId = computeEdge?.publicCloudFrontDistributionId ?? null;
+export const publicEdgeMode = computeEdge?.publicEdgeMode ?? 'disabled';
 export const publicEndpointEnabled = computeEdge !== undefined;
+export const publicEndpointUrl = computeEdge?.publicEndpointUrl ?? null;
 export const publicHostedZoneId = computeEdge?.publicHostedZoneId ?? null;
 export const publicHostedZoneName = computeEdge?.publicHostedZoneName ?? null;
 export const publicHostedZoneNameServers = computeEdge?.publicHostedZoneNameServers ?? null;

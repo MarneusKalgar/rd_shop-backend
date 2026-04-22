@@ -5,6 +5,10 @@ import { commonTags, stack, stackName } from '../bootstrap';
 import { getFoundationComputeConfig } from './compute-config';
 import { buildComputeUserData } from './compute-user-data';
 
+const ecsManagedInstancePolicyArn =
+  'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role';
+const ssmManagedInstanceCorePolicyArn = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore';
+
 interface CreateFoundationComputeArgs {
   privateSubnetIds: pulumi.Input<pulumi.Input<string>[]>;
   securityGroupId: pulumi.Input<string>;
@@ -15,6 +19,10 @@ export function createFoundationCompute({
   securityGroupId,
 }: CreateFoundationComputeArgs) {
   const computeConfig = getFoundationComputeConfig();
+  const singleHostCapacity =
+    computeConfig.desiredCapacity === 1 &&
+    computeConfig.maxSize === 1 &&
+    computeConfig.minSize === 1;
   const ecsOptimizedAmiId = aws.ssm.getParameterOutput({
     name: computeConfig.ecsOptimizedAmiSsmParameterName,
   }).value;
@@ -49,7 +57,12 @@ export function createFoundationCompute({
   });
 
   new aws.iam.RolePolicyAttachment(stackName('ecs-instance-role-ecs-managed-policy'), {
-    policyArn: 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role',
+    policyArn: ecsManagedInstancePolicyArn,
+    role: instanceRole.name,
+  });
+
+  new aws.iam.RolePolicyAttachment(stackName('ecs-instance-role-ssm-managed-policy'), {
+    policyArn: ssmManagedInstanceCorePolicyArn,
     role: instanceRole.name,
   });
 
@@ -92,9 +105,16 @@ export function createFoundationCompute({
     desiredCapacity: computeConfig.desiredCapacity,
     forceDelete: stack !== 'production',
     healthCheckType: 'EC2',
+    instanceRefresh: {
+      preferences: {
+        instanceWarmup: '120',
+        minHealthyPercentage: singleHostCapacity ? 0 : 50,
+      },
+      strategy: 'Rolling',
+    },
     launchTemplate: {
       id: launchTemplate.id,
-      version: '$Latest',
+      version: launchTemplate.latestVersion.apply((version) => version.toString()),
     },
     maxSize: computeConfig.maxSize,
     minSize: computeConfig.minSize,

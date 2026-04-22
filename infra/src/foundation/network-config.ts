@@ -21,6 +21,9 @@ const natAmiVirtualizationType = 'hvm';
 export const endpointServiceSuffixes = {
   ecrApi: 'ecr.api',
   ecrDkr: 'ecr.dkr',
+  ecs: 'ecs',
+  ecsAgent: 'ecs-agent',
+  ecsTelemetry: 'ecs-telemetry',
   logs: 'logs',
   s3: 's3',
   secretsManager: 'secretsmanager',

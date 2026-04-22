@@ -20,7 +20,7 @@
     "test:integration:shop:cov": "cross-env NODE_ENV=test jest --config apps/shop/test/jest-integration.json --coverage",
     "test:e2e:shop": "cross-env NODE_ENV=test jest --config apps/shop/test/jest-e2e.json --runInBand",
     "prepare": "husky",
-    "type-check": "tsc -p apps/shop/tsconfig.app.json && tsc -p apps/payments/tsconfig.app.json && tsc -p libs/common/tsconfig.lib.json --noEmit"
+    "type-check": "tsc -p apps/shop/tsconfig.app.json && tsc -p apps/payments/tsconfig.app.json && tsc -p libs/common/tsconfig.lib.json --noEmit && tsc --noEmit -p infra/tsconfig.json"
   },
   "dependencies": {
     "@apollo/server": "^5.4.0",

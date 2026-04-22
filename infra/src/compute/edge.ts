@@ -12,6 +12,10 @@ interface CreateComputeEdgeArgs {
 }
 
 const albAccessLogsAcl = 'bucket-owner-full-control';
+const cloudFrontAlbOriginId = 'shop-public-alb-origin';
+const cloudFrontAllViewerOriginRequestPolicyName = 'Managed-AllViewer';
+const cloudFrontCachingDisabledPolicyName = 'Managed-CachingDisabled';
+const cloudFrontPriceClass = 'PriceClass_100';
 const dnsValidationTtlSeconds = 60;
 const shopTargetGroupResourceName = `${stack}-shop-tg`;
 const shopTargetGroupHealthCheckIntervalSeconds = 30;
@@ -149,77 +153,153 @@ export function createComputeEdge({
     vpcId,
   });
 
-  const hostedZone = resolveHostedZone(edgeConfig.rootDomainName, edgeConfig.hostedZoneId);
+  if (edgeConfig.publicEdgeMode === 'custom-domain') {
+    const hostedZone = resolveHostedZone(edgeConfig.rootDomainName!, edgeConfig.hostedZoneId);
 
-  const certificate = new aws.acm.Certificate(stackName('shop-certificate'), {
-    domainName: edgeConfig.apiDomainName,
-    tags: {
-      ...commonTags,
-      Component: 'edge',
-      Name: edgeConfig.apiDomainName,
-      Scope: 'public',
-      Service: 'shop',
-    },
-    validationMethod: 'DNS',
-  });
+    const certificate = new aws.acm.Certificate(stackName('shop-certificate'), {
+      domainName: edgeConfig.apiDomainName!,
+      tags: {
+        ...commonTags,
+        Component: 'edge',
+        Name: edgeConfig.apiDomainName!,
+        Scope: 'public',
+        Service: 'shop',
+      },
+      validationMethod: 'DNS',
+    });
 
-  const certificateValidationRecord = new aws.route53.Record(
-    stackName('shop-certificate-validation-record'),
-    {
-      allowOverwrite: true,
-      name: certificate.domainValidationOptions.apply(
-        (options) => options[0]?.resourceRecordName ?? edgeConfig.apiDomainName,
-      ),
-      records: [
-        certificate.domainValidationOptions.apply(
-          (options) => options[0]?.resourceRecordValue ?? edgeConfig.apiDomainName,
+    const certificateValidationRecord = new aws.route53.Record(
+      stackName('shop-certificate-validation-record'),
+      {
+        allowOverwrite: true,
+        name: certificate.domainValidationOptions.apply(
+          (options) => options[0]?.resourceRecordName ?? edgeConfig.apiDomainName!,
         ),
-      ],
-      ttl: dnsValidationTtlSeconds,
-      type: certificate.domainValidationOptions.apply(
-        (options) => options[0]?.resourceRecordType ?? 'CNAME',
-      ),
-      zoneId: hostedZone.zoneId,
-    },
-  );
+        records: [
+          certificate.domainValidationOptions.apply(
+            (options) => options[0]?.resourceRecordValue ?? edgeConfig.apiDomainName!,
+          ),
+        ],
+        ttl: dnsValidationTtlSeconds,
+        type: certificate.domainValidationOptions.apply(
+          (options) => options[0]?.resourceRecordType ?? 'CNAME',
+        ),
+        zoneId: hostedZone.zoneId,
+      },
+    );
 
-  const certificateValidation = new aws.acm.CertificateValidation(
-    stackName('shop-certificate-validation'),
-    {
-      certificateArn: certificate.arn,
-      validationRecordFqdns: [certificateValidationRecord.fqdn],
-    },
-  );
+    const certificateValidation = new aws.acm.CertificateValidation(
+      stackName('shop-certificate-validation'),
+      {
+        certificateArn: certificate.arn,
+        validationRecordFqdns: [certificateValidationRecord.fqdn],
+      },
+    );
 
-  const httpsListener = new aws.lb.Listener(
-    stackName('public-alb-https-listener'),
-    {
-      certificateArn: certificateValidation.certificateArn,
+    const httpsListener = new aws.lb.Listener(
+      stackName('public-alb-https-listener'),
+      {
+        certificateArn: certificateValidation.certificateArn,
+        defaultActions: [
+          {
+            targetGroupArn: shopTargetGroup.arn,
+            type: 'forward',
+          },
+        ],
+        loadBalancerArn: publicAlb.arn,
+        port: 443,
+        protocol: 'HTTPS',
+        sslPolicy: edgeConfig.sslPolicy,
+      },
+      {
+        dependsOn: [certificateValidation],
+      },
+    );
+
+    const httpListener = new aws.lb.Listener(stackName('public-alb-http-listener'), {
       defaultActions: [
         {
-          targetGroupArn: shopTargetGroup.arn,
-          type: 'forward',
+          redirect: {
+            port: '443',
+            protocol: 'HTTPS',
+            statusCode: 'HTTP_301',
+          },
+          type: 'redirect',
         },
       ],
       loadBalancerArn: publicAlb.arn,
-      port: 443,
-      protocol: 'HTTPS',
-      sslPolicy: edgeConfig.sslPolicy,
-    },
-    {
-      dependsOn: [certificateValidation],
-    },
-  );
+      port: 80,
+      protocol: 'HTTP',
+    });
+
+    const apiAliasRecord = new aws.route53.Record(stackName('shop-api-alias-record'), {
+      aliases: [
+        {
+          evaluateTargetHealth: true,
+          name: publicAlb.dnsName,
+          zoneId: publicAlb.zoneId,
+        },
+      ],
+      name: edgeConfig.apiDomainName!,
+      type: 'A',
+      zoneId: hostedZone.zoneId,
+    });
+
+    return {
+      albAccessLogsBucketArn: albLogsBucket.arn,
+      albAccessLogsBucketName: albLogsBucket.bucket,
+      publicAlbArn: publicAlb.arn,
+      publicAlbDnsName: publicAlb.dnsName,
+      publicAlbHttpListenerArn: httpListener.arn,
+      publicAlbHttpsListenerArn: httpsListener.arn,
+      publicAlbName: publicAlb.name,
+      publicAlbZoneId: publicAlb.zoneId,
+      publicApiAliasRecordFqdn: apiAliasRecord.fqdn,
+      publicApiDomainName: edgeConfig.apiDomainName,
+      publicCertificateArn: certificate.arn,
+      publicCertificateDomainName: certificate.domainName,
+      publicCertificateValidationRecordFqdn: certificateValidationRecord.fqdn,
+      publicCloudFrontDistributionArn: null,
+      publicCloudFrontDistributionDomainName: null,
+      publicCloudFrontDistributionHostedZoneId: null,
+      publicCloudFrontDistributionId: null,
+      publicEdgeMode: edgeConfig.publicEdgeMode,
+      publicEndpointUrl: pulumi.interpolate`https://${edgeConfig.apiDomainName}`,
+      publicHostedZoneId: hostedZone.zoneId,
+      publicHostedZoneName: hostedZone.name,
+      publicHostedZoneNameServers: hostedZone.nameServers,
+      shopLoadBalancerDependency: httpsListener,
+      shopTargetGroupArn: shopTargetGroup.arn,
+      shopTargetGroupName: shopTargetGroup.name,
+    };
+  }
+
+  const cachePolicy = aws.cloudfront.getCachePolicyOutput({
+    name: cloudFrontCachingDisabledPolicyName,
+  });
+  const originRequestPolicy = aws.cloudfront.getOriginRequestPolicyOutput({
+    name: cloudFrontAllViewerOriginRequestPolicyName,
+  });
+  const cachePolicyId = cachePolicy.apply((policy) => {
+    if (!policy.id) {
+      throw new Error('Managed CloudFront caching-disabled policy lookup did not return an id.');
+    }
+
+    return policy.id;
+  });
+  const originRequestPolicyId = originRequestPolicy.apply((policy) => {
+    if (!policy.id) {
+      throw new Error('Managed CloudFront origin request policy lookup did not return an id.');
+    }
+
+    return policy.id;
+  });
 
   const httpListener = new aws.lb.Listener(stackName('public-alb-http-listener'), {
     defaultActions: [
       {
-        redirect: {
-          port: '443',
-          protocol: 'HTTPS',
-          statusCode: 'HTTP_301',
-        },
-        type: 'redirect',
+        targetGroupArn: shopTargetGroup.arn,
+        type: 'forward',
       },
     ],
     loadBalancerArn: publicAlb.arn,
@@ -227,17 +307,48 @@ export function createComputeEdge({
     protocol: 'HTTP',
   });
 
-  const apiAliasRecord = new aws.route53.Record(stackName('shop-api-alias-record'), {
-    aliases: [
+  const distribution = new aws.cloudfront.Distribution(stackName('shop-api-cloudfront'), {
+    comment: 'Public HTTPS entrypoint for the shop API using the default CloudFront domain.',
+    defaultCacheBehavior: {
+      allowedMethods: ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'],
+      cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
+      cachePolicyId,
+      compress: true,
+      originRequestPolicyId,
+      targetOriginId: cloudFrontAlbOriginId,
+      viewerProtocolPolicy: 'redirect-to-https',
+    },
+    enabled: true,
+    isIpv6Enabled: true,
+    origins: [
       {
-        evaluateTargetHealth: true,
-        name: publicAlb.dnsName,
-        zoneId: publicAlb.zoneId,
+        customOriginConfig: {
+          httpPort: 80,
+          httpsPort: 443,
+          originProtocolPolicy: 'http-only',
+          originSslProtocols: ['TLSv1.2'],
+        },
+        domainName: publicAlb.dnsName,
+        originId: cloudFrontAlbOriginId,
       },
     ],
-    name: edgeConfig.apiDomainName,
-    type: 'A',
-    zoneId: hostedZone.zoneId,
+    priceClass: cloudFrontPriceClass,
+    restrictions: {
+      geoRestriction: {
+        restrictionType: 'none',
+      },
+    },
+    tags: {
+      ...commonTags,
+      Component: 'edge',
+      Name: stackName('shop-api-cloudfront'),
+      Scope: 'public',
+      Service: 'shop',
+    },
+    viewerCertificate: {
+      cloudfrontDefaultCertificate: true,
+    },
+    waitForDeployment: false,
   });
 
   return {
@@ -246,17 +357,24 @@ export function createComputeEdge({
     publicAlbArn: publicAlb.arn,
     publicAlbDnsName: publicAlb.dnsName,
     publicAlbHttpListenerArn: httpListener.arn,
-    publicAlbHttpsListenerArn: httpsListener.arn,
+    publicAlbHttpsListenerArn: null,
     publicAlbName: publicAlb.name,
     publicAlbZoneId: publicAlb.zoneId,
-    publicApiAliasRecordFqdn: apiAliasRecord.fqdn,
-    publicApiDomainName: edgeConfig.apiDomainName,
-    publicCertificateArn: certificate.arn,
-    publicCertificateDomainName: certificate.domainName,
-    publicCertificateValidationRecordFqdn: certificateValidationRecord.fqdn,
-    publicHostedZoneId: hostedZone.zoneId,
-    publicHostedZoneName: hostedZone.name,
-    publicHostedZoneNameServers: hostedZone.nameServers,
+    publicApiAliasRecordFqdn: null,
+    publicApiDomainName: null,
+    publicCertificateArn: null,
+    publicCertificateDomainName: null,
+    publicCertificateValidationRecordFqdn: null,
+    publicCloudFrontDistributionArn: distribution.arn,
+    publicCloudFrontDistributionDomainName: distribution.domainName,
+    publicCloudFrontDistributionHostedZoneId: distribution.hostedZoneId,
+    publicCloudFrontDistributionId: distribution.id,
+    publicEdgeMode: edgeConfig.publicEdgeMode,
+    publicEndpointUrl: pulumi.interpolate`https://${distribution.domainName}`,
+    publicHostedZoneId: null,
+    publicHostedZoneName: null,
+    publicHostedZoneNameServers: null,
+    shopLoadBalancerDependency: httpListener,
     shopTargetGroupArn: shopTargetGroup.arn,
     shopTargetGroupName: shopTargetGroup.name,
   };

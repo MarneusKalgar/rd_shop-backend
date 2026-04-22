@@ -11,22 +11,35 @@ const defaultShopTargetGroupHealthCheckPath = '/ready';
 export interface ComputeEdgeConfig {
   albAccessLogsBucketName: string;
   albAccessLogsPrefix: string;
-  apiDomainName: string;
+  apiDomainName?: string;
   enableDeletionProtection: boolean;
   hostedZoneId?: string;
   idleTimeoutSeconds: number;
-  rootDomainName: string;
+  publicEdgeMode: PublicEdgeMode;
+  rootDomainName?: string;
   shopTargetGroupDeregistrationDelaySeconds: number;
   shopTargetGroupHealthCheckMatcher: string;
   shopTargetGroupHealthCheckPath: string;
   sslPolicy: string;
 }
 
+export type PublicEdgeMode = 'cloudfront' | 'custom-domain' | 'disabled';
+
 export function getComputeEdgeConfig(): ComputeEdgeConfig | undefined {
   const publicDomainConfig = getPublicDomainConfig();
+  const publicEdgeMode = resolvePublicEdgeMode(
+    normalizeOptionalValue(config.get('publicEdgeMode')),
+    publicDomainConfig !== undefined,
+  );
 
-  if (!publicDomainConfig) {
+  if (publicEdgeMode === 'disabled') {
     return undefined;
+  }
+
+  if (publicEdgeMode === 'custom-domain' && !publicDomainConfig) {
+    throw new Error(
+      'publicEdgeMode=custom-domain requires publicRootDomainName and optional publicHostedZoneId.',
+    );
   }
 
   const albAccessLogsBucketName =
@@ -62,11 +75,12 @@ export function getComputeEdgeConfig(): ComputeEdgeConfig | undefined {
   return {
     albAccessLogsBucketName,
     albAccessLogsPrefix,
-    apiDomainName: publicDomainConfig.apiDomainName,
+    apiDomainName: publicDomainConfig?.apiDomainName,
     enableDeletionProtection,
-    hostedZoneId: publicDomainConfig.hostedZoneId,
+    hostedZoneId: publicDomainConfig?.hostedZoneId,
     idleTimeoutSeconds,
-    rootDomainName: publicDomainConfig.rootDomainName,
+    publicEdgeMode,
+    rootDomainName: publicDomainConfig?.rootDomainName,
     shopTargetGroupDeregistrationDelaySeconds,
     shopTargetGroupHealthCheckMatcher,
     shopTargetGroupHealthCheckPath,
@@ -77,6 +91,25 @@ export function getComputeEdgeConfig(): ComputeEdgeConfig | undefined {
 function normalizeOptionalValue(value: string | undefined) {
   const trimmedValue = value?.trim();
   return trimmedValue && trimmedValue.length > 0 ? trimmedValue : undefined;
+}
+
+function resolvePublicEdgeMode(
+  configuredMode: string | undefined,
+  hasPublicDomainConfig: boolean,
+): PublicEdgeMode {
+  if (!configuredMode) {
+    return hasPublicDomainConfig ? 'custom-domain' : 'disabled';
+  }
+
+  if (
+    configuredMode === 'cloudfront' ||
+    configuredMode === 'custom-domain' ||
+    configuredMode === 'disabled'
+  ) {
+    return configuredMode;
+  }
+
+  throw new Error('publicEdgeMode must be one of: disabled, custom-domain, cloudfront.');
 }
 
 function validateAccessLogsBucketName(bucketName: string) {

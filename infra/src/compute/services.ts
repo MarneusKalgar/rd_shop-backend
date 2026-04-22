@@ -19,6 +19,7 @@ interface CreateComputeServicesArgs {
     shopRepositoryUrl: pulumi.Input<string>;
   };
   edge?: {
+    shopLoadBalancerDependency: pulumi.Resource;
     shopTargetGroupArn: pulumi.Input<string>;
   };
   fileStorage: {
@@ -173,7 +174,7 @@ export function createComputeServices({
         dnsRecords: [
           {
             ttl: serviceDiscoveryRecordTtlSeconds,
-            type: 'A',
+            type: 'SRV',
           },
         ],
         namespaceId: serviceDiscoveryNamespace.id,
@@ -196,11 +197,13 @@ export function createComputeServices({
   const shopImageUri = resolveImageUri({
     explicitImageUri: servicesConfig.shopImageUri,
     repositoryUrl: ecr.shopRepositoryUrl,
+    service: 'shop',
     tag: servicesConfig.shopImageTag,
   });
   const paymentsImageUri = resolveImageUri({
     explicitImageUri: servicesConfig.paymentsImageUri,
     repositoryUrl: ecr.paymentsRepositoryUrl,
+    service: 'payments',
     tag: servicesConfig.paymentsImageTag,
   });
 
@@ -284,10 +287,14 @@ export function createComputeServices({
     ];
   }
 
+  const shopServiceDependencies = edge?.shopLoadBalancerDependency
+    ? [...serviceDependencies, shopTaskDefinition, edge.shopLoadBalancerDependency]
+    : [...serviceDependencies, shopTaskDefinition];
+
   // Image push, RabbitMQ cutover, and public ingress may come after the first apply, so keep
   // ECS service creation non-blocking while the phase 2 stack is still coming together.
   const shopService = new aws.ecs.Service(stackName('shop-service'), shopServiceArgs, {
-    dependsOn: [...serviceDependencies, shopTaskDefinition],
+    dependsOn: shopServiceDependencies,
   });
 
   const paymentsService = new aws.ecs.Service(
@@ -397,11 +404,23 @@ function createRole({
 function resolveImageUri({
   explicitImageUri,
   repositoryUrl,
+  service,
   tag,
 }: {
   explicitImageUri?: string;
   repositoryUrl: pulumi.Input<string>;
-  tag: string;
+  service: 'payments' | 'shop';
+  tag?: string;
 }) {
-  return explicitImageUri ?? pulumi.interpolate`${repositoryUrl}:${tag}`;
+  if (explicitImageUri) {
+    return explicitImageUri;
+  }
+
+  if (tag) {
+    return pulumi.interpolate`${repositoryUrl}:${tag}`;
+  }
+
+  throw new Error(
+    `${service}ImageTag or ${service}ImageUri must be set explicitly. Implicit latest image fallback is not allowed.`,
+  );
 }

@@ -2,26 +2,30 @@ import * as pulumi from '@pulumi/pulumi';
 
 import { config, projectPrefix, stack } from '../bootstrap';
 
-const defaultBrokerEngineType = 'RabbitMQ';
+const defaultBrokerDataVolumeDeviceName = '/dev/xvdf';
+const defaultBrokerDataVolumeMountPath = '/var/lib/rabbitmq';
 const defaultBrokerEngineVersion = '3.13';
-const defaultProductionDeploymentMode = 'ACTIVE_STANDBY_MULTI_AZ';
-const defaultProductionHostInstanceType = 'mq.m5.large';
-const defaultStageDeploymentMode = 'SINGLE_INSTANCE';
-const defaultStageHostInstanceType = 'mq.t3.micro';
+const defaultBrokerImage = 'rabbitmq:3.13-management-alpine';
+const defaultBrokerPort = 5672;
+const defaultBrokerVhost = '/';
+const defaultProductionBrokerDataVolumeSizeGiB = 20;
+const defaultProductionBrokerInstanceType = 't3.small';
+const defaultStageBrokerDataVolumeSizeGiB = 10;
+const defaultStageBrokerInstanceType = 't3.micro';
 const previewRabbitMqPassword = 'preview-only-shop-rabbitmq-password';
 const previewRabbitMqUser = 'preview-only-shop-rabbitmq-user';
 
-export interface MessageQueueConfig {
-  applyImmediately: boolean;
-  authenticationStrategy: 'simple';
-  autoMinorVersionUpgrade: boolean;
+export interface MessageBrokerConfig {
   brokerName: string;
   credentials: MessageQueueCredentials;
-  deploymentMode: 'ACTIVE_STANDBY_MULTI_AZ' | 'SINGLE_INSTANCE';
-  engineType: 'RabbitMQ';
+  dataVolumeDeviceName: string;
+  dataVolumeMountPath: string;
+  dataVolumeSizeGiB: number;
   engineVersion: string;
-  hostInstanceType: string;
-  publiclyAccessible: boolean;
+  image: string;
+  instanceType: string;
+  port: number;
+  vhost: string;
 }
 
 export interface MessageQueueCredentials {
@@ -29,27 +33,28 @@ export interface MessageQueueCredentials {
   username: pulumi.Output<string>;
 }
 
-export function getMessageQueueConfig(): MessageQueueConfig {
+export function getMessageBrokerConfig(): MessageBrokerConfig {
   const isProduction = stack === 'production';
 
   return {
-    applyImmediately: !isProduction,
-    authenticationStrategy: 'simple',
-    autoMinorVersionUpgrade: true,
     brokerName: config.get('shopRabbitmqBrokerName') ?? `${projectPrefix}-${stack}-shop-rabbitmq`,
     credentials: getMessageQueueCredentials(),
-    deploymentMode:
-      config.get('shopRabbitmqDeploymentMode') === 'ACTIVE_STANDBY_MULTI_AZ'
-        ? 'ACTIVE_STANDBY_MULTI_AZ'
-        : isProduction
-          ? defaultProductionDeploymentMode
-          : defaultStageDeploymentMode,
-    engineType: defaultBrokerEngineType,
+    dataVolumeDeviceName:
+      config.get('shopRabbitmqDataVolumeDeviceName') ?? defaultBrokerDataVolumeDeviceName,
+    dataVolumeMountPath:
+      config.get('shopRabbitmqDataVolumeMountPath') ?? defaultBrokerDataVolumeMountPath,
+    dataVolumeSizeGiB:
+      config.getNumber('shopRabbitmqDataVolumeSizeGiB') ??
+      (isProduction
+        ? defaultProductionBrokerDataVolumeSizeGiB
+        : defaultStageBrokerDataVolumeSizeGiB),
     engineVersion: config.get('shopRabbitmqEngineVersion') ?? defaultBrokerEngineVersion,
-    hostInstanceType:
-      config.get('shopRabbitmqHostInstanceType') ??
-      (isProduction ? defaultProductionHostInstanceType : defaultStageHostInstanceType),
-    publiclyAccessible: false,
+    image: config.get('shopRabbitmqImage') ?? defaultBrokerImage,
+    instanceType:
+      config.get('shopRabbitmqInstanceType') ??
+      (isProduction ? defaultProductionBrokerInstanceType : defaultStageBrokerInstanceType),
+    port: config.getNumber('shopRabbitmqPort') ?? defaultBrokerPort,
+    vhost: config.get('shopRabbitmqVhost') ?? defaultBrokerVhost,
   };
 }
 

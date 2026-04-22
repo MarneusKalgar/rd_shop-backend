@@ -18,10 +18,14 @@ interface CreateFoundationRuntimeConfigArgs {
     host: pulumi.Input<string>;
     port: pulumi.Input<number>;
   };
+  publicAppUrl?: pulumi.Input<string>;
 }
 
 interface ServiceDatabaseRuntimeConfig {
+  databaseHost: pulumi.Input<string>;
   databaseName: pulumi.Input<string>;
+  databasePort: pulumi.Input<number>;
+  databaseUsername: pulumi.Input<string>;
   masterUserSecretArn: pulumi.Input<null | string>;
 }
 
@@ -46,16 +50,23 @@ export function createFoundationRuntimeConfig({
   databases,
   fileStorage,
   messageQueue,
+  publicAppUrl,
 }: CreateFoundationRuntimeConfigArgs) {
   const runtimeConfig = getFoundationRuntimeConfig();
 
   const shopDatabaseSecretValues = buildDatabaseSecretValues({
+    databaseHost: databases.shop.databaseHost,
     databaseName: databases.shop.databaseName,
+    databasePort: databases.shop.databasePort,
+    databaseUsername: databases.shop.databaseUsername,
     masterUserSecretArn: databases.shop.masterUserSecretArn,
     serviceName: 'shop',
   });
   const paymentsDatabaseSecretValues = buildDatabaseSecretValues({
+    databaseHost: databases.payments.databaseHost,
     databaseName: databases.payments.databaseName,
+    databasePort: databases.payments.databasePort,
+    databaseUsername: databases.payments.databaseUsername,
     masterUserSecretArn: databases.payments.masterUserSecretArn,
     serviceName: 'payments',
   });
@@ -112,9 +123,11 @@ export function createFoundationRuntimeConfig({
     parameterPathPrefix: `${runtimeConfig.parameterPathPrefix}/shop`,
     serviceName: 'shop',
     values: {
+      APP_URL: publicAppUrl ?? runtimeConfig.shop.parameterValues.APP_URL,
       ...runtimeConfig.shop.parameterValues,
       AWS_REGION: aws.config.region ?? 'eu-central-1',
       AWS_S3_BUCKET: fileStorage.filesBucketName,
+      CORS_ALLOWED_ORIGINS: publicAppUrl ?? runtimeConfig.shop.parameterValues.CORS_ALLOWED_ORIGINS,
       RABBITMQ_HOST: messageQueue.host,
       RABBITMQ_PORT: pulumi.output(messageQueue.port).apply((port) => String(port)),
     },
@@ -155,11 +168,17 @@ function buildConnectionUrl({
 }
 
 function buildDatabaseSecretValues({
+  databaseHost,
   databaseName,
+  databasePort,
+  databaseUsername,
   masterUserSecretArn,
   serviceName,
 }: {
+  databaseHost: pulumi.Input<string>;
   databaseName: pulumi.Input<string>;
+  databasePort: pulumi.Input<number>;
+  databaseUsername: pulumi.Input<string>;
   masterUserSecretArn: pulumi.Input<null | string>;
   serviceName: string;
 }) {
@@ -179,33 +198,49 @@ function buildDatabaseSecretValues({
 
   return pulumi.secret(
     pulumi
-      .all([databaseName, masterUserSecretString])
-      .apply(([resolvedDatabaseName, secretString]) => {
-        const secretPayload = JSON.parse(secretString) as RdsMasterUserSecretPayload;
+      .all([databaseHost, databaseName, databasePort, databaseUsername, masterUserSecretString])
+      .apply(
+        ([
+          resolvedDatabaseHost,
+          resolvedDatabaseName,
+          resolvedDatabasePort,
+          resolvedDatabaseUsername,
+          secretString,
+        ]) => {
+          const secretPayload = JSON.parse(secretString) as RdsMasterUserSecretPayload;
 
-        if (!secretPayload.host || !secretPayload.password || !secretPayload.username) {
-          throw new Error(`${serviceName} database secret is missing required connection fields.`);
-        }
+          if (!secretPayload.password) {
+            throw new Error(`${serviceName} database secret is missing required password field.`);
+          }
 
-        const databasePort =
-          typeof secretPayload.port === 'string'
-            ? secretPayload.port
-            : String(secretPayload.port ?? 5432);
+          const databaseHostValue = secretPayload.host ?? resolvedDatabaseHost;
+          const databasePortValue =
+            typeof secretPayload.port === 'string'
+              ? secretPayload.port
+              : String(secretPayload.port ?? resolvedDatabasePort);
+          const databaseUsernameValue = secretPayload.username ?? resolvedDatabaseUsername;
 
-        return {
-          DATABASE_HOST: secretPayload.host,
-          DATABASE_URL: buildConnectionUrl({
-            databaseName: resolvedDatabaseName,
-            host: secretPayload.host,
-            password: secretPayload.password,
-            port: databasePort,
-            username: secretPayload.username,
-          }),
-          POSTGRES_DB: resolvedDatabaseName,
-          POSTGRES_PASSWORD: secretPayload.password,
-          POSTGRES_USER: secretPayload.username,
-        } satisfies DatabaseSecretValues;
-      }),
+          if (!databaseHostValue || !databaseUsernameValue) {
+            throw new Error(
+              `${serviceName} database connection values are incomplete after fallback resolution.`,
+            );
+          }
+
+          return {
+            DATABASE_HOST: databaseHostValue,
+            DATABASE_URL: buildConnectionUrl({
+              databaseName: resolvedDatabaseName,
+              host: databaseHostValue,
+              password: secretPayload.password,
+              port: databasePortValue,
+              username: databaseUsernameValue,
+            }),
+            POSTGRES_DB: resolvedDatabaseName,
+            POSTGRES_PASSWORD: secretPayload.password,
+            POSTGRES_USER: databaseUsernameValue,
+          } satisfies DatabaseSecretValues;
+        },
+      ),
   );
 }
 

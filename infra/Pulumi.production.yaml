@@ -1,7 +1,7 @@
 config:
   aws:region: eu-central-1
   rd-shop-infra:databaseAllocatedStorageGiB: '20'
-  rd-shop-infra:databaseBackupRetentionDays: '7'
+  rd-shop-infra:databaseBackupRetentionDays: '1'
   rd-shop-infra:databaseEngineMajorVersion: '16'
   rd-shop-infra:databaseMultiAz: 'true'
   rd-shop-infra:filesBucketCorsAllowedHeaders:

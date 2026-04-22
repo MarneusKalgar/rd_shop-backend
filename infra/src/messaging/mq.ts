@@ -1,91 +1,184 @@
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 
-import { commonTags, stackName } from '../bootstrap';
-import { getMessageQueueConfig } from './mq-config';
+import { accountId, commonTags, projectPrefix, region, stack, stackName } from '../bootstrap';
+import { getMessageBrokerConfig } from './mq-config';
+import { buildMessageBrokerUserData } from './mq-user-data';
 
-interface CreateMessageQueueArgs {
+const amazonLinuxAmiSsmParameterName =
+  '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64';
+const brokerBootstrapSecretName = `${projectPrefix}/rabbitmq/${stack}/bootstrap`;
+const brokerManagementPort = 15672;
+const ssmManagedInstanceCorePolicyArn = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore';
+
+interface CreateMessageBrokerArgs {
   privateSubnetIds: pulumi.Input<pulumi.Input<string>[]>;
   securityGroupId: pulumi.Input<string>;
 }
 
-export function createMessageQueue({ privateSubnetIds, securityGroupId }: CreateMessageQueueArgs) {
-  const messageQueueConfig = getMessageQueueConfig();
-  const selectedSubnetIds = pulumi.output(privateSubnetIds).apply((subnetIds) => {
-    const requiredSubnetCount =
-      messageQueueConfig.deploymentMode === 'ACTIVE_STANDBY_MULTI_AZ' ? 2 : 1;
-
-    if (subnetIds.length < requiredSubnetCount) {
-      throw new Error(
-        `AmazonMQ deployment mode ${messageQueueConfig.deploymentMode} requires at least ${requiredSubnetCount} private subnet(s).`,
-      );
+export function createMessageBroker({
+  privateSubnetIds,
+  securityGroupId,
+}: CreateMessageBrokerArgs) {
+  const messageBrokerConfig = getMessageBrokerConfig();
+  const selectedSubnetId = pulumi.output(privateSubnetIds).apply((subnetIds) => {
+    if (subnetIds.length === 0) {
+      throw new Error('Dedicated RabbitMQ broker requires at least one private subnet.');
     }
 
-    return subnetIds.slice(0, requiredSubnetCount);
+    return subnetIds[0];
+  });
+  const brokerAmiId = aws.ssm.getParameterOutput({
+    name: amazonLinuxAmiSsmParameterName,
+  }).value;
+  const brokerSubnet = aws.ec2.getSubnetOutput({ id: selectedSubnetId });
+
+  const brokerBootstrapSecret = new aws.secretsmanager.Secret(
+    stackName('shop-rabbitmq-bootstrap'),
+    {
+      description: 'Bootstrap secret for the dedicated RabbitMQ broker.',
+      name: brokerBootstrapSecretName,
+      recoveryWindowInDays: stack === 'production' ? 30 : 0,
+      tags: {
+        ...commonTags,
+        Component: 'queue',
+        Name: brokerBootstrapSecretName,
+        Scope: 'private',
+        Service: 'shop',
+      },
+    },
+  );
+
+  new aws.secretsmanager.SecretVersion(stackName('shop-rabbitmq-bootstrap-version'), {
+    secretId: brokerBootstrapSecret.id,
+    secretString: pulumi.secret(
+      pulumi
+        .all([messageBrokerConfig.credentials.username, messageBrokerConfig.credentials.password])
+        .apply(([username, password]) =>
+          JSON.stringify({
+            RABBITMQ_DEFAULT_PASS: password,
+            RABBITMQ_DEFAULT_USER: username,
+            RABBITMQ_DEFAULT_VHOST: messageBrokerConfig.vhost,
+          }),
+        ),
+    ),
   });
 
-  const broker = new aws.mq.Broker(stackName('shop-rabbitmq-broker'), {
-    applyImmediately: messageQueueConfig.applyImmediately,
-    authenticationStrategy: messageQueueConfig.authenticationStrategy,
-    autoMinorVersionUpgrade: messageQueueConfig.autoMinorVersionUpgrade,
-    brokerName: messageQueueConfig.brokerName,
-    deploymentMode: messageQueueConfig.deploymentMode,
-    engineType: messageQueueConfig.engineType,
-    engineVersion: messageQueueConfig.engineVersion,
-    hostInstanceType: messageQueueConfig.hostInstanceType,
-    publiclyAccessible: messageQueueConfig.publiclyAccessible,
-    securityGroups: [securityGroupId],
-    subnetIds: selectedSubnetIds,
+  const brokerInstanceRole = new aws.iam.Role(stackName('shop-rabbitmq-instance-role'), {
+    assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+      Service: 'ec2.amazonaws.com',
+    }),
+    name: stackName('shop-rabbitmq-instance-role'),
     tags: {
       ...commonTags,
       Component: 'queue',
-      Name: messageQueueConfig.brokerName,
+      Name: stackName('shop-rabbitmq-instance-role'),
       Scope: 'private',
       Service: 'shop',
     },
-    users: [
-      {
-        password: messageQueueConfig.credentials.password,
-        username: messageQueueConfig.credentials.username,
+  });
+
+  new aws.iam.RolePolicyAttachment(stackName('shop-rabbitmq-instance-ssm-managed-policy'), {
+    policyArn: ssmManagedInstanceCorePolicyArn,
+    role: brokerInstanceRole.name,
+  });
+
+  new aws.iam.RolePolicy(stackName('shop-rabbitmq-instance-runtime-policy'), {
+    name: stackName('shop-rabbitmq-instance-runtime-policy'),
+    policy: pulumi.jsonStringify({
+      Statement: [
+        {
+          Action: ['secretsmanager:GetSecretValue'],
+          Effect: 'Allow',
+          Resource: [brokerBootstrapSecret.arn],
+        },
+      ],
+      Version: '2012-10-17',
+    }),
+    role: brokerInstanceRole.name,
+  });
+
+  const brokerInstanceProfile = new aws.iam.InstanceProfile(
+    stackName('shop-rabbitmq-instance-profile'),
+    {
+      name: stackName('shop-rabbitmq-instance-profile'),
+      role: brokerInstanceRole.name,
+      tags: {
+        ...commonTags,
+        Component: 'queue',
+        Name: stackName('shop-rabbitmq-instance-profile'),
+        Scope: 'private',
+        Service: 'shop',
       },
-    ],
+    },
+  );
+
+  const brokerDataVolume = new aws.ebs.Volume(stackName('shop-rabbitmq-data-volume'), {
+    availabilityZone: brokerSubnet.availabilityZone,
+    size: messageBrokerConfig.dataVolumeSizeGiB,
+    tags: {
+      ...commonTags,
+      Component: 'queue',
+      Name: stackName('shop-rabbitmq-data-volume'),
+      Scope: 'private',
+      Service: 'shop',
+    },
+    type: 'gp3',
   });
 
-  const brokerEndpoint = broker.instances.apply((instances) => {
-    const endpoint = instances[0]?.endpoints[0];
-
-    if (!endpoint) {
-      throw new Error('AmazonMQ broker endpoint is not available.');
-    }
-
-    return endpoint;
+  const broker = new aws.ec2.Instance(stackName('shop-rabbitmq-broker'), {
+    ami: brokerAmiId,
+    associatePublicIpAddress: false,
+    iamInstanceProfile: brokerInstanceProfile.name,
+    instanceType: messageBrokerConfig.instanceType,
+    metadataOptions: {
+      httpEndpoint: 'enabled',
+      httpTokens: 'required',
+    },
+    subnetId: selectedSubnetId,
+    tags: {
+      ...commonTags,
+      Component: 'queue',
+      Name: messageBrokerConfig.brokerName,
+      Scope: 'private',
+      Service: 'shop',
+    },
+    userData: pulumi
+      .all([brokerBootstrapSecret.arn, brokerDataVolume.id])
+      .apply(([brokerSecretArn, dataVolumeId]) =>
+        buildMessageBrokerUserData({
+          brokerSecretArn,
+          dataVolumeDeviceName: messageBrokerConfig.dataVolumeDeviceName,
+          dataVolumeId,
+          dataVolumeMountPath: messageBrokerConfig.dataVolumeMountPath,
+          image: messageBrokerConfig.image,
+          port: messageBrokerConfig.port,
+          region,
+        }),
+      ),
+    vpcSecurityGroupIds: [securityGroupId],
   });
 
-  const brokerHost = brokerEndpoint.apply((endpoint) => new URL(endpoint).hostname);
-  const brokerPort = brokerEndpoint.apply((endpoint) => {
-    const parsedEndpoint = new URL(endpoint);
-
-    return Number(parsedEndpoint.port || '5671');
+  new aws.ec2.VolumeAttachment(stackName('shop-rabbitmq-data-volume-attachment'), {
+    deviceName: messageBrokerConfig.dataVolumeDeviceName,
+    instanceId: broker.id,
+    stopInstanceBeforeDetaching: true,
+    volumeId: brokerDataVolume.id,
   });
-  const consoleUrl = broker.instances.apply((instances) => {
-    const resolvedConsoleUrl = instances[0]?.consoleUrl;
 
-    if (!resolvedConsoleUrl) {
-      throw new Error('AmazonMQ broker console URL is not available.');
-    }
-
-    return resolvedConsoleUrl;
-  });
+  const brokerArn = pulumi.interpolate`arn:aws:ec2:${region}:${accountId}:instance/${broker.id}`;
+  const brokerEndpoint = pulumi.interpolate`amqp://${broker.privateIp}:${messageBrokerConfig.port}`;
+  const consoleUrl = pulumi.interpolate`http://${broker.privateIp}:${brokerManagementPort}`;
 
   return {
-    mqBrokerArn: broker.arn,
+    mqBrokerArn: brokerArn,
     mqBrokerConsoleUrl: consoleUrl,
-    mqBrokerDeploymentMode: broker.deploymentMode,
+    mqBrokerDeploymentMode: 'SINGLE_INSTANCE',
     mqBrokerEndpoint: brokerEndpoint,
-    mqBrokerEngineVersion: broker.engineVersion,
-    mqBrokerHost: brokerHost,
+    mqBrokerEngineVersion: messageBrokerConfig.engineVersion,
+    mqBrokerHost: broker.privateIp,
     mqBrokerId: broker.id,
-    mqBrokerName: broker.brokerName,
-    mqBrokerPort: brokerPort,
+    mqBrokerName: messageBrokerConfig.brokerName,
+    mqBrokerPort: messageBrokerConfig.port,
   };
 }

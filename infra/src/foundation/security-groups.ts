@@ -4,6 +4,8 @@ import * as pulumi from '@pulumi/pulumi';
 import { commonTags, stackName } from '../bootstrap';
 import { getFoundationSecurityGroupConfig } from './security-group-config';
 
+const rabbitmqAmqpPort = 5672;
+
 interface CreateCidrRuleArgs extends CreateSecurityGroupRuleArgs {
   cidrBlocks: string[];
 }
@@ -67,7 +69,7 @@ export function createFoundationSecurityGroups({ vpcId }: CreateFoundationSecuri
   });
 
   const mqSecurityGroup = createSecurityGroup({
-    description: 'AmazonMQ broker security group.',
+    description: 'Dedicated RabbitMQ broker security group.',
     logicalName: 'sg-mq',
     scope: 'private',
     vpcId,
@@ -152,13 +154,13 @@ export function createFoundationSecurityGroups({ vpcId }: CreateFoundationSecuri
   });
 
   createSourceSecurityGroupRule({
-    description: 'Allow ECS access to AmazonMQ over AMQPS.',
-    fromPort: securityGroupConfig.ports.amqps,
-    logicalName: 'sg-mq-ingress-amqps-from-ecs',
+    description: 'Allow ECS access to dedicated RabbitMQ over AMQP.',
+    fromPort: rabbitmqAmqpPort,
+    logicalName: 'sg-mq-ingress-amqp-from-ecs',
     protocol: securityGroupConfig.tcpProtocol,
     securityGroupId: mqSecurityGroup.id,
     sourceSecurityGroupId: ecsSecurityGroup.id,
-    toPort: securityGroupConfig.ports.amqps,
+    toPort: rabbitmqAmqpPort,
     type: 'ingress',
   });
 

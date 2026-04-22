@@ -3,7 +3,6 @@ import { getFoundationComputeConfig } from './compute-config';
 
 const defaultCloudMapNamespaceName = `${projectPrefix}.local`;
 const defaultDesiredCount = 1;
-const defaultImageTag = 'latest';
 const constrainedDeploymentMaximumPercent = 100;
 const constrainedDeploymentMinimumHealthyPercent = 0;
 const defaultShopHealthCheckGracePeriodSeconds = 120;
@@ -15,13 +14,13 @@ export interface ComputeServicesConfig {
   paymentsDeploymentMaximumPercent: number;
   paymentsDeploymentMinimumHealthyPercent: number;
   paymentsDesiredCount: number;
-  paymentsImageTag: string;
+  paymentsImageTag?: string;
   paymentsImageUri?: string;
   shopDeploymentMaximumPercent: number;
   shopDeploymentMinimumHealthyPercent: number;
   shopDesiredCount: number;
   shopHealthCheckGracePeriodSeconds: number;
-  shopImageTag: string;
+  shopImageTag?: string;
   shopImageUri?: string;
 }
 
@@ -44,8 +43,8 @@ export function getComputeServicesConfig(): ComputeServicesConfig {
     config.getNumber('shopHealthCheckGracePeriodSeconds') ??
     defaultShopHealthCheckGracePeriodSeconds;
   const paymentsDesiredCount = config.getNumber('paymentsDesiredCount') ?? defaultDesiredCount;
-  const shopImageTag = config.get('shopImageTag') ?? defaultImageTag;
-  const paymentsImageTag = config.get('paymentsImageTag') ?? defaultImageTag;
+  const shopImageTag = normalizeOptionalValue(config.get('shopImageTag'));
+  const paymentsImageTag = normalizeOptionalValue(config.get('paymentsImageTag'));
   const shopImageUri = normalizeOptionalValue(config.get('shopImageUri'));
   const paymentsImageUri = normalizeOptionalValue(config.get('paymentsImageUri'));
 
@@ -63,8 +62,8 @@ export function getComputeServicesConfig(): ComputeServicesConfig {
   );
   validateDnsName('cloudMapNamespaceName', cloudMapNamespaceName);
   validateGracePeriod('shopHealthCheckGracePeriodSeconds', shopHealthCheckGracePeriodSeconds);
-  validateTag('shopImageTag', shopImageTag);
-  validateTag('paymentsImageTag', paymentsImageTag);
+  validateImageSource('shop', shopImageTag, shopImageUri);
+  validateImageSource('payments', paymentsImageTag, paymentsImageUri);
 
   return {
     cloudMapNamespaceName,
@@ -154,8 +153,20 @@ function validateGracePeriod(label: string, value: number) {
   }
 }
 
-function validateTag(label: string, value: string) {
-  if (value.trim().length === 0) {
-    throw new Error(`${label} cannot be empty.`);
+function validateImageSource(
+  service: 'payments' | 'shop',
+  imageTag: string | undefined,
+  imageUri: string | undefined,
+) {
+  if (imageTag && imageUri) {
+    throw new Error(
+      `${service}ImageTag and ${service}ImageUri are mutually exclusive. Set only one explicit image source.`,
+    );
+  }
+
+  if (!imageTag && !imageUri) {
+    throw new Error(
+      `${service}ImageTag or ${service}ImageUri must be set explicitly. Implicit latest image fallback is not allowed.`,
+    );
   }
 }
