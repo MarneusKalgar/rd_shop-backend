@@ -17,6 +17,7 @@ import { createFoundationSes } from './src/data/ses';
 import { createFoundationEcr } from './src/foundation/ecr';
 import { createFoundationNetwork } from './src/foundation/network';
 import { createFoundationSecurityGroups } from './src/foundation/security-groups';
+import { createMessageQueue } from './src/messaging/mq';
 
 // Step 1: bootstrap/runtime context lives in src/bootstrap.ts.
 // Step 2: foundation network owns Phase 0.2 resources.
@@ -26,10 +27,11 @@ import { createFoundationSecurityGroups } from './src/foundation/security-groups
 // Step 6: data module owns Phase 1.2 S3 resources.
 // Step 7: data module owns Phase 1.3/1.4 secrets and parameters.
 // Step 8: data module owns Phase 1.5 sender identity resources.
-// Step 9: compute module owns Phase 2.2 ECS cluster and EC2 capacity.
-// Step 10: compute module owns Phase 2.3/2.4 ECS task definitions and services.
-// Step 11: compute module owns Phase 2.4/2.5 public ALB, ACM, and Route 53 wiring.
-// Step 12: index.ts stays thin and exports values other phases and CI need.
+// Step 9: messaging module owns Phase 3 AmazonMQ broker resources.
+// Step 10: compute module owns Phase 2.2 ECS cluster and EC2 capacity.
+// Step 11: compute module owns Phase 2.3/2.4 ECS task definitions and services.
+// Step 12: compute module owns Phase 2.4/2.5 public ALB, ACM, and Route 53 wiring.
+// Step 13: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
 const foundationSecurityGroups = createFoundationSecurityGroups({
@@ -43,6 +45,10 @@ const foundationDatabases = createFoundationDatabases({
   },
 });
 const foundationFileStorage = createFoundationFileStorage();
+const messageQueue = createMessageQueue({
+  privateSubnetIds: foundationNetwork.privateSubnetIds,
+  securityGroupId: foundationSecurityGroups.securityGroupIds.mq,
+});
 const foundationRuntimeConfig = createFoundationRuntimeConfig({
   databases: {
     payments: {
@@ -56,6 +62,10 @@ const foundationRuntimeConfig = createFoundationRuntimeConfig({
   },
   fileStorage: {
     filesBucketName: foundationFileStorage.filesBucketName,
+  },
+  messageQueue: {
+    host: messageQueue.mqBrokerHost,
+    port: messageQueue.mqBrokerPort,
   },
 });
 const foundationSes = createFoundationSes();
@@ -208,6 +218,15 @@ export const albAccessLogsBucketArn = computeEdge?.albAccessLogsBucketArn ?? nul
 export const albAccessLogsBucketName = computeEdge?.albAccessLogsBucketName ?? null;
 export const ecsSecurityGroupId = foundationSecurityGroups.securityGroupIds.ecs;
 export const mqSecurityGroupId = foundationSecurityGroups.securityGroupIds.mq;
+export const mqBrokerArn = messageQueue.mqBrokerArn;
+export const mqBrokerConsoleUrl = messageQueue.mqBrokerConsoleUrl;
+export const mqBrokerDeploymentMode = messageQueue.mqBrokerDeploymentMode;
+export const mqBrokerEndpoint = messageQueue.mqBrokerEndpoint;
+export const mqBrokerEngineVersion = messageQueue.mqBrokerEngineVersion;
+export const mqBrokerHost = messageQueue.mqBrokerHost;
+export const mqBrokerId = messageQueue.mqBrokerId;
+export const mqBrokerName = messageQueue.mqBrokerName;
+export const mqBrokerPort = messageQueue.mqBrokerPort;
 export const paymentsRepositoryArn = foundationEcr.paymentsRepositoryArn;
 export const paymentsRepositoryName = foundationEcr.paymentsRepositoryName;
 export const paymentsRepositoryUrl = foundationEcr.paymentsRepositoryUrl;

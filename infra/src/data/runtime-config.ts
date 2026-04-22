@@ -14,6 +14,10 @@ interface CreateFoundationRuntimeConfigArgs {
   fileStorage: {
     filesBucketName: pulumi.Input<string>;
   };
+  messageQueue: {
+    host: pulumi.Input<string>;
+    port: pulumi.Input<number>;
+  };
 }
 
 interface ServiceDatabaseRuntimeConfig {
@@ -41,6 +45,7 @@ type ParameterNameMap = Record<string, string>;
 export function createFoundationRuntimeConfig({
   databases,
   fileStorage,
+  messageQueue,
 }: CreateFoundationRuntimeConfigArgs) {
   const runtimeConfig = getFoundationRuntimeConfig();
 
@@ -110,6 +115,8 @@ export function createFoundationRuntimeConfig({
       ...runtimeConfig.shop.parameterValues,
       AWS_REGION: aws.config.region ?? 'eu-central-1',
       AWS_S3_BUCKET: fileStorage.filesBucketName,
+      RABBITMQ_HOST: messageQueue.host,
+      RABBITMQ_PORT: pulumi.output(messageQueue.port).apply((port) => String(port)),
     },
   });
 

@@ -3,6 +3,7 @@
 import * as pulumi from '@pulumi/pulumi';
 
 import { config, projectPrefix, region, stack } from '../bootstrap';
+import { getMessageQueueCredentials } from '../messaging/mq-config';
 import { getPublicDomainConfig } from '../public-domain';
 
 const defaultPaymentsAppLogLevel = stack === 'production' ? 'log' : 'debug';
@@ -71,6 +72,8 @@ export interface FoundationRuntimeConfig {
 }
 
 export function getFoundationRuntimeConfig(): FoundationRuntimeConfig {
+  const messageQueueCredentials = getMessageQueueCredentials();
+
   return {
     parameterPathPrefix: `/${projectPrefix}/${stack}`,
     payments: {
@@ -148,8 +151,8 @@ export function getFoundationRuntimeConfig(): FoundationRuntimeConfig {
           'shopJwtAccessSecret',
           minimumJwtAccessSecretLength,
         ),
-        RABBITMQ_PASSWORD: getOptionalSecretConfig('shopRabbitmqPassword', 'guest'),
-        RABBITMQ_USER: getOptionalSecretConfig('shopRabbitmqUser', 'guest'),
+        RABBITMQ_PASSWORD: messageQueueCredentials.password,
+        RABBITMQ_USER: messageQueueCredentials.username,
         TOKEN_HMAC_SECRET: getRequiredSecretConfig(
           'shopTokenHmacSecret',
           minimumTokenHmacSecretLength,
@@ -157,10 +160,6 @@ export function getFoundationRuntimeConfig(): FoundationRuntimeConfig {
       },
     },
   };
-}
-
-function getOptionalSecretConfig(key: string, defaultValue: string) {
-  return config.getSecret(key) ?? pulumi.secret(defaultValue);
 }
 
 function getRequiredSecretConfig(key: string, minimumLength: number) {
