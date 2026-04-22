@@ -3,6 +3,7 @@
 import * as pulumi from '@pulumi/pulumi';
 
 import { config, projectPrefix, region, stack } from '../bootstrap';
+import { getPublicDomainConfig } from '../public-domain';
 
 const defaultPaymentsAppLogLevel = stack === 'production' ? 'log' : 'debug';
 const defaultPaymentsDatabaseProvider = 'postgres';
@@ -10,13 +11,16 @@ const defaultPaymentsGrpcBindHost = '0.0.0.0';
 const defaultPaymentsGrpcPort = 5001;
 const defaultShopAllowSeedInProduction = 'false';
 const defaultShopAppLogLevel = stack === 'production' ? 'log' : 'debug';
-const defaultShopAppUrl =
-  stack === 'production'
+const configuredPublicDomain = getPublicDomainConfig();
+const defaultShopAppUrl = configuredPublicDomain
+  ? `https://${configuredPublicDomain.apiDomainName}`
+  : stack === 'production'
     ? `https://${projectPrefix}.example.com`
     : `https://${stack}.${projectPrefix}.example.com`;
 const defaultShopBcryptSaltRounds = 10;
-const defaultShopCorsAllowedOrigins =
-  stack === 'production'
+const defaultShopCorsAllowedOrigins = configuredPublicDomain
+  ? `https://${configuredPublicDomain.apiDomainName}`
+  : stack === 'production'
     ? `https://${projectPrefix}.example.com`
     : `https://${stack}.${projectPrefix}.example.com`;
 const defaultShopDatabaseProvider = 'postgres';

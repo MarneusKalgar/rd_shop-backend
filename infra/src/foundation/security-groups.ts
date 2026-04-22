@@ -98,13 +98,13 @@ export function createFoundationSecurityGroups({ vpcId }: CreateFoundationSecuri
 
   // ECS instances accept app traffic from ALB and east-west task traffic from themselves.
   createSourceSecurityGroupRule({
-    description: 'Allow ALB traffic to shop HTTP port on ECS.',
-    fromPort: securityGroupConfig.ports.ecsShopHttp,
+    description: 'Allow ALB traffic to ECS dynamic host ports for shop tasks.',
+    fromPort: securityGroupConfig.ports.ecsDynamicHostPortRangeStart,
     logicalName: 'sg-ecs-ingress-shop-from-alb',
     protocol: securityGroupConfig.tcpProtocol,
     securityGroupId: ecsSecurityGroup.id,
     sourceSecurityGroupId: albSecurityGroup.id,
-    toPort: securityGroupConfig.ports.ecsShopHttp,
+    toPort: securityGroupConfig.ports.ecsDynamicHostPortRangeEnd,
     type: 'ingress',
   });
 

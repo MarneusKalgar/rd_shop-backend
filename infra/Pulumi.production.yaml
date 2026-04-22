@@ -1,9 +1,9 @@
 config:
   aws:region: eu-central-1
-  rd-shop-infra:databaseAllocatedStorageGiB: 20
-  rd-shop-infra:databaseBackupRetentionDays: 7
+  rd-shop-infra:databaseAllocatedStorageGiB: '20'
+  rd-shop-infra:databaseBackupRetentionDays: '7'
   rd-shop-infra:databaseEngineMajorVersion: '16'
-  rd-shop-infra:databaseMultiAz: true
+  rd-shop-infra:databaseMultiAz: 'true'
   rd-shop-infra:filesBucketCorsAllowedHeaders:
     - '*'
   rd-shop-infra:filesBucketCorsAllowedOrigins:
@@ -24,3 +24,4 @@ config:
   rd-shop-infra:shopDatabaseName: rd_shop
   rd-shop-infra:shopDatabaseUsername: shop
   rd-shop-infra:vpcCidr: 10.52.0.0/16
+  rd-shop-infra:publicRootDomainName: rdshop.production.io

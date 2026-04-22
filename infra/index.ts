@@ -8,6 +8,7 @@ import {
   stack,
 } from './src/bootstrap';
 import { createFoundationCompute } from './src/compute/compute';
+import { createComputeEdge } from './src/compute/edge';
 import { createComputeServices } from './src/compute/services';
 import { createFoundationDatabases } from './src/data/databases';
 import { createFoundationFileStorage } from './src/data/file-storage';
@@ -27,7 +28,8 @@ import { createFoundationSecurityGroups } from './src/foundation/security-groups
 // Step 8: data module owns Phase 1.5 sender identity resources.
 // Step 9: compute module owns Phase 2.2 ECS cluster and EC2 capacity.
 // Step 10: compute module owns Phase 2.3/2.4 ECS task definitions and services.
-// Step 11: index.ts stays thin and exports values other phases and CI need.
+// Step 11: compute module owns Phase 2.4/2.5 public ALB, ACM, and Route 53 wiring.
+// Step 12: index.ts stays thin and exports values other phases and CI need.
 const foundationEcr = createFoundationEcr();
 const foundationNetwork = createFoundationNetwork();
 const foundationSecurityGroups = createFoundationSecurityGroups({
@@ -61,6 +63,11 @@ const foundationCompute = createFoundationCompute({
   privateSubnetIds: foundationNetwork.privateSubnetIds,
   securityGroupId: foundationSecurityGroups.securityGroupIds.ecs,
 });
+const computeEdge = createComputeEdge({
+  albSecurityGroupId: foundationSecurityGroups.securityGroupIds.alb,
+  publicSubnetIds: foundationNetwork.publicSubnetIds,
+  vpcId: foundationNetwork.vpcId,
+});
 const computeServices = createComputeServices({
   capacityProviderName: foundationCompute.ecsCapacityProviderName,
   clusterArn: foundationCompute.ecsClusterArn,
@@ -68,6 +75,11 @@ const computeServices = createComputeServices({
     paymentsRepositoryUrl: foundationEcr.paymentsRepositoryUrl,
     shopRepositoryUrl: foundationEcr.shopRepositoryUrl,
   },
+  edge: computeEdge
+    ? {
+        shopTargetGroupArn: computeEdge.shopTargetGroupArn,
+      }
+    : undefined,
   fileStorage: {
     filesBucketArn: foundationFileStorage.filesBucketArn,
   },
@@ -111,6 +123,22 @@ export const natElasticIpAllocationId = foundationNetwork.natElasticIpAllocation
 export const natInstanceId = foundationNetwork.natInstanceId;
 export const natInstanceType = foundationNetwork.natInstanceType;
 export const natPublicIp = foundationNetwork.natPublicIp;
+export const publicAlbArn = computeEdge?.publicAlbArn ?? null;
+export const publicAlbDnsName = computeEdge?.publicAlbDnsName ?? null;
+export const publicAlbHttpListenerArn = computeEdge?.publicAlbHttpListenerArn ?? null;
+export const publicAlbHttpsListenerArn = computeEdge?.publicAlbHttpsListenerArn ?? null;
+export const publicAlbName = computeEdge?.publicAlbName ?? null;
+export const publicAlbZoneId = computeEdge?.publicAlbZoneId ?? null;
+export const publicApiAliasRecordFqdn = computeEdge?.publicApiAliasRecordFqdn ?? null;
+export const publicApiDomainName = computeEdge?.publicApiDomainName ?? null;
+export const publicCertificateArn = computeEdge?.publicCertificateArn ?? null;
+export const publicCertificateDomainName = computeEdge?.publicCertificateDomainName ?? null;
+export const publicCertificateValidationRecordFqdn =
+  computeEdge?.publicCertificateValidationRecordFqdn ?? null;
+export const publicEndpointEnabled = computeEdge !== undefined;
+export const publicHostedZoneId = computeEdge?.publicHostedZoneId ?? null;
+export const publicHostedZoneName = computeEdge?.publicHostedZoneName ?? null;
+export const publicHostedZoneNameServers = computeEdge?.publicHostedZoneNameServers ?? null;
 export const paymentsDiscoveryServiceArn = computeServices.paymentsDiscoveryServiceArn;
 export const paymentsDiscoveryServiceId = computeServices.paymentsDiscoveryServiceId;
 export const paymentsDiscoveryServiceName = computeServices.paymentsDiscoveryServiceName;
@@ -169,11 +197,15 @@ export const shopServiceName = computeServices.shopServiceName;
 export const shopTaskDefinitionArn = computeServices.shopTaskDefinitionArn;
 export const shopTaskRoleArn = computeServices.shopTaskRoleArn;
 export const shopTaskRoleName = computeServices.shopTaskRoleName;
+export const shopTargetGroupArn = computeEdge?.shopTargetGroupArn ?? null;
+export const shopTargetGroupName = computeEdge?.shopTargetGroupName ?? null;
 export const securityGroupIds = foundationSecurityGroups.securityGroupIds;
 export const sharedInfraManagedByThisStack = isSharedInfraOwner;
 export const sharedInfraOwner = sharedInfraOwnerStack;
 export const createdSharedRepositories = foundationEcr.createdSharedRepositories;
 export const albSecurityGroupId = foundationSecurityGroups.securityGroupIds.alb;
+export const albAccessLogsBucketArn = computeEdge?.albAccessLogsBucketArn ?? null;
+export const albAccessLogsBucketName = computeEdge?.albAccessLogsBucketName ?? null;
 export const ecsSecurityGroupId = foundationSecurityGroups.securityGroupIds.ecs;
 export const mqSecurityGroupId = foundationSecurityGroups.securityGroupIds.mq;
 export const paymentsRepositoryArn = foundationEcr.paymentsRepositoryArn;

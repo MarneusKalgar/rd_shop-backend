@@ -10,6 +10,8 @@ export const foundationSecurityGroupPorts = {
   albHttp: 80,
   albHttps: 443,
   amqps: 5671,
+  ecsDynamicHostPortRangeEnd: 65535,
+  ecsDynamicHostPortRangeStart: 32768,
   ecsPaymentsGrpc: 5001,
   ecsShopHttp: 8080,
   postgres: 5432,

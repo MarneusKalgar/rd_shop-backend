@@ -7,6 +7,7 @@ import {
   buildShopContainerDefinitions,
   paymentsServiceDefaults,
   RuntimeParameterNames,
+  shopServiceDefaults,
 } from './service-definitions';
 import { getComputeServicesConfig } from './services-config';
 
@@ -16,6 +17,9 @@ interface CreateComputeServicesArgs {
   ecr: {
     paymentsRepositoryUrl: pulumi.Input<string>;
     shopRepositoryUrl: pulumi.Input<string>;
+  };
+  edge?: {
+    shopTargetGroupArn: pulumi.Input<string>;
   };
   fileStorage: {
     filesBucketArn: pulumi.Input<string>;
@@ -43,6 +47,7 @@ export function createComputeServices({
   capacityProviderName,
   clusterArn,
   ecr,
+  edge,
   fileStorage,
   network,
   runtimeConfig,
@@ -248,32 +253,42 @@ export function createComputeServices({
     paymentsTaskPolicy,
   ];
 
-  // Image push, RabbitMQ cutover, and ALB come in later phases, so service creation should not
-  // block the whole stack on ECS steady-state during early applies.
-  const shopService = new aws.ecs.Service(
-    stackName('shop-service'),
-    {
-      capacityProviderStrategies: [
-        {
-          base: 1,
-          capacityProvider: capacityProviderName,
-          weight: 100,
-        },
-      ],
-      cluster: clusterArn,
-      deploymentMaximumPercent: 100,
-      deploymentMinimumHealthyPercent: 0,
-      desiredCount: servicesConfig.shopDesiredCount,
-      enableEcsManagedTags: true,
-      forceDelete: stack !== 'production',
-      name: stackName('shop-service'),
-      taskDefinition: shopTaskDefinition.arn,
-      waitForSteadyState: false,
-    },
-    {
-      dependsOn: [...serviceDependencies, shopTaskDefinition],
-    },
-  );
+  const shopServiceArgs: aws.ecs.ServiceArgs = {
+    capacityProviderStrategies: [
+      {
+        base: 1,
+        capacityProvider: capacityProviderName,
+        weight: 100,
+      },
+    ],
+    cluster: clusterArn,
+    deploymentMaximumPercent: servicesConfig.shopDeploymentMaximumPercent,
+    deploymentMinimumHealthyPercent: servicesConfig.shopDeploymentMinimumHealthyPercent,
+    desiredCount: servicesConfig.shopDesiredCount,
+    enableEcsManagedTags: true,
+    forceDelete: stack !== 'production',
+    name: stackName('shop-service'),
+    taskDefinition: shopTaskDefinition.arn,
+    waitForSteadyState: false,
+  };
+
+  if (edge?.shopTargetGroupArn) {
+    shopServiceArgs.healthCheckGracePeriodSeconds =
+      servicesConfig.shopHealthCheckGracePeriodSeconds;
+    shopServiceArgs.loadBalancers = [
+      {
+        containerName: shopServiceDefaults.containerName,
+        containerPort: shopServiceDefaults.containerPort,
+        targetGroupArn: edge.shopTargetGroupArn,
+      },
+    ];
+  }
+
+  // Image push, RabbitMQ cutover, and public ingress may come after the first apply, so keep
+  // ECS service creation non-blocking while the phase 2 stack is still coming together.
+  const shopService = new aws.ecs.Service(stackName('shop-service'), shopServiceArgs, {
+    dependsOn: [...serviceDependencies, shopTaskDefinition],
+  });
 
   const paymentsService = new aws.ecs.Service(
     stackName('payments-service'),
@@ -286,8 +301,8 @@ export function createComputeServices({
         },
       ],
       cluster: clusterArn,
-      deploymentMaximumPercent: 100,
-      deploymentMinimumHealthyPercent: 0,
+      deploymentMaximumPercent: servicesConfig.paymentsDeploymentMaximumPercent,
+      deploymentMinimumHealthyPercent: servicesConfig.paymentsDeploymentMinimumHealthyPercent,
       desiredCount: servicesConfig.paymentsDesiredCount,
       enableEcsManagedTags: true,
       forceDelete: stack !== 'production',
