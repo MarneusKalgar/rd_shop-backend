@@ -30,7 +30,11 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 - **gRPC Payments Integration** - Independent payments-service communicating over gRPC; order worker authorizes payment after processing, updating order to `PAID` (see [homework14.md](homework14.md))
 - **GraphQL Authentication** - JWT-protected GraphQL queries via `GqlJwtAuthGuard`; user identity derived from Bearer token
 - **CI/CD Pipeline** - Four-workflow GitHub Actions pipeline with PR quality gates, immutable image build, automatic stage deploy, and manual production deploy with approval gate (see [homework17.md](homework17.md))
+- **Proto Contract Testing** - buf lint and buf breaking-change gate in CI (`WIRE_JSON` rule set); any wire-incompatible proto change fails the PR before code is merged
 - **Health Check System** - Three-tier health endpoints (`/health`, `/ready`, `/status`) built with `@nestjs/terminus`; custom indicators for PostgreSQL, RabbitMQ, MinIO, and payments-service gRPC; liveness/readiness/full-status probes with Kubernetes-compatible semantics
+- **Security Hardening** - OWASP ASVS-aligned controls: HTTP security headers (Helmet), rate limiting (ThrottlerGuard — HTTP + GraphQL), structured audit log with correlation IDs, RBAC/ABAC with JWT, input validation, and secrets never logged (see [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md))
+- **Performance Optimization** - Baseline captured, 5 bottlenecks identified and resolved: GIN trigram index (−26 % search p95), cursor decode (−50 % pagination DB calls), order transaction re-fetch removal (−60 % order create p99), HMAC tokens (−99.999 % token op cost), gRPC circuit breaker (queue drain from +33 msg/s growth → 0) (see [homework-report.md](homework-report.md))
+- **Test Coverage Reporting** - Per-project `collectCoverageFrom` in Jest config (unit + integration); lcov + json-summary reporters; integration coverage artifact uploaded to CI
 
 ## 🛠️ Technology Stack
 
@@ -122,12 +126,15 @@ cd rd_shop
 # Install dependencies (shared across both services)
 npm install
 
-# Create environment files for each service
-touch apps/shop/.env.development
-touch apps/payments/.env.development
+# Copy environment template files (creates .env.development for each service)
+npm run setup:env
 
-# Fill in the required variables (see Environment Configuration below)
+# Review and customize the environment files as needed
+# - apps/shop/.env.development
+# - apps/payments/.env.development
 ```
+
+**Note:** `.env.development` files are gitignored for security. Each developer should run `npm run setup:env` after cloning to populate their local environment files.
 
 ## 🌍 Environment Configuration
 
@@ -387,15 +394,32 @@ npm test
 # Run unit tests in watch mode
 npm run test:watch
 
-# Generate unit test coverage
+# Generate unit test coverage (lcov + json-summary)
 npm run test:cov
 
 # Run integration tests — requires Docker (Testcontainers)
 npm run test:integration:shop
 
+# Generate integration test coverage
+npm run test:integration:shop:cov
+
 # Debug unit tests
 npm run test:debug
 ```
+
+### Proto contract tests
+
+Protobuf breaking-change detection is enforced in CI via [buf](https://buf.build/):
+
+```bash
+# Lint the proto schema (style rules)
+cd proto && buf lint
+
+# Check for wire-breaking changes against the main branch baseline
+cd proto && buf breaking --against '../.git#branch=origin/main,subdir=proto' --config buf.breaking.yaml
+```
+
+`proto/buf.breaking.yaml` configures the `WIRE_JSON` breaking-change rule set. `proto/buf.yaml` contains lint configuration and suppresses four lint rules that are incompatible with the NestJS/gRPC contract (`PACKAGE_DIRECTORY_MATCH`, `PACKAGE_VERSION_SUFFIX`, `SERVICE_SUFFIX`, `ENUM_VALUE_PREFIX`). Both commands run as PR gates in the `code-quality` CI job.
 
 ## 🏗️ Architecture Overview
 
@@ -775,14 +799,13 @@ For full pipeline architecture, action dependency maps, artifact flow diagrams, 
 
 ## �🔄 Graceful Shutdown
 
-The application handles graceful shutdown automatically:
+The application handles graceful shutdown via a manual `SIGTERM` handler in `main.ts`:
 
-- Closes HTTP server
-- Waits for active requests to complete
-- Cleans up resources (database connections, Redis, etc.)
-- Exits cleanly on SIGTERM/SIGINT
-
-Configuration per environment in `src/config/graceful-shutdown.ts`
+- Receives SIGTERM (forwarded by tini/Docker)
+- Calls `app.close()` → triggers `OnModuleDestroy` lifecycle hooks
+- RabbitMQ consumer stops (no unacked message loss)
+- TypeORM pool drains cleanly
+- Exits with code 0
 
 ## 📚 Next Steps
 
@@ -798,9 +821,32 @@ See [TODO.md](TODO.md) for planned features:
 - [x] CI/CD pipeline with GitHub Actions (PR checks, build & push, stage/production deploy) (see [homework17.md](homework17.md))
 - [ ] Complete service layer implementation (CRUD operations)
 - [x] Health check endpoint (`/health`, `/ready`, `/status` with custom Terminus indicators)
-- [ ] Rate limiting
+- [x] Rate limiting (global `GqlThrottlerGuard` — HTTP + GraphQL)
+- [x] Security hardening — headers, audit log, OWASP ASVS baseline (see [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md))
+- [x] Performance optimization — baseline, bottleneck analysis, 8 improvements with before/after data (see [homework-report.md](homework-report.md))
 - [ ] Redis caching
 - [ ] API documentation (Swagger)
+
+## 🔒 Security
+
+The project maintains an OWASP ASVS-aligned security baseline. Key controls:
+
+| Control               | Implementation                                                                 |
+| --------------------- | ------------------------------------------------------------------------------ |
+| HTTP security headers | Helmet (`X-Frame-Options: DENY`, HSTS, CSP, etc.)                              |
+| Rate limiting         | Global `GqlThrottlerGuard` — 3 req/s (short), 20/10 s (medium), 100/min (long) |
+| Authentication        | JWT RS256/HS256 via Passport; 4 guard types (REST + GraphQL)                   |
+| Authorization         | RBAC (roles) + ABAC (scopes) per-endpoint                                      |
+| Audit log             | `AuditLogEvent` table — action, actor, outcome, correlationId, IP, user-agent  |
+| Input validation      | `ValidationPipe` with `whitelist: true` on all controllers                     |
+| Secrets               | Never logged; redacted from pino serializers                                   |
+| TLS                   | Enforced at reverse-proxy / load balancer level                                |
+
+**Documentation:**
+
+- [SECURITY-BASELINE.md](security-homework/SECURITY-BASELINE.md) — full OWASP ASVS mapping, threat model, and evidence index
+- [security-evidence/](security-evidence/) — curl captures, header dumps, rate-limit proofs, and audit log samples
+- [infra-security.md](docs/backend/architecture/infra-security.md) — architecture-level security design decisions
 
 ## 🤝 Contributing
 

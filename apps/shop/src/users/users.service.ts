@@ -7,8 +7,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
+
+import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
+import { AuditEventContext } from '@/audit-log/audit-log.types';
+import { AuthUser } from '@/auth/types';
 
 import { TokenService } from '../auth/token.service';
 import { FilesService } from '../files/files.service';
@@ -37,6 +41,7 @@ export class UsersService {
     private readonly configService: ConfigService,
     private readonly filesService: FilesService,
     private readonly tokenService: TokenService,
+    private readonly auditLogService: AuditLogService,
   ) {
     this.saltRounds = this.configService.get<number>('BCRYPT_SALT_ROUNDS', 10);
   }
@@ -137,7 +142,7 @@ export class UsersService {
     return { data: dto };
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, actor?: AuthUser, context?: AuditEventContext): Promise<void> {
     await this.findUserOrFail(id);
 
     await Promise.all([
@@ -146,6 +151,16 @@ export class UsersService {
     ]);
 
     this.logger.log(`Soft-deleted user: ${id}`);
+
+    void this.auditLogService.log({
+      action: AuditAction.USER_SOFT_DELETED,
+      actorId: actor?.sub ?? null,
+      actorRole: actor?.roles.join(',') ?? null,
+      context,
+      outcome: AuditOutcome.SUCCESS,
+      targetId: id,
+      targetType: 'User',
+    });
   }
 
   async removeAvatar(userId: string): Promise<void> {
@@ -182,18 +197,44 @@ export class UsersService {
   async updateRoles(
     userId: string,
     dto: UpdateRolesDto,
+    actor?: AuthUser,
+    context?: AuditEventContext,
   ): Promise<UpdateUserPermissionsResponseDto> {
     await this.findUserOrFail(userId);
     await this.userRepository.update(userId, { roles: dto.roles });
+
+    void this.auditLogService.log({
+      action: AuditAction.USER_ROLE_CHANGED,
+      actorId: actor?.sub ?? null,
+      actorRole: actor?.roles.join(',') ?? null,
+      context,
+      outcome: AuditOutcome.SUCCESS,
+      targetId: userId,
+      targetType: 'User',
+    });
+
     return { message: 'User roles updated successfully' };
   }
 
   async updateScopes(
     userId: string,
     dto: UpdateScopesDto,
+    actor?: AuthUser,
+    context?: AuditEventContext,
   ): Promise<UpdateUserPermissionsResponseDto> {
     await this.findUserOrFail(userId);
     await this.userRepository.update(userId, { scopes: dto.scopes });
+
+    void this.auditLogService.log({
+      action: AuditAction.USER_SCOPE_CHANGED,
+      actorId: actor?.sub ?? null,
+      actorRole: actor?.roles.join(',') ?? null,
+      context,
+      outcome: AuditOutcome.SUCCESS,
+      targetId: userId,
+      targetType: 'User',
+    });
+
     return { message: 'User scopes updated successfully' };
   }
 

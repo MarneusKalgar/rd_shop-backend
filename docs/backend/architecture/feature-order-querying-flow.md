@@ -1,5 +1,18 @@
 # rd_shop — Orders Querying
 
+## Services hierarchy
+
+```
+OrdersService (facade — backward compat)
+└── OrdersQueryService     read path: findOrdersWithFilters, getOrderById, getOrderPayment
+    ├── OrdersRepository       custom query methods + findByIdWithItemRelations
+    ├── OrdersQueryBuilder     two-stage subquery/main-query split
+    └── PaymentsGrpcService    payment status lookup (getOrderPayment only)
+```
+
+All read methods enforce ownership via `assertOrderOwnership(order, userId)` — returns 404
+for both "not found" and "wrong owner" cases (IDOR prevention).
+
 ## REST endpoints — all scoped to the authenticated user
 
 | Endpoint                                    | Guard                      | Scope          | Returns                      |
@@ -129,3 +142,38 @@ OrdersConnection { nodes: OrderType[], pageInfo: PageInfo, totalCount?: Int }  /
 PageInfo         { hasNextPage: Boolean, nextCursor?: String }
 OrderItemType   { id, orderId, productId, quantity, priceAtPurchase, product, order }
 ```
+
+---
+
+## Tests
+
+### Integration tests
+
+File: `apps/shop/test/integration/orders/graphql-orders-pagination.integration-spec.ts`
+
+Tests the GraphQL `orders` query against a real Postgres container (Testcontainers). RabbitMQ, gRPC client, and PaymentsHealthIndicator are overridden with mocks (see `test-infrastructure.md` — providers always overridden).
+
+| Coverage                                                                          |
+| --------------------------------------------------------------------------------- |
+| Cursor pagination: first page, next-page cursor, last page (`hasNextPage: false`) |
+| `status` filter                                                                   |
+| `startDate` / `endDate` filter                                                    |
+| `productName` ILIKE filter                                                        |
+| Empty result set                                                                  |
+| `pageInfo.nextCursor` encodes the last item's UUID                                |
+
+### e2e tests
+
+File: `apps/shop/test/e2e/orders/orders-querying.e2e-spec.ts`
+
+Runs against the full `compose.e2e.yml` stack.
+
+| Flow                  | What it tests                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| **GET by ID**         | `GET /orders/:id` → 200, correct shape (`id`, `status`, `items`); ownership check          |
+| **List with filters** | `GET /orders?status=PENDING` → only PENDING orders returned                                |
+| **Cursor pagination** | `GET /orders?limit=1` → `hasNextPage: true`, valid `nextCursor`; follow cursor → next page |
+| **404**               | `GET /orders/<random-uuid>` → 404                                                          |
+| **401**               | `GET /orders` without token → 401                                                          |
+
+See `docs/backend/architecture/test-infrastructure.md` for stack setup and npm scripts.

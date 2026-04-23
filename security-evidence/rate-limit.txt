@@ -1,0 +1,64 @@
+for i in {1..6}; do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST http://localhost:8080/api/v1/auth/signin \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"user@test.com","password":"test1234"}';
+done
+200
+200
+200
+429
+429
+429
+
+...
+
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "POST",
+rd_shop_backend_shop_dev-app         |       "requestId": "d3595424-82e4-4148-bd84-2d032dc0513a",
+rd_shop_backend_shop_dev-app         |       "url": "/api/v1/auth/signin"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     res: {
+rd_shop_backend_shop_dev-app         |       "statusCode": 429
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     responseTime: 0
+rd_shop_backend_shop_dev-app         | [2026-04-09 13:27:22.391 +0000] WARN (177): HTTP POST /api/v1/auth/signin - Status: 429 - ThrottlerException: Too Many Requests
+
+
+GQL='{"query":"{ orders { nodes { id } } }"}'
+# Note: Bearer token has been redacted from this evidence file
+# Token contained scopes: orders:read, orders:write, files:write, products:read
+for i in {1..5}; do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST http://localhost:8080/graphql \
+    -H 'Content-Type: application/json' \
+    -H 'Authorization: Bearer [JWT_REDACTED_FOR_SECURITY]' \
+    -d "$GQL";
+done
+
+200
+200
+200
+200
+200
+
+...
+
+rd_shop_backend_shop_dev-app         | [2026-04-09 13:42:44.510 +0000] INFO (192): request completed
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "POST",
+rd_shop_backend_shop_dev-app         |       "requestId": "d8463f79-df6f-4366-aebc-d4ce81dcd171",
+rd_shop_backend_shop_dev-app         |       "url": "/graphql"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     res: {
+rd_shop_backend_shop_dev-app         |       "statusCode": 200
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     responseTime: 1
+rd_shop_backend_shop_dev-app         | [2026-04-09 13:42:44.510 +0000] INFO (192): SQL Queries: 0
+rd_shop_backend_shop_dev-app         |     req: {
+rd_shop_backend_shop_dev-app         |       "method": "POST",
+rd_shop_backend_shop_dev-app         |       "requestId": "d8463f79-df6f-4366-aebc-d4ce81dcd171",
+rd_shop_backend_shop_dev-app         |       "url": "/graphql"
+rd_shop_backend_shop_dev-app         |     }
+rd_shop_backend_shop_dev-app         |     queryCount: 0
+rd_shop_backend_shop_dev-app         | [2026-04-09 13:42:44.517 +0000] WARN (192): GraphQL BAD_REQUEST: ThrottlerException: Too Many Requests | RequestID: 445be4c0-7f32-4a02-9aa1-5cc0ad956c05 - ThrottlerException: Too Many Requests

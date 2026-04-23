@@ -1,12 +1,21 @@
-import { INestApplication, Logger, ValidationPipe, VersioningType } from '@nestjs/common';
+import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-// import { setupGracefulShutdown } from '@tygra/nestjs-graceful-shutdown';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
+import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters';
-import { getLogLevels } from './config';
-import { getEnvVariable, safeClose, setupCors, setupProcessErrorHandlers } from './core';
+import { ResponseTimeInterceptor } from './common/interceptors';
+import {
+  getEnvVariable,
+  registerShutdownHandlers,
+  safeClose,
+  setupCors,
+  setupEventLoopMonitoring,
+  setupHelmet,
+  setupProcessErrorHandlers,
+} from './core';
 import { setupSwagger } from './core/swagger';
 import { HEALTH_PATHS_TO_BYPASS } from './health/constants';
 import { isProduction } from './utils';
@@ -14,15 +23,15 @@ import { isProduction } from './utils';
 async function bootstrap() {
   setupProcessErrorHandlers();
 
-  let app: INestApplication | undefined;
+  let app: NestExpressApplication | undefined;
 
   try {
-    app = await NestFactory.create(AppModule, {
-      logger: getLogLevels(),
-    });
+    app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
 
-    // TODO: Uncomment when resolve problem with graphql module
-    // setupGracefulShutdown({ app });
+    app.useLogger(app.get(Logger));
+
+    // Trust one level of proxy (Docker gateway / AWS ALB) for correct client IP resolution
+    app.set('trust proxy', 1);
 
     app.enableVersioning({
       defaultVersion: '1',
@@ -35,7 +44,11 @@ async function bootstrap() {
 
     app.use(cookieParser());
 
+    setupHelmet(app);
+
     app.useGlobalFilters(new GlobalExceptionFilter());
+
+    app.useGlobalInterceptors(new ResponseTimeInterceptor());
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -56,17 +69,21 @@ async function bootstrap() {
     }
 
     const port = getEnvVariable(app, 'PORT');
+    const eventLoopThresholdMs = getEnvVariable(app, 'EVENT_LOOP_LAG_THRESHOLD_MS') ?? 100;
+    setupEventLoopMonitoring(app.get(Logger), Number(eventLoopThresholdMs));
 
     await app.listen(port);
 
-    Logger.log(`Application is running on port: ${port}`);
+    registerShutdownHandlers(app);
 
     if (!isProd) {
-      Logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`);
-      Logger.log(`GraphQL Playground available at: http://localhost:${port}/graphql`);
+      const logger = app.get(Logger);
+      logger.log(`Application is running on port: ${port}`, 'Bootstrap');
+      logger.log(`Swagger UI available at: http://localhost:${port}/api-docs`, 'Bootstrap');
+      logger.log(`GraphQL Playground available at: http://localhost:${port}/graphql`, 'Bootstrap');
     }
   } catch (error) {
-    Logger.error('Error during application bootstrap', (error as Error).stack);
+    console.error('Bootstrap failed:', error);
     await safeClose(app);
     process.exit(1);
   }

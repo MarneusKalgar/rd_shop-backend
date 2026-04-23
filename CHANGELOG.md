@@ -5,6 +5,120 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **PR checks dependency handling** — `pr-checks.yml` now restores and invalidates root and `infra/` `node_modules` caches independently; `code-quality` restores both caches before lint, type-check, and unit tests
+- **CI documentation** — `docs/backend/architecture/infra-ci-pipeline.md` and `homework17.md` now describe the current `install -> code-quality -> [integration-tests || docker-preview-build] -> all-checks-passed` flow, infra-aware validation, and the reduced local action set
+
+### Removed
+
+- **Unused `install-dependencies` composite action** — deleted `.github/actions/install-dependencies/action.yml`; install logic now lives directly in `pr-checks.yml`
+
+## [0.2.4] - 2026-04-20
+
+### Added
+
+- **Proto contract testing** — `proto/buf.yaml` (buf module config; `lint.except` for 4 NestJS-incompatible rules: `PACKAGE_DIRECTORY_MATCH`, `PACKAGE_VERSION_SUFFIX`, `SERVICE_SUFFIX`, `ENUM_VALUE_PREFIX`) and `proto/buf.breaking.yaml` (`WIRE_JSON` rule set) added to the repo; `bufbuild/buf-setup-action@v1` + `buf lint` + `buf breaking --against '../.git#branch=main,subdir=proto'` gate added to the `code-quality` CI composite action — any wire-breaking proto change now fails the PR
+- **Unit test coverage reporting** — `collectCoverageFrom` moved from root-level into each Jest project (`shop`, `payments`) so the project runner actually collects coverage; `coverageReporters: ['text', 'lcov', 'json-summary']` added at root; `npm run test:cov` now produces non-zero numbers
+- **Integration test coverage** — `npm run test:integration:shop:cov` script; `jest-integration.json` `rootDir` corrected from `"."` (test/) to `".."` (apps/shop/) so `src/**/*` globs resolve; `coverageDirectory: '../../coverage-integration'` and `coverageReporters` added to `jest-integration.json`
+- **CI coverage artifacts** — `code-quality` composite action prints unit `coverage-summary.json`; `integration-tests` job prints integration summary and uploads `coverage-integration/` as a build artifact with 7-day retention
+
+### Removed
+
+- **`.bufignore`** — no longer needed; buf scope is contained by `proto/buf.yaml` being placed inside the `proto/` directory (buf treats `proto/` as the module root when invoked via `cd proto && buf ...`)
+
+### Fixed
+
+- **`jest-integration.json` `rootDir`** — was `"."` (resolved to `apps/shop/test/`) causing `moduleNameMapper`, `setupFiles`, and `collectCoverageFrom` paths to be wrong; corrected to `".."` (resolves to `apps/shop/`)
+
+## [0.2.3] - 2026-04-20
+
+### Added
+
+- **`OrdersCommandService`** — extracted from `orders.service.ts` god class; owns `createOrder` and `cancelOrder` with all transaction logic, idempotency, stock mutation, and event emission
+- **`OrdersQueryService`** — read-only query handler: `findOrdersWithFilters`, `getOrderById`, `getOrderPayment`; constructor reduced to 3 deps (`OrdersRepository`, `OrdersQueryBuilder`, `PaymentsGrpcService`)
+- **`OrderProcessingService`** — worker-path processing extracted from the god class; `processOrderMessage` and `authorizePayment` now live in their own service, callable only by `OrderWorkerService`
+- **`OrderStockService`** — isolated stock operations: pessimistic locking, availability validation, stock decrement (`createOrder`), stock restore (`cancelOrder`), and `validateExist` pre-check
+- **`OrderPublisherService`** — thin RabbitMQ wrapper; publishes `OrderProcessMessageDto` with `messageId`
+- **`PgErrorMapperService`** — maps PostgreSQL error codes (`57014`, `55P03`, `23505`, `23503`) to NestJS domain exceptions
+- **`applyTransactionTimeouts(manager)`** util in `orders/utils/index.ts` — sets `SET LOCAL statement_timeout = 30000` and `SET LOCAL lock_timeout = 10000`; replaces duplicated inline `SET LOCAL` blocks in both transaction methods
+- **`validateOrderItems(items)`** util — fast-fail quantity validation extracted from `OrdersCommandService` to `orders/utils/index.ts`; runs before any transaction is opened
+- **`OrderStockService.validateExist(productIds)`** — product existence pre-check moved from `OrdersCommandService.validateProductsExist` to `OrderStockService`; `ProductsRepository` dep removed from command service
+- **`executeCancelTransaction(orderId, userId)`** private method in `OrdersCommandService` — encapsulates the full cancel transaction body (ownership assertion, stock restore, status update, relation reload)
+- **`apps/shop/src/orders/utils/index.spec.ts`** — 26 unit test cases across 5 suites: `assertOrderOwnership`, `getTotalSumInCents`, `validateOrderItems`, `buildOrderNextCursor`, `applyTransactionTimeouts`
+- **JSDoc** — all 5 exports in `orders/utils/index.ts`, class + method JSDoc in `OrdersQueryService`, `OrdersCommandService`, and `OrdersService` facade
+- **Architecture docs** — `docs/backend/architecture/feature-order-creation-flow.md` and `feature-order-querying-flow.md` updated with services hierarchy trees and corrected pseudocode
+
+### Changed
+
+- **`orders.service.ts`** — converted to a 53-line backward-compat facade; delegates all methods to `OrdersCommandService` or `OrdersQueryService` via constructor injection; existing callers (`OrdersController`, `CartService`, `OrdersResolver`) unchanged
+- **`OrdersCommandService`** — reduced from 809-line god class to 263 LOC, 8 constructor deps (down from 11); `ProductsRepository` dep removed after `validateExist` migration to `OrderStockService`
+- **`order-stock.service.spec.ts`** — added `findByIds` mock and `validateExist` suite (4 tests)
+- **`orders-command.service.spec.ts`** — removed `ProductsRepository` provider; replaced `productsFindByIds` mock with `validateExist` on `OrderStockService` mock; `makeAuthUser` typed as `Partial<AuthUser>` with `roles: []` and `scopes: []` defaults
+
+## [0.2.2] - 2026-04-17
+
+### Added
+
+- **Performance testing infra** — `compose.perf.yml` isolated stack (`shop-perf` at 0.5 vCPU / 512 MiB, `postgres-perf` with `pg_stat_statements` + tmpfs, `rabbitmq-perf`, `grpc-stub-perf`, `migrate-perf`, `seed-perf`); profile-based activation (`app`, `app-grpc-breaker`, `migrate`, `seed`)
+- **k6 load scenarios** — 10 scripts covering product-search, order-flow, auth-flow, signin-stress, and circuit-breaker before/after variants; configurable via `PERF_K6_VUS` / `PERF_K6_DURATION` env vars
+- **Testcontainers Tier 1 specs** — `product-search.perf.ts`, `cursor-pagination.perf.ts`, `order-creation.perf.ts`, `order-cancel.perf.ts`, `token-hmac.perf.ts`; each validates exact SQL call counts via `pg_stat_statements` and EXPLAIN plan index usage
+- **`grpc-stub-perf` service** — controllable gRPC stub that hangs all RPCs; used to isolate B3 circuit-breaker before-state measurement
+- **Bash lifecycle scripts** — `perf-migrate.sh`, `perf-seed.sh`, `perf-app-grpc-breaker.sh`
+- **`performance-evidences/`** — `before-after-table.md` + 7 B3 RabbitMQ/k6 screenshots
+- **`homework-report.md`** — full performance report: baseline, bottlenecks, improvements, trade-offs, acceptance criteria checklist
+- **`docs/backend/architecture/test-performance.md`** — performance testing infra documentation
+
+### Changed
+
+- **A1** — GIN trigram index on `products.name` / `products.description`; search p95 −26 % (293→216 ms), DB scans −80 % (5→1 SQL call)
+- **A2** — Cursor pagination decoded in-memory (`id|epochMs` format); page-2 DB calls −50 % (2→1)
+- **A3** — Removed post-INSERT re-fetch inside `executeOrderTransaction`; order create p99 −60 % (1797→726 ms)
+- **A4** — Explicit `DB_POOL_SIZE` env var wired to TypeORM `extra.max`; pool enforced at 5 in perf env
+- **B1** — `bcrypt` → `bcryptjs` on auth path; signin p95 −17 %, event loop blocking frequency halved
+- **B2** — Manual `process.on('SIGTERM', …)` handler; container exit 143 → 0 (clean shutdown, `app.close()` runs)
+- **B3** — `opossum` circuit breaker on `PaymentsGrpcService.authorize`; queue drain reversed (+33 msg/s growth → fully cleared), worker stall ~21 s → ~0 ms fast-fail after breaker opens
+- **B4** — Conditional relation loading in `cancelOrder`; order cancel p95 −25 % (218→164 ms)
+- **B5** — HMAC-SHA256 replaces bcrypt for opaque token hashing in `TokenService`; token op cost ~100 ms → ~1 µs; auth refresh p99 −21 %
+
+### Removed
+
+- `@tygra/nestjs-graceful-shutdown` library integration (non-functional due to Apollo/GraphQL module conflict); replaced by manual SIGTERM handler
+- `src/config/graceful-shutdown.ts` — library config file, no longer needed
+
+## [0.2.1] - 2026-04-09
+
+### Added
+
+- **Audit log** — `AuditLogEvent` entity and `AuditLogService.log()` wired across 10 domain actions: `USER_SIGNIN`, `USER_SIGNUP`, `USER_SOFT_DELETED`, `USER_ROLE_CHANGED`, `USER_SCOPE_CHANGED`, `ORDER_CREATED`, `ORDER_CANCELLED`, `ORDER_IDEMPOTENT_HIT`, `ORDER_CREATION_FAILED`, `ORDER_PAYMENT_AUTHORIZED`, `ORDER_PAYMENT_FAILED`; `correlationId` propagated from `genReqId` via `extractAuditContext(req)`
+- **`actorRole` population** — Admin-only audit events (`USER_SOFT_DELETED`, `USER_ROLE_CHANGED`, `USER_SCOPE_CHANGED`) capture the acting admin's roles at event time via `actor?.roles.join(',')`
+- **`GqlThrottlerGuard`** — Extends `ThrottlerGuard`; detects context type (`graphql` vs HTTP) and calls the correct `getRequestResponse` path; constructor re-declares `@InjectThrottlerOptions()` / `@InjectThrottlerStorage()` so NestJS DI resolves custom tokens on the subclass
+- **Global rate limiting** — `APP_GUARD` switched from `ThrottlerGuard` to `GqlThrottlerGuard`; covers both REST and GraphQL endpoints
+- **`SECURITY-BASELINE.md`** — OWASP ASVS mapping, threat model, all wired audit events, rate-limit evidence, HSTS configuration
+- **`infra-security.md`** — Architecture-level security design decisions: audit schema, `actorRole`, worker-path null context, guard topology
+- **Security evidence** — `security-evidence/` directory with `headers.txt`, `rate-limit.txt`, `audit-log-example.txt`, `secret-flow-note.md`, `tls-note.md`
+- **`REQUEST_ID_HEADER` constant** — `apps/shop/src/common/constants/index.ts`; replaces all `'x-request-id'` hardcodes
+
+### Changed
+
+- **`cancelOrder` signature** — Accepts `user: AuthUser` instead of separate `userId: string` + `userEmail: string`; controller passes the full `AuthUser` object
+- **`CartService.checkout`** — Added `context?: AuditEventContext` parameter; forwards context to `ordersService.createOrder` so cart-initiated orders carry a correlationId
+- **Helmet `frameguard`** — Explicitly set to `{ action: 'deny' }` (was inheriting Helmet's `SAMEORIGIN` default)
+- **`@CreateDateColumn` type** — `audit-log.entity.ts` `created_at` uses `type: 'timestamptz'` for timezone-aware storage
+- **Migration `CreateAuditLogs`** — `created_at` column changed from `TIMESTAMP` to `TIMESTAMP WITH TIME ZONE`
+- **`tsconfig.json`** — Added `"types": ["jest", "node"]` (Jest globals in all spec files), `"strictPropertyInitialization": false` (DTO/entity class fields), `"ignoreDeprecations": "6.0"` (suppress `moduleResolution: node` / `baseUrl` TypeScript 6 deprecation warnings)
+- **`logger.ts`** — `genReqId` reads/writes `req.headers[REQUEST_ID_HEADER]` instead of hardcoded `'x-request-id'`
+- **Integration test throttler** — `graphql-orders-pagination.integration-spec.ts` overrides `getOptionsToken()` with limits of 10 000 req/window so test requests never trigger throttling
+- **`SECURITY-BASELINE.md` links** — All relative links corrected to `../security-evidence/`; HSTS `max-age` updated to `31536000`
+
+### Fixed
+
+- **`users.service.spec.ts`** — Added missing `AuditLogService` mock provider; test module now compiles without DI errors
+- **`infra-security.md` broken link** — `SECURITY-BASELINE.md` reference corrected to `../../../security-homework/SECURITY-BASELINE.md`
+- **`rate-limit.txt`** — Updated to demonstrate 200 → 429 progression with valid credentials (not 400 → 429)
+
 ## [0.2.0] - 2026-03-28
 
 ### Added

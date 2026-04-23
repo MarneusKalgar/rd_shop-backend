@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { Channel, ConsumeMessage } from 'amqplib';
 
 import { OrderProcessMessageDto } from '@/orders/dto';
-import { OrdersService } from '@/orders/orders.service';
+import { OrderProcessingService } from '@/orders/services';
 import {
   MAX_RETRY_ATTEMPTS,
   ORDER_DLQ,
@@ -16,7 +16,7 @@ import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
  *
  * **Responsibilities:**
  * - Subscribes to the `order.process` queue on startup
- * - Delegates processing to {@link OrdersService.processOrderMessage}
+ * - Delegates processing to {@link OrderProcessingService.processOrderMessage}
  * - Performs manual ack/nack — ack only after successful DB commit
  * - Retries failed messages up to {@link MAX_RETRY_ATTEMPTS} times with a fixed delay
  * - Routes exhausted messages to the dead-letter queue (`orders.dlq`)
@@ -34,7 +34,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
 
   constructor(
     private readonly rabbitmqService: RabbitMQService,
-    private readonly ordersService: OrdersService,
+    private readonly orderProcessingService: OrderProcessingService,
   ) {}
 
   /** Cancels the active consumer when the module is torn down. */
@@ -52,7 +52,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
    *
    * **Processing flow:**
    * 1. Parse the raw message buffer into {@link OrderProcessMessageDto}
-   * 2. Delegate to {@link OrdersService.processOrderMessage} (runs in a DB transaction)
+   * 2. Delegate to {@link OrderProcessingService.processOrderMessage} (runs in a DB transaction)
    * 3. On success — `channel.ack(msg)`
    * 4. On failure — retry if `attempt < MAX_RETRY_ATTEMPTS`, otherwise publish to DLQ
    * 5. Unparseable messages are immediately routed to DLQ
@@ -98,7 +98,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     );
 
     try {
-      await this.ordersService.processOrderMessage(payload);
+      await this.orderProcessingService.processOrderMessage(payload);
       channel.ack(msg);
       this.logger.log(
         `[result: success] Acked message [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}] processed successfully`,

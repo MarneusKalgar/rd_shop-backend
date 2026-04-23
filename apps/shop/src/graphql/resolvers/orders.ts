@@ -3,6 +3,7 @@ import { Args, Context, Parent, Query, ResolveField, Resolver } from '@nestjs/gr
 import { GraphQLError } from 'graphql';
 
 import { GqlJwtAuthGuard } from '@/auth/guards/gql-jwt-auth.guard';
+import { GqlThrottlerGuard } from '@/auth/guards/gql-throttler.guard';
 import { AuthUser } from '@/auth/types';
 import { Order } from '@/orders/order.entity';
 import { OrdersService } from '@/orders/orders.service';
@@ -23,7 +24,7 @@ export class OrdersResolver {
     description: 'Get orders with optional filters and pagination',
     name: 'orders',
   })
-  @UseGuards(GqlJwtAuthGuard)
+  @UseGuards(GqlJwtAuthGuard, GqlThrottlerGuard)
   async getOrders(
     @Context() context: { req: { user: AuthUser } },
     @Args('filter', { nullable: true, type: () => OrdersFilterInput }) filter?: OrdersFilterInput,

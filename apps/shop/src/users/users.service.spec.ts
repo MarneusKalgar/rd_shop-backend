@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { TokenService } from '../auth/token.service';
 import { FilesService } from '../files/files.service';
 import { User } from './user.entity';
@@ -28,6 +29,10 @@ const mockTokenService = {
   revokeAllUserTokens: jest.fn(),
 };
 
+const mockAuditLogService = {
+  log: jest.fn(),
+};
+
 describe('UsersService', () => {
   let service: UsersService;
 
@@ -39,6 +44,7 @@ describe('UsersService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: FilesService, useValue: mockFilesService },
         { provide: TokenService, useValue: mockTokenService },
+        { provide: AuditLogService, useValue: mockAuditLogService },
       ],
     }).compile();
 

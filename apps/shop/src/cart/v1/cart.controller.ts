@@ -9,10 +9,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 
+import { extractAuditContext } from '@/audit-log/utils';
 import { CurrentUser } from '@/auth/decorators/current-user';
 import { Scopes } from '@/auth/decorators/scopes';
 import { JwtAuthGuard, ScopesGuard } from '@/auth/guards';
@@ -63,8 +66,9 @@ export class CartController {
   async checkout(
     @Body() dto: CartCheckoutDto,
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ): Promise<GetOrderByIdResponseDto> {
-    const order = await this.cartService.checkout(user.sub, dto);
+    const order = await this.cartService.checkout(user.sub, dto, extractAuditContext(req));
     return { data: order };
   }
 

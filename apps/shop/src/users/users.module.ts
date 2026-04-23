@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuditLogModule } from '../audit-log';
 import { AuthModule } from '../auth/auth.module';
 import { FilesModule } from '../files/files.module';
 import { User } from './user.entity';
@@ -12,7 +13,13 @@ import { UsersController as UsersControllerV1 } from './v1/users.controller';
 @Module({
   controllers: [UsersControllerV1, AdminUsersController],
   exports: [UsersService, TypeOrmModule],
-  imports: [TypeOrmModule.forFeature([User]), ConfigModule, AuthModule, FilesModule],
+  imports: [
+    TypeOrmModule.forFeature([User]),
+    ConfigModule,
+    AuthModule,
+    FilesModule,
+    AuditLogModule,
+  ],
   providers: [UsersService],
 })
 export class UsersModule {}

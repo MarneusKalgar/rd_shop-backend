@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StringValue } from 'ms';
 
+import { AuditLogModule } from '@/audit-log';
 import { MailModule } from '@/mail/mail.module';
 import { User } from '@/users/user.entity';
 
@@ -21,6 +22,7 @@ import { AuthController as AuthControllerV1 } from './v1/auth.controller';
   exports: [AuthService, JwtModule, TokenService],
   imports: [
     TypeOrmModule.forFeature([User, RefreshToken, EmailVerificationToken, PasswordResetToken]),
+    AuditLogModule,
     MailModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({

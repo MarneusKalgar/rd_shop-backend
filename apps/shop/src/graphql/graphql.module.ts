@@ -1,6 +1,7 @@
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { Module } from '@nestjs/common';
 import { GraphQLModule } from '@nestjs/graphql';
+import { Request, Response } from 'express';
 
 import { OrdersModule } from '@/orders/orders.module';
 import { ProductsModule } from '@/products/products.module';
@@ -20,6 +21,7 @@ import { OrderItemResolver } from './resolvers/order-item';
 
         return {
           autoSchemaFile: true,
+          context: ({ req, res }: { req: Request; res: Response }) => ({ req, res }),
           driver: ApolloDriver,
           graphiql: !isProd,
           introspection: !isProd,

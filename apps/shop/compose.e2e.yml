@@ -1,0 +1,294 @@
+# E2E test environment for rd_shop/shop.
+#
+# Purpose:
+#   - Full-stack real-service e2e tests using Jest + Supertest
+#   - Isolated port space (no conflict with dev or perf environments)
+#   - Ephemeral storage (tmpfs on both Postgres services)
+#   - Payments gRPC service runs as a real container (not a mock)
+#
+# Usage (from apps/shop/):
+#   npm run e2e:up       — start postgres + rabbitmq + minio (infra only)
+#   npm run e2e:migrate  — apply DB migrations for shop + payments
+#   npm run e2e:seed     — seed shop DB with products / users / orders
+#   npm run e2e:app      — start payments-e2e + shop-e2e
+#   npm run e2e:fresh    — e2e:up + e2e:migrate + e2e:seed + e2e:app
+#   npm run test:e2e     — run Jest e2e suite (requires stack to be up)
+#   npm run e2e:down     — tear down everything, remove volumes + orphans
+#
+# Ports (no conflict with dev 8080/5432/5672 or perf 8090/5433/5673):
+#   5436  — postgres-shop-e2e
+#   5437  — postgres-payments-e2e
+#   5675  — rabbitmq-e2e AMQP
+#   15675 — rabbitmq-e2e Management UI
+#   9002  — minio-e2e S3 API
+#   9003  — minio-e2e Console
+#   8092  — shop-e2e HTTP
+
+services:
+  # ──────────────────────────── INFRASTRUCTURE ──────────────────────────────
+
+  postgres-shop-e2e:
+    image: postgres:16-alpine
+    container_name: rd_shop_e2e_postgres_shop
+    env_file:
+      - test/e2e/.env.e2e
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - '5436:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d rd_shop_e2e']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      e2e-shop-internal:
+        aliases:
+          - postgres-shop-e2e
+
+  postgres-payments-e2e:
+    image: postgres:16-alpine
+    container_name: rd_shop_e2e_postgres_payments
+    env_file:
+      - test/e2e/.env.e2e.payments
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      - '5437:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d rd_shop_payments_e2e']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      e2e-payments-internal:
+        aliases:
+          - postgres-payments-e2e
+
+  rabbitmq-e2e:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rd_shop_e2e_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - '5675:5672'
+      - '15675:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - e2e-shop-internal
+
+  minio-e2e:
+    image: minio/minio:latest
+    container_name: rd_shop_e2e_minio
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    tmpfs:
+      - /data
+    ports:
+      - '9002:9000'
+      - '9003:9001'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - e2e-shop-internal
+
+  # One-shot bucket initialiser — run via `docker compose run --rm minio-init-e2e`
+  # in the e2e:up npm script after minio-e2e becomes healthy.
+  minio-init-e2e:
+    image: minio/mc:latest
+    container_name: rd_shop_e2e_minio_init
+    depends_on:
+      minio-e2e:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio-e2e:9000 minioadmin minioadmin; do
+        echo 'waiting for minio...'; sleep 2;
+      done;
+      mc mb --ignore-existing local/rd-shop-files-e2e;
+      mc anonymous set none local/rd-shop-files-e2e;
+      echo 'minio bucket ready';
+      "
+    networks:
+      - e2e-shop-internal
+    profiles:
+      - init
+
+  # ──────────────────────────── MIGRATIONS ──────────────────────────────────
+
+  migrate-shop-e2e:
+    image: rd_shop_e2e_migrate_shop_tmp
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_e2e_migrate_shop
+    user: '1001:1001'
+    env_file:
+      - test/e2e/.env.e2e
+    environment:
+      NODE_ENV: production
+    command: ['sh', '-c', 'cd apps/shop && npm run db:migrate:prod']
+    depends_on:
+      postgres-shop-e2e:
+        condition: service_healthy
+    restart: 'no'
+    networks:
+      - e2e-shop-internal
+    profiles:
+      - migrate
+
+  migrate-payments-e2e:
+    image: rd_shop_e2e_migrate_payments_tmp
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-payments
+      args:
+        APP: payments
+    container_name: rd_shop_e2e_migrate_payments
+    user: '1001:1001'
+    env_file:
+      - test/e2e/.env.e2e.payments
+    environment:
+      NODE_ENV: production
+    command: ['sh', '-c', 'cd apps/payments && npm run db:migrate:prod']
+    depends_on:
+      postgres-payments-e2e:
+        condition: service_healthy
+    restart: 'no'
+    networks:
+      - e2e-payments-internal
+    profiles:
+      - migrate
+
+  # ──────────────────────────── SEED ────────────────────────────────────────
+
+  seed-shop-e2e:
+    image: rd_shop_e2e_seed_shop_tmp
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_e2e_seed_shop
+    user: '1001:1001'
+    env_file:
+      - test/e2e/.env.e2e
+    environment:
+      NODE_ENV: production
+      ALLOW_SEED_IN_PRODUCTION: 'true'
+    command: ['sh', '-c', 'cd apps/shop && npm run db:seed:prod']
+    depends_on:
+      postgres-shop-e2e:
+        condition: service_healthy
+    restart: 'no'
+    networks:
+      - e2e-shop-internal
+    profiles:
+      - seed
+
+  # ──────────────────────────── APPLICATION ─────────────────────────────────
+
+  payments-e2e:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-payments
+      args:
+        APP: payments
+    container_name: rd_shop_e2e_payments
+    user: '1001:1001'
+    env_file:
+      - test/e2e/.env.e2e.payments
+    environment:
+      NODE_ENV: production
+    depends_on:
+      postgres-payments-e2e:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('net').createConnection(5001,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      e2e-shop-internal:
+        aliases:
+          - payments-e2e
+      e2e-payments-internal: {}
+    profiles:
+      - app
+
+  shop-e2e:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_e2e_shop
+    user: '1001:1001'
+    env_file:
+      - test/e2e/.env.e2e
+    environment:
+      NODE_ENV: production
+    ports:
+      - '8092:8080'
+    depends_on:
+      postgres-shop-e2e:
+        condition: service_healthy
+      rabbitmq-e2e:
+        condition: service_healthy
+      payments-e2e:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8080/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - e2e-shop-internal
+      - e2e-external
+    profiles:
+      - app
+
+# ──────────────────────────── NETWORKS ──────────────────────────────────────
+
+networks:
+  # Isolates shop service and its dependencies (no external egress)
+  e2e-shop-internal:
+    driver: bridge
+    internal: true
+
+  # Isolates payments service and its postgres (no external egress)
+  e2e-payments-internal:
+    driver: bridge
+    internal: true
+
+  # Exposes shop-e2e on host port 8092 — reachable by the Jest test runner
+  e2e-external:
+    driver: bridge

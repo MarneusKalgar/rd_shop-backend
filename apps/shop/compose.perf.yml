@@ -1,0 +1,270 @@
+# Performance test environment for rd_shop/shop.
+#
+# Purpose:
+#   - Baseline capture: p50/p95/p99 latency, throughput, CPU, memory, event loop lag
+#   - Before/after comparison (run k6 from host against shop-perf)
+#   - Resource-constrained simulation of t3.micro (--cpus + --memory)
+#   - B2 graceful shutdown: docker stop shop-perf
+#   - B3 gRPC circuit breaker: shop-perf-grpc-breaker connects to a gRPC stub that hangs all RPCs
+#
+# Usage (from apps/shop/):
+#   npm run perf:up          — start postgres-perf + rabbitmq-perf
+#   npm run perf:migrate     — apply DB migrations
+#   npm run perf:seed        — seed 10K products / 1K orders / 100 users
+#   npm run perf:app         — start shop-perf with resource limits
+#   npm run perf:baseline    — run k6 baseline (product-search, order-flow, auth-flow)
+#   npm run perf:grpc-breaker:before   — run k6 order-flow with gRPC stub active (60 s, save to results)
+#   npm run perf:down        — tear down everything and remove volumes
+#
+# Ports (no conflict with dev compose):
+#   5433  — Postgres perf
+#   5673  — RabbitMQ AMQP perf
+#   8090  — shop-perf HTTP
+#   15673 — RabbitMQ Management UI perf
+
+services:
+  postgres-perf:
+    image: postgres:16-alpine
+    container_name: rd_shop_perf_postgres
+    env_file:
+      - test/performance/.env.perf
+    ports:
+      - '5433:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    command: >
+      postgres
+        -c shared_preload_libraries=pg_stat_statements
+        -c pg_stat_statements.track=all
+        -c log_min_duration_statement=100
+        -c max_connections=50
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U perf -d rd_shop_perf']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - perf-internal
+
+  rabbitmq-perf:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rd_shop_perf_rabbitmq
+    env_file:
+      - test/performance/.env.perf
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - '5673:5672'
+      - '15673:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - perf-external
+      - perf-internal
+
+  # B3: gRPC stub — completes HTTP/2 + gRPC handshake so the channel reaches READY,
+  # but every RPC handler hangs forever (callback never called).
+  # The shop's rxjs timeout(PAYMENTS_GRPC_TIMEOUT_MS=5000) fires on every authorize(),
+  # reproducing the full retry stall: 3×5 s + 3×2 s delays ≈ 21 s per message.
+  grpc-stub-perf:
+    image: rd_shop_perf_grpc_stub_tmp
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: grpc-stub
+      args:
+        APP: shop
+    container_name: rd_shop_perf_grpc_stub
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('net').createConnection(5001,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - perf-internal
+
+  migrate-perf:
+    image: rd_shop_perf_migrate_tmp
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_perf_migrate
+    user: '1001:1001'
+    env_file:
+      - test/performance/.env.perf
+    environment:
+      NODE_ENV: production
+    command: ['sh', '-c', 'cd apps/shop && npm run db:migrate:prod']
+    depends_on:
+      postgres-perf:
+        condition: service_healthy
+    restart: 'no'
+    networks:
+      - perf-internal
+    profiles:
+      - migrate
+
+  seed-perf:
+    image: rd_shop_perf_seed_tmp
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_perf_seed
+    user: '1001:1001'
+    env_file:
+      - test/performance/.env.perf
+    environment:
+      NODE_ENV: production
+      ALLOW_SEED_IN_PRODUCTION: 'true'
+    command:
+      - sh
+      - -c
+      - node dist/apps/shop/db/perf-seed/index.js ${PERF_SCENARIO:+--scenario=$PERF_SCENARIO}
+    depends_on:
+      postgres-perf:
+        condition: service_healthy
+    restart: 'no'
+    networks:
+      - perf-internal
+    profiles:
+      - seed
+
+  shop-perf:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_perf_shop
+    env_file:
+      - test/performance/.env.perf
+    environment:
+      NODE_ENV: production
+    ports:
+      - '8090:8090'
+    depends_on:
+      postgres-perf:
+        condition: service_healthy
+      rabbitmq-perf:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          # M2 single-core ≈ 2× t3.micro → 0.5 vCPU ≈ 1 t3.micro vCPU
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - perf-internal
+      - perf-external
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8090/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    profiles:
+      - app
+
+  shop-perf-grpc-breaker:
+    image: rd_shop_perf_shop_grpc_breaker_tmp
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_perf_shop_grpc_breaker
+    env_file:
+      - test/performance/.env.perf
+      - test/performance/.env.perf.grpc-breaker
+    environment:
+      NODE_ENV: production
+    ports:
+      - '8090:8090'
+    depends_on:
+      postgres-perf:
+        condition: service_healthy
+      rabbitmq-perf:
+        condition: service_healthy
+      grpc-stub-perf:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - perf-internal
+      - perf-external
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8090/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    profiles:
+      - app-grpc-breaker
+
+  shop-perf-unconstrained:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: prod-shop
+      args:
+        APP: shop
+    container_name: rd_shop_perf_shop_unconstrained
+    env_file:
+      - test/performance/.env.perf
+    environment:
+      NODE_ENV: production
+    ports:
+      - '8090:8090'
+    depends_on:
+      postgres-perf:
+        condition: service_healthy
+      rabbitmq-perf:
+        condition: service_healthy
+    networks:
+      - perf-internal
+      - perf-external
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8090/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    profiles:
+      - app-unconstrained
+
+networks:
+  perf-internal:
+    driver: bridge
+    internal: true
+  perf-external:
+    driver: bridge

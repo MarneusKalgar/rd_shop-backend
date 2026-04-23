@@ -1,5 +1,23 @@
 # rd_shop — Full Order Flow
 
+## Services hierarchy
+
+```
+OrdersService (facade — backward compat)
+├── OrdersCommandService     write path: createOrder, cancelOrder
+│   ├── OrderStockService    pessimistic locking, stock decrement/restore, product pre-check
+│   ├── OrderPublisherService  publish OrderProcessMessageDto to RabbitMQ
+│   └── PgErrorMapperService  PostgreSQL error code → NestJS exception mapping
+└── OrdersQueryService       read path: findOrdersWithFilters, getOrderById, getOrderPayment
+
+OrderProcessingService       worker pipeline: idempotent message consumption → gRPC payment
+```
+
+All transactions open with `applyTransactionTimeouts` (`utils/index.ts`):
+
+- `SET LOCAL statement_timeout = 30000` — aborts slow queries (PG 57014)
+- `SET LOCAL lock_timeout = 10000` — aborts stalled pessimistic locks (PG 55P03)
+
 ## Status lifecycle
 
 ```
@@ -12,42 +30,81 @@ CANCELLED  CANCELLED  CANCELLED
 
 Cancellation is allowed from `PENDING`, `PROCESSED`, and `PAID`. Blocked from `CANCELLED` (409) and `CREATED` (400, legacy).
 
-## Phase 1 — HTTP: Order creation
+## Phase 1 — HTTP: Order creation via cart
 
-**Endpoint:** `POST /api/v1/orders` — guard: `JwtAuthGuard` only  
-**Input:** `CreateOrderDto { items: [{productId, quantity}], idempotencyKey?: string, shipping?: ShippingAddressDto }`
+The canonical creation flow is cart-based. `POST /api/v1/orders` exists for historical reasons but is not the primary path.
+
+### Step A — Add item to cart
+
+**Endpoint:** `POST /api/v1/cart/items` — guards: `JwtAuthGuard`, `ScopesGuard` (`orders:write`)  
+**Input:** `AddCartItemDto { productId: UUID, quantity: number (≥1) }`
 
 ```
-Pre-validation (outside transaction):
-  validateUser(userId from JWT)            → 404 if not found
-  validateOrderItems(items)                → 400 if qty ≤0 or >1000
-  checkIdempotency(idempotencyKey)         → 200 + existing order if key seen before
-  validateProductsExist(productIds)        → 404 if any product missing
+CartService.addItem(userId, dto):
+  findById(productId)               → 404 if not found
+  Guard: !product.isActive          → 409
+  Guard: product.stock === 0        → 409
+  getOrCreateCartEntity(userId)     → lazy create cart row if absent
+  newQuantity = existing + dto.qty
+  Guard: newQuantity > product.stock → 409
+  cartItemRepository.upsert(cartId, productId, newQuantity)
+    conflictPaths: [cartId, productId]  ← increments qty if item already present
 
-DB Transaction:
-  SET LOCAL statement_timeout = 30s
-  SET LOCAL lock_timeout = 10s
-  SELECT ... FOR UPDATE (pessimistic write lock on all products in order)
-  validateStockAndAvailability()           → 409 if !isActive or stock < qty
-  decrementProductStock()                  → subtract quantities in-memory
-  saveProducts()                           → persist stock changes
-  createOrder(status: PENDING)             → shipping resolved: DTO field → user profile fallback
-  createOrderItems(priceAtPurchase snapshot from product.price at this moment)
-  COMMIT
+Response: HTTP 201 { data: CartResponseDto (cart with items) }
+```
 
-Error handling:
-  23505 + idempotencyKey                   → checkIdempotency() → return existing
-  57014 (statement timeout)                → 500 "timed out due to high load"
-  55P03 (lock timeout)                     → 409 "high concurrent activity"
+Note: stock is checked optimistically at add-item time (no DB lock). The authoritative check happens inside the checkout transaction.
 
-Post-commit (non-blocking):
-  publish to orders.process: OrderProcessMessageDto {
-    messageId: UUID,
-    orderId,
-    attempt: 1,
-    correlationId: idempotencyKey
-  }
-  emit ORDER_CREATED_EVENT → OrderEmailListener → confirmation email
+### Step B — Checkout
+
+**Endpoint:** `POST /api/v1/cart/checkout` — guards: `JwtAuthGuard`, `ScopesGuard` (`orders:write`)  
+**Input:** `CartCheckoutDto { idempotencyKey?: string, shipping?: ShippingAddressDto }`
+
+```
+CartService.checkout(userId, dto):
+  findCartWithItems(userId)         → load cart + items
+  Guard: cart empty                 → 400
+
+  items = cart.items.map({ productId, quantity })
+  createOrderDto = { idempotencyKey, items, shipping }
+
+  OrdersService.createOrder(userId, createOrderDto, context):
+    → OrdersCommandService.createOrder
+
+    Pre-validation (outside transaction):
+      validateUser(userId from JWT)          → 404 if not found
+      validateOrderItems(items)              → 400 if qty ≤0 or >1000
+      checkIdempotency(idempotencyKey)       → 201 + existing order if key seen before
+      OrderStockService.validateExist(productIds) → 404 if any product missing
+
+    executeOrderTransaction(dto, user, productIds):
+      DB Transaction:
+        applyTransactionTimeouts(manager)    → SET LOCAL statement/lock timeouts
+        SELECT ... FOR UPDATE (pessimistic_write lock on all product rows in order)
+        → ProductsRepository.findByIdsWithLock(manager, productIds)
+        → TypeORM .setLock('pessimistic_write') → PostgreSQL SELECT ... FOR UPDATE
+      validateStockAndAvailability()         → 409 if !isActive or stock < qty
+      decrementProductStock()                → subtract quantities in-memory
+      saveProducts()                         → persist stock changes
+      createOrder(status: PENDING)           → shipping resolved: DTO field → user profile fallback
+      createOrderItems(priceAtPurchase snapshot from product.price at this moment)
+      COMMIT  ← releases all row locks
+
+    Error handling:
+      23505 + idempotencyKey                 → checkIdempotency() → return existing
+      57014 (statement timeout)              → 500 "timed out due to high load"
+      55P03 (lock timeout)                   → 409 "high concurrent activity"
+
+    Post-commit (non-blocking):
+      publish to orders.process: OrderProcessMessageDto {
+        messageId: UUID,
+        orderId,
+        attempt: 1,
+        correlationId: idempotencyKey
+      }
+      emit ORDER_CREATED_EVENT → OrderEmailListener → confirmation email
+
+  clearCart(userId)   ← cart items deleted after successful order creation
 
 Response: HTTP 201 { data: Order with items + products }
 ```
@@ -66,19 +123,22 @@ The user's profile acts as a **default** — clients can skip `shipping` entirel
 **Endpoint:** `POST /api/v1/orders/:orderId/cancellation` — guard: `JwtAuthGuard`
 
 ```
-DB Transaction:
-  SET LOCAL statement_timeout = 30s
-  SET LOCAL lock_timeout = 10s
-  Load order with items + products
-  assertOrderOwnership(order, userId)      → 404 if not owner
-  Guard: CANCELLED → 409, CREATED → 400
-  SELECT products FOR UPDATE (pessimistic lock)
-  Restore stock: product.stock += item.quantity for each item
-  SET order.status = CANCELLED
-  COMMIT
+OrdersService.cancelOrder → OrdersCommandService.cancelOrder
+
+executeCancelTransaction(orderId, userId):
+  DB Transaction:
+    applyTransactionTimeouts(manager)    → SET LOCAL statement/lock timeouts
+    Load order (shallow)
+    assertOrderOwnership(order, userId)  → 404 if not owner
+    Guard: CANCELLED → 409, CREATED → 400
+    Load order with items + products (full)
+    SELECT products FOR UPDATE (pessimistic lock)
+    Restore stock: product.stock += item.quantity for each item
+    SET order.status = CANCELLED
+    Reload order with full relations
+    COMMIT
 
 Post-commit:
-  validateUser(userId) → get email
   emit ORDER_CANCELLED_EVENT → OrderEmailListener → cancellation email
 
 Response: HTTP 200 { data: Order }
@@ -108,7 +168,7 @@ handleMessage(msg, channel):
 
 ## Phase 2.5 — DB transaction in worker
 
-**Method:** `OrdersService.processOrderMessage(payload)`
+**Method:** `OrderProcessingService.processOrderMessage(payload)`
 
 ```
 DB Transaction:
@@ -156,10 +216,36 @@ Return { paymentId, status }
 
 | Layer                 | Mechanism                                     | Protection against                      |
 | --------------------- | --------------------------------------------- | --------------------------------------- |
-| HTTP creation         | `idempotencyKey` unique index on `orders`     | Duplicate POST /orders                  |
+| HTTP creation         | `idempotencyKey` unique index on `orders`     | Duplicate POST /cart/checkout           |
 | Worker processing     | `processed_messages.messageId` unique index   | RabbitMQ redelivery                     |
 | Payment authorization | `order.paymentId` null-check before gRPC call | Worker retry after gRPC partial failure |
 | gRPC authorize        | `orderId` unique index on `payments`          | Duplicate gRPC calls                    |
+
+---
+
+## Tests
+
+### Integration tests
+
+File: `apps/shop/test/integration/` (none yet for order creation — covered by e2e).
+
+The creation flow is not unit-tested at the controller layer because the critical path involves a DB transaction with pessimistic row locks; integration or e2e tests provide better signal.
+
+### e2e tests
+
+File: `apps/shop/test/e2e/orders/order-lifecycle.e2e-spec.ts`
+
+Runs against the full `compose.e2e.yml` stack (real Postgres, RabbitMQ, payments gRPC service).
+
+| Flow                            | What it tests                                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **PENDING → PAID**              | `addToCartAndCheckout` → order PENDING; `poll()` until PAID (worker + gRPC round-trip); asserts `paymentId` set                  |
+| **Cancel PAID + stock restore** | Create PAID order; capture product stock before; `POST /cancellation`; assert status CANCELLED + stock restored by item quantity |
+| **Idempotency**                 | `POST /cart/checkout` twice with same `idempotencyKey`; assert same `orderId` returned, no duplicate order created               |
+
+Helper used: `addToCartAndCheckout(token, productId, quantity?, idempotencyKey?)` from `@test/e2e/helpers` — clears cart first, adds item, calls `POST /cart/checkout`.
+
+See `docs/backend/architecture/test-infrastructure.md` for stack setup and npm scripts.
 
 ## Key entities
 

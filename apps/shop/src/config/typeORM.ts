@@ -2,6 +2,7 @@ import { DatabaseAdapterFactory } from '@app/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
+import { AuditLog } from '@/audit-log/audit-log.entity';
 import { DEFAULT_VALUES } from '@/core/environment';
 import { ShopTypeOrmLogger } from '@/db/logger';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
@@ -47,6 +48,8 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
   const databaseProvider = configService.get<string>('DATABASE_PROVIDER');
   const adapter = DatabaseAdapterFactory.create(databaseProvider);
   const baseConfig = adapter.getModuleOptions();
+  const slowQueryThresholdMs = configService.get<number>('DB_SLOW_QUERY_THRESHOLD_MS') ?? 1000;
+  const poolSize = configService.get<number>('DB_POOL_SIZE') ?? 10;
 
   return {
     ...baseConfig,
@@ -63,7 +66,14 @@ export const getTypeOrmModuleOptions = (configService: ConfigService): TypeOrmMo
       RefreshToken,
       EmailVerificationToken,
       PasswordResetToken,
+      AuditLog,
     ],
+    extra: {
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      max: poolSize,
+    },
     logger: new ShopTypeOrmLogger(),
+    maxQueryExecutionTime: slowQueryThresholdMs,
   } as TypeOrmModuleOptions;
 };

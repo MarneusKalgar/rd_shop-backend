@@ -2,11 +2,12 @@
 
 ## Tier layout
 
-| Tier        | Suffix                  | Config                                 | Command                         | Notes                                          |
-| ----------- | ----------------------- | -------------------------------------- | ------------------------------- | ---------------------------------------------- |
-| Unit        | `*.spec.ts`             | `jest.config.js` (root)                | `npm test`                      | `apps/*/src/`; all deps mocked via `jest.fn()` |
-| Integration | `*.integration-spec.ts` | `apps/shop/test/jest-integration.json` | `npm run test:integration:shop` | real Postgres via Testcontainers; infra mocked |
-| e2e         | `*.e2e-spec.ts`         | `apps/shop/test/jest-e2e.json`         | `npm run test:e2e:shop`         | TBD — full stack                               |
+| Tier           | Suffix                  | Config                                 | Command                                  | Coverage command                    | Notes                                          |
+| -------------- | ----------------------- | -------------------------------------- | ---------------------------------------- | ----------------------------------- | ---------------------------------------------- |
+| Unit           | `*.spec.ts`             | `jest.config.js` (root)                | `npm test`                               | `npm run test:cov`                  | `apps/*/src/`; all deps mocked via `jest.fn()` |
+| Integration    | `*.integration-spec.ts` | `apps/shop/test/jest-integration.json` | `npm run test:integration:shop`          | `npm run test:integration:shop:cov` | real Postgres via Testcontainers; infra mocked |
+| e2e            | `*.e2e-spec.ts`         | `apps/shop/test/jest-e2e.json`         | `npm run test:e2e:shop`                  | —                                   | full docker-compose stack; real HTTP calls     |
+| Contract (buf) | —                       | `proto/buf.yaml` / `buf.breaking.yaml` | `cd proto && buf lint && buf breaking …` | —                                   | proto wire-compat gate; runs in CI only        |
 
 ## File layout under `apps/shop/test/`
 
@@ -21,7 +22,26 @@ test/
     orders/
       __mock__/index.ts    ordersMockData (userId, productId, 6 orderIds, 6 itemIds — fixed UUIDs)
       graphql-orders-pagination.integration-spec.ts
-  e2e/                     (reserved, empty)
+  e2e/
+    .env.e2e               shop env vars for e2e stack (committed — non-secret defaults)
+    .env.e2e.payments      payments env vars for e2e stack (committed — non-secret defaults)
+    test-env-setup.ts      loads .env.e2e with override:false; referenced as setupFiles in jest-e2e.json
+    helpers/
+      index.ts             barrel — re-exports all 4 helpers
+      auth.ts              signupAndSignin(email, password) → JWT token
+      cart.ts              addToCartAndCheckout(token, productId, quantity?, idempotencyKey?) → { order, token }
+      poll.ts              poll<T>(fn, opts) — retries until truthy or timeout
+      wait-for-ready.ts    waitForReady(baseUrl) — polls /health until 200
+    cart/
+      cart-flow.e2e-spec.ts
+    orders/
+      constants.ts         BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8092'
+      interfaces.ts        OrderBody, PaymentBody, ProductBody, OrdersListBody, OrderItemBody
+      order-lifecycle.e2e-spec.ts
+      orders-querying.e2e-spec.ts
+    scripts/
+      e2e-migrate.sh       runs shop + payments migrations against e2e Postgres containers
+      e2e-seed.sh          seeds shop DB with products/users/orders via TypeORM data-source
 ```
 
 ## Path aliases in test code
@@ -29,7 +49,7 @@ test/
 - `@/*` → `apps/shop/src/*`
 - `@test/*` → `apps/shop/test/*`
 
-Jest: `moduleNameMapper` in `jest-integration.json`. TS: `paths` in `test/tsconfig.json`.
+Jest: `moduleNameMapper` in both `jest-integration.json` and `jest-e2e.json`. TS: `paths` in `test/tsconfig.json`.
 
 ## Integration test bootstrap pattern
 
@@ -58,3 +78,114 @@ Proto file path: `apps/shop/src/proto/` — gitignored, populated at build time 
 - Referenced as `setupFiles` in `jest-integration.json`
 - Runs before any spec file is imported → ensures `NODE_ENV=test` and `.env.test` loaded before `AppModule` eval
 - `.env.test` path: `apps/shop/test/integration/.env.test` (allowlisted in `.gitignore` via `!` exception)
+
+## Coverage reporting
+
+### Unit coverage
+
+```bash
+npm run test:cov
+```
+
+Reporters: `text` (terminal table), `lcov` (`coverage/lcov.info` for HTML reports), `json-summary` (`coverage/coverage-summary.json`).
+
+`collectCoverageFrom` is declared per-project inside `jest.config.js` (not at root level — root-level globs do not reach project runners). Both `shop` and `payments` projects exclude: `*.spec.ts`, `*.module.ts`, `main.ts`, `data-source.ts`, `src/proto/**`, `src/db/migrations/**`.
+
+### Integration coverage
+
+```bash
+npm run test:integration:shop:cov
+```
+
+Output directory: `coverage-integration/` (repo root). Same reporters as unit.
+
+**`rootDir` constraint** — `jest-integration.json` `rootDir` must be `".."` (resolves to `apps/shop/`), not `"."` (test/). Jest resolves `collectCoverageFrom` globs relative to `rootDir`; a `rootDir` of `test/` would make `src/**/*` globs unresolvable.
+
+### CI integration
+
+- `code-quality` job: reads `coverage/coverage-summary.json` and prints a summary table after unit tests run
+- `integration-tests` job: same for `coverage-integration/coverage-summary.json`; uploads `coverage-integration/` as a build artifact (7-day retention)
+
+## Contract tests (buf)
+
+Proto schema changes are guarded by [buf](https://buf.build/) running in the `code-quality` CI job.
+
+### Config files
+
+| File                      | Purpose                                                              |
+| ------------------------- | -------------------------------------------------------------------- |
+| `proto/buf.yaml`          | buf module root; `lint.except` for 4 NestJS-incompatible style rules |
+| `proto/buf.breaking.yaml` | breaking-change rule set: `WIRE_JSON`                                |
+
+**Why `proto/` is the module root** — placing `buf.yaml` inside `proto/` limits buf's workspace autodiscovery to that directory. Running `cd proto && buf ...` makes buf treat `proto/` as the module root, preventing it from scanning `node_modules/` or `apps/` proto copies.
+
+### Suppressed lint rules
+
+| Rule                      | Reason suppressed                                                  |
+| ------------------------- | ------------------------------------------------------------------ |
+| `PACKAGE_DIRECTORY_MATCH` | `payments.proto` lives in `proto/` root, not `proto/payments/`     |
+| `PACKAGE_VERSION_SUFFIX`  | Renaming `payments` → `payments.v1` is a wire-breaking change      |
+| `SERVICE_SUFFIX`          | `Payments` → `PaymentsService` breaks NestJS `@GrpcMethod` binding |
+| `ENUM_VALUE_PREFIX`       | `AUTHORIZED`/`FAILED` are already in the wire contract             |
+
+### CI commands
+
+```bash
+# Lint proto schema style
+cd proto && buf lint
+
+# Check for wire-breaking changes vs main branch
+cd proto && buf breaking --against '../.git#branch=origin/main,subdir=proto' --config buf.breaking.yaml
+```
+
+`subdir=proto` scopes the git baseline to the `proto/` directory only. `../` walks up from `proto/` to the repo root where `.git` lives.
+
+## e2e test stack
+
+### Infrastructure (`compose.e2e.yml`)
+
+Full docker-compose stack in `apps/shop/compose.e2e.yml`, project name `rd_shop_e2e`. Ports isolated from dev (8080/5432/5672) and perf (8090/5433/5673):
+
+| Service                 | Port(s)      | Notes                                                        |
+| ----------------------- | ------------ | ------------------------------------------------------------ |
+| `postgres-shop-e2e`     | 5436         | tmpfs storage — ephemeral                                    |
+| `postgres-payments-e2e` | 5437         | tmpfs storage — ephemeral                                    |
+| `rabbitmq-e2e`          | 5675 / 15675 | AMQP + management UI                                         |
+| `minio-e2e`             | 9002 / 9003  | tmpfs storage; bucket init via `minio-init-e2e` one-shot     |
+| `payments-e2e`          | —            | profile: `app`; built from Dockerfile `prod-payments` target |
+| `shop-e2e`              | 8092         | profile: `app`; built from Dockerfile `prod-shop` target     |
+
+Migration/seed containers use profile `migrate` / `seed` respectively, run via shell scripts.
+
+### npm scripts (from `apps/shop/`)
+
+```
+e2e:up       start infra containers (postgres + rabbitmq + minio + minio-init)
+e2e:migrate  bash test/e2e/scripts/e2e-migrate.sh  — runs both DB migrations
+e2e:seed     bash test/e2e/scripts/e2e-seed.sh     — seeds shop DB
+e2e:app      docker compose --profile app up        — starts payments-e2e + shop-e2e
+e2e:fresh    e2e:up && e2e:migrate && e2e:seed && e2e:app || e2e:down
+e2e:down     docker compose --profile app down -v --remove-orphans --rmi local
+```
+
+`--rmi local` on `e2e:down` removes locally-built `shop-e2e` and `payments-e2e` images. `--profile app` required so compose includes app containers in the down scope (otherwise their images cannot be deleted — "still in use").
+
+### e2e spec structure
+
+| File                                 | Coverage                                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `orders/order-lifecycle.e2e-spec.ts` | PENDING→PAID flow; cancellation + stock restore; idempotency                               |
+| `orders/orders-querying.e2e-spec.ts` | GET by ID; list with pagination/cursor; 401/404 edge cases                                 |
+| `cart/cart-flow.e2e-spec.ts`         | add/upsert/remove items; checkout; empty-cart 400; validates `addToCartAndCheckout` helper |
+
+### Type-safety pattern
+
+Supertest responses are typed `any`. Cast via `unknown` to avoid ESLint `@typescript-eslint/no-unsafe-member-access`:
+
+```ts
+// Correct
+const { data } = res.body as unknown as { data: OrderBody };
+
+// Wrong — flagged by linter
+const data = res.body.data as OrderBody;
+```

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The project uses a four-workflow GitHub Actions pipeline with seven reusable composite actions. The pipeline separates quality gating (PR checks) from artifact production (build & push) and deployment (stage / production), so that a single immutable image artifact is built once and promoted through environments without rebuilding.
+The project uses a four-workflow GitHub Actions pipeline with six reusable composite actions. The pipeline separates quality gating (PR checks) from artifact production (build & push) and deployment (stage / production), so that a single immutable image artifact is built once and promoted through environments without rebuilding.
 
 > **Infrastructure note:** Both the stage and production deploy targets are **DigitalOcean Droplets** (Ubuntu VMs). These Droplets must be **manually provisioned** before the first deployment — the pipeline does not create or configure servers. This is a known limitation; the full infrastructure is planned to migrate to **AWS** in the near future (at which point provisioning will be handled by Terraform / CDK and this step will be automated).
 
@@ -12,27 +12,34 @@ The project uses a four-workflow GitHub Actions pipeline with seven reusable com
 
 ```
 Pull Request
-    │
-    ▼
+  │
+  ▼
 ┌─────────────────────────────────────┐
-│  PR Checks  (pr-checks.yml)         │  triggered on: pull_request → development / main
+│  PR Checks  (pr-checks.yml)         │  triggered on: pull_request → development / main / release/*
 │                                     │
-│  code-quality ──────────────────►   │
-│     └─ install-dependencies         │
-│     └─ code-quality (lint +         │
-│           type-check + unit tests)  │
+│  install                            │
+│     └─ restore app cache            │
+│     └─ restore infra cache          │
+│     └─ npm ci / npm ci --prefix infra
 │             │                       │
 │             ▼                       │
-│  docker-preview-build (matrix)      │
-│     └─ shop  ──────── (build only,  │
-│     └─ payments          no push)   │
+│  code-quality                       │
+│     └─ restore app + infra caches   │
+│     └─ lint + type-check + tests    │
+│             │                       │
+│      ┌──────┴──────────┐            │
+│      ▼                 ▼            │
+│  integration-tests  docker-preview-build
+│     └─ shop cov      └─ shop/payments
+│                           build only │
+│                           no push    │
 │             │                       │
 │             ▼                       │
 │  all-checks-passed (sentinel)       │← required status check on branch protection
 └─────────────────────────────────────┘
-                  │
-                  │  merge to development
-                  ▼
+          │
+          │  merge to development
+          ▼
 ┌─────────────────────────────────────┐
 │  Build and Push (build-and-push.yml)│  triggered on: push → development
 │                                     │
@@ -49,10 +56,10 @@ Pull Request
 │     → merge service metadata        │
 │     → upload release-manifest-<sha> │
 └─────────────────────────────────────┘
-                  │
-          ┌───────┴──────────────────────────────────────┐
-          │ automatic                                     │ manual (workflow_dispatch)
-          ▼                                               ▼
+          │
+      ┌───────┴──────────────────────────────────────┐
+      │ automatic                                     │ manual (workflow_dispatch)
+      ▼                                               ▼
 ┌──────────────────────────┐             ┌──────────────────────────────┐
 │  Deploy — Stage          │             │  Deploy — Production         │
 │  (deploy-stage.yml)      │             │  (deploy-production.yml)     │
@@ -82,26 +89,49 @@ Pull Request
 
 ### 1. PR Checks (`pr-checks.yml`)
 
-**Trigger:** `pull_request` targeting `development` or `main`
+**Trigger:** `pull_request` targeting `development`, `main`, or `release/*`
 
 **Concurrency:** Cancels in-progress runs for the same PR on new push (fast feedback).
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
+│  Job: install                                                    │
+│                                                                  │
+│   Step 1 · checkout                                              │
+│   Step 2 · setup-node (npm download cache for root + infra)      │
+│   Step 3 · restore app node_modules cache                        │
+│   Step 4 · restore infra node_modules cache                      │
+│   Step 5 · npm ci                    (only on app cache miss)    │
+│   Step 6 · npm ci --prefix infra     (only on infra cache miss)  │
+└──────────────────────────────────────────────────────────────────┘
+           │ needs: install
+           ▼
+┌──────────────────────────────────────────────────────────────────┐
 │  Job: code-quality                                               │
 │                                                                  │
 │   Step 1 · checkout                                              │
-│   Step 2 · install-dependencies  ←─── composite action          │
-│              └─ setup-node (with npm cache)                      │
-│              └─ npm ci                                           │
-│   Step 3 · code-quality          ←─── composite action          │
-│              └─ npm run lint:ci                                   │
-│              └─ npm run type-check                               │
-│              └─ npm run test:cov                                  │
+│   Step 2 · setup-node                                            │
+│   Step 3 · restore app node_modules cache                        │
+│   Step 4 · restore infra node_modules cache                      │
+│   Step 5 · code-quality          ←─── composite action           │
+│              └─ npm run lint:ci      (apps + libs + test + infra)│
+│              └─ npm run type-check   (shop + payments + infra)   │
+│              └─ npm run test:cov                                 │
 │              └─ upload coverage artifact (retention: 7d)         │
 └──────────────────────────────────────────────────────────────────┘
-                          │ needs: code-quality
-                          ▼
+           │ needs: code-quality
+         ┌──────┴───────────────────────────────┐
+         ▼                                      ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Job: integration-tests                                          │
+│                                                                  │
+│   Step 1 · checkout                                              │
+│   Step 2 · setup-node                                            │
+│   Step 3 · restore app node_modules cache                        │
+│   Step 4 · npm run test:integration:shop:cov                     │
+│   Step 5 · upload integration coverage artifact (retention: 7d)  │
+└──────────────────────────────────────────────────────────────────┘
+
 ┌──────────────────────────────────────────────────────────────────┐
 │  Job: docker-preview-build  [matrix: shop | payments]            │
 │                                                                  │
@@ -111,8 +141,8 @@ Pull Request
 │              └─ GHA layer cache per service                      │
 │              └─ target: prod-distroless-<app>                    │
 └──────────────────────────────────────────────────────────────────┘
-                          │ needs: [code-quality, docker-preview-build]
-                          ▼
+           │ needs: [code-quality, integration-tests, docker-preview-build]
+           ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │  Job: all-checks-passed  (if: always)                            │
 │                                                                  │
@@ -276,7 +306,6 @@ All actions live under `.github/actions/` and are referenced by relative path wi
 
 ```
 .github/actions/
-├── install-dependencies/    Setup Node.js + npm ci
 ├── code-quality/            lint:ci + type-check + test:cov + upload coverage
 ├── parse-release-manifest/  Read release-manifest.json → step outputs
 ├── deploy-to-stage/         SSH → pull images → compose up (stage)
@@ -289,7 +318,6 @@ All actions live under `.github/actions/` and are referenced by relative path wi
 
 ```
 pr-checks.yml
-  └─ install-dependencies
   └─ code-quality
 
 build-and-push.yml
@@ -399,3 +427,9 @@ The pipeline will fail at the SSH step if any of the above prerequisites are mis
 - **Non-root runtime** — containers run as UID 1001 / 65532.
 - **Immutable image tags** — each deploy references an exact digest (`sha-<sha>`), preventing tag mutation attacks.
 - **Production approval gate** — the `production` GitHub Environment must be configured with required reviewers to prevent accidental or unauthorized production deploys.
+
+---
+
+## Evidences
+
+Visual evidence of the CI/CD pipeline in action — workflow runs and branch protection settings — is documented in [ci-cd-evidences/index.md](ci-cd-evidences/index.md).

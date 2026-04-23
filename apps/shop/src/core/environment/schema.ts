@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, MinLength } from 'class-validator';
 
 import { NodeEnvironment } from '@/utils/env';
 
@@ -19,8 +19,9 @@ export class EnvironmentVariables {
   @IsString()
   APP_URL?: string;
 
+  @IsOptional()
   @IsString()
-  AWS_ACCESS_KEY_ID: string;
+  AWS_ACCESS_KEY_ID?: string;
 
   @IsOptional()
   @IsString()
@@ -52,8 +53,9 @@ export class EnvironmentVariables {
   @IsString()
   AWS_S3_PUBLIC_ENDPOINT?: string;
 
+  @IsOptional()
   @IsString()
-  AWS_SECRET_ACCESS_KEY: string;
+  AWS_SECRET_ACCESS_KEY?: string;
 
   @IsOptional()
   @IsString()
@@ -73,9 +75,21 @@ export class EnvironmentVariables {
   @IsString()
   DATABASE_URL: string;
 
+  @IsNumber()
+  @IsOptional()
+  DB_POOL_SIZE?: number;
+
+  @IsNumber()
+  @IsOptional()
+  DB_SLOW_QUERY_THRESHOLD_MS?: number;
+
   @IsOptional()
   @IsString()
   EMAIL_VERIFICATION_EXPIRES_IN?: string;
+
+  @IsNumber()
+  @IsOptional()
+  EVENT_LOOP_LAG_THRESHOLD_MS?: number;
 
   @IsOptional()
   @IsString()
@@ -175,4 +189,16 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   SES_FROM_ADDRESS?: string;
+
+  @IsOptional()
+  @IsString()
+  THROTTLE_SKIP?: string;
+
+  @IsString()
+  @MinLength(32)
+  TOKEN_HMAC_SECRET: string;
+
+  @IsOptional()
+  @IsString()
+  VERBOSE_TEST_LOGS?: string;
 }
