@@ -22,6 +22,7 @@ on:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY_PREFIX: rd-shop
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -52,6 +53,19 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.app }}
+          tags: |
+            type=sha,prefix=sha-,format=long
+            type=ref,event=branch
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -63,6 +77,8 @@ jobs:
           target: prod-distroless-${{ matrix.app }}
           build-args: APP=${{ matrix.app }}
           push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=docker-build-test-${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=docker-build-test-${{ matrix.app }}
 
@@ -75,5 +91,6 @@ jobs:
             echo "- Branch: ${{ github.ref_name }}"
             echo "- App: ${{ matrix.app }}"
             echo "- AWS role: ${{ vars.AWS_ROLE_ARN_BUILD }}"
+            echo "- ECR registry: ${{ steps.login-ecr.outputs.registry }}"
             echo "- Image push: skipped intentionally"
           } >> "$GITHUB_STEP_SUMMARY"
