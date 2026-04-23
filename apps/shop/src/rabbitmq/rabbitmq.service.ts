@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Channel, ChannelModel, connect, ConsumeMessage, Options } from 'amqplib';
 
 import { ORDER_DLQ, ORDER_PROCESS_QUEUE } from './constants';
+import { resolveConnectionTransport } from './utils';
 
 /**
  * Low-level RabbitMQ client service that manages the AMQP connection lifecycle,
@@ -138,14 +139,19 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
       const password = this.configService.get<string>('RABBITMQ_PASSWORD');
       const prefetchCount = this.configService.get<number>('RABBITMQ_PREFETCH_COUNT', 10);
       const vhost = this.configService.get<string>('RABBITMQ_VHOST') ?? '/';
+      const { logLabel, protocol, socketOptions } = resolveConnectionTransport({ host, port });
 
-      this._connection = await connect({
-        hostname: host,
-        password,
-        port,
-        username: user,
-        vhost,
-      });
+      this._connection = await connect(
+        {
+          hostname: host,
+          password,
+          port,
+          protocol,
+          username: user,
+          vhost,
+        },
+        socketOptions,
+      );
 
       this._channel = await this._connection.createChannel();
 
@@ -161,7 +167,7 @@ export class RabbitMQService implements OnModuleDestroy, OnModuleInit {
         this.logger.warn('RabbitMQ connection closed');
       });
 
-      this.logger.log('RabbitMQ connected successfully');
+      this.logger.log(`RabbitMQ connected successfully over ${logLabel}`);
     } catch (error) {
       this.logger.error('Failed to connect to RabbitMQ:', error);
       throw error;

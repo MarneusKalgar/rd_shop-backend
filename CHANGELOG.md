@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **PR checks dependency handling** — `pr-checks.yml` now restores and invalidates root and `infra/` `node_modules` caches independently; `code-quality` restores both caches before lint, type-check, and unit tests
+- **CI documentation** — `docs/backend/architecture/infra-ci-pipeline.md` and `homework17.md` now describe the current `install -> code-quality -> [integration-tests || docker-preview-build] -> all-checks-passed` flow, infra-aware validation, and the reduced local action set
+
+### Removed
+
+- **Unused `install-dependencies` composite action** — deleted `.github/actions/install-dependencies/action.yml`; install logic now lives directly in `pr-checks.yml`
+
 ## [0.2.4] - 2026-04-20
 
 ### Added

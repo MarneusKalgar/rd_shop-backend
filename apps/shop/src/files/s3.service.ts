@@ -39,10 +39,22 @@ export class S3Service {
       this.config.get('AWS_S3_PRESIGNED_URL_DOWNLOAD_EXPIRATION', { infer: true }) ?? 3600; // Default to 1 hour if not set
     this.cloudfrontBaseUrl = this.config.get('AWS_CLOUDFRONT_URL', { infer: true });
 
-    const credentials = {
-      accessKeyId: this.config.get('AWS_ACCESS_KEY_ID', { infer: true }),
-      secretAccessKey: this.config.get('AWS_SECRET_ACCESS_KEY', { infer: true }),
-    };
+    const accessKeyId = this.config.get('AWS_ACCESS_KEY_ID', { infer: true });
+    const secretAccessKey = this.config.get('AWS_SECRET_ACCESS_KEY', { infer: true });
+
+    if ((accessKeyId && !secretAccessKey) || (!accessKeyId && secretAccessKey)) {
+      throw new Error(
+        'AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be provided together when using explicit S3 credentials.',
+      );
+    }
+
+    const credentials =
+      accessKeyId && secretAccessKey
+        ? {
+            accessKeyId,
+            secretAccessKey,
+          }
+        : undefined;
 
     this.client = new S3Client({
       credentials,
@@ -60,7 +72,7 @@ export class S3Service {
     });
 
     this.logger.log(
-      `S3 client initialized with endpoint: ${this.endpoint}, region: ${this.region}`,
+      `S3 client initialized with endpoint: ${this.endpoint ?? 'aws-default'}, region: ${this.region}`,
     );
   }
 

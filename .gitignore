@@ -1,6 +1,9 @@
 # compiled output
 /dist
 /node_modules
+/infra/node_modules
+/infra/bin
+/node-compile-cache
 /build
 
 # Logs

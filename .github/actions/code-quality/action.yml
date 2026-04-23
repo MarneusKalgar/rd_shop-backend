@@ -28,7 +28,7 @@ runs:
       shell: bash
       run: npm run lint:ci
 
-    - name: Type check (shop + payments)
+    - name: Type check (shop + payments + infra)
       shell: bash
       run: npm run type-check
 

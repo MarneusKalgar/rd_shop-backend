@@ -17,8 +17,8 @@ concurrency:
 
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # Stage 1 · Install dependencies once, cache node_modules.
-  # All jobs that need node_modules restore from this cache
+  # Stage 1 · Install root + infra dependencies once and cache both
+  # node_modules trees. Jobs that need them restore from cache
   # instead of running npm ci independently.
   # ──────────────────────────────────────────────────────────────
   install:
@@ -33,17 +33,31 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            infra/package-lock.json
 
-      - name: Restore node_modules cache
-        id: node-modules-cache
+      - name: Restore app node_modules cache
+        id: app-node-modules-cache
         uses: actions/cache@v5
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: app-node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Install dependencies
-        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+      - name: Restore infra node_modules cache
+        id: infra-node-modules-cache
+        uses: actions/cache@v5
+        with:
+          path: infra/node_modules
+          key: infra-node-modules-${{ runner.os }}-${{ hashFiles('infra/package-lock.json') }}
+
+      - name: Install app dependencies
+        if: steps.app-node-modules-cache.outputs.cache-hit != 'true'
         run: npm ci
+
+      - name: Install infra dependencies
+        if: steps.infra-node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci --prefix infra
 
   # ──────────────────────────────────────────────────────────────
   # Stage 2 · Code quality (lint · type-check · unit tests)
@@ -61,11 +75,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Restore node_modules from cache
+      - name: Restore app node_modules from cache
         uses: actions/cache/restore@v5
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: app-node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Restore infra node_modules from cache
+        uses: actions/cache/restore@v5
+        with:
+          path: infra/node_modules
+          key: infra-node-modules-${{ runner.os }}-${{ hashFiles('infra/package-lock.json') }}
 
       - uses: ./.github/actions/code-quality
 
@@ -94,7 +114,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: app-node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Run integration tests with coverage
         run: npm run test:integration:shop:cov
