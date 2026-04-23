@@ -16,9 +16,9 @@ install ──► code-quality ──┬──► integration-tests   ──┐
                            └──► docker-preview-build ──┴──► all-checks-passed
 ```
 
-- **install**: `npm ci` on cache miss; saves `node_modules` keyed `node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}`
-- **code-quality**: restores cache, runs `code-quality` composite action (lint, type-check, unit tests)
-- **integration-tests**: `needs: code-quality`; `timeout-minutes: 15`; restores cache; runs `npm run test:integration:shop` (Testcontainers, Docker pre-installed on ubuntu-latest)
+- **install**: restores and saves root `node_modules` and `infra/node_modules` independently; runs `npm ci` and `npm ci --prefix infra` only on cache miss
+- **code-quality**: restores both caches and runs `code-quality`; `lint:ci` and `type-check` now validate `infra/` along with app code
+- **integration-tests**: `needs: code-quality`; `timeout-minutes: 15`; restores root app cache only; runs `npm run test:integration:shop:cov` and uploads `coverage-integration/` (Testcontainers, Docker pre-installed on ubuntu-latest)
 - **docker-preview-build**: matrix `[shop, payments]`; `docker/build-push-action@v7`; GHA cache per app scope; push: false
 - **all-checks-passed**: `if: always()`; sentinel job added to branch protection; writes step summary table
 
@@ -44,7 +44,6 @@ install ──► code-quality ──┬──► integration-tests   ──┐
 
 | Action                   | Purpose                               |
 | ------------------------ | ------------------------------------- |
-| `install-dependencies`   | `npm ci` + cache                      |
 | `code-quality`           | lint + type-check + unit tests        |
 | `parse-release-manifest` | Read image refs from release artifact |
 | `deploy-to-stage`        | SSH + compose up on stage             |
