@@ -6,7 +6,8 @@ on:
       - development
 
 env:
-  REGISTRY: ghcr.io
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY_PREFIX: rd-shop
   NODE_VERSION: '24'
 
 # Allow one build per commit SHA — different SHAs can run concurrently
@@ -18,7 +19,7 @@ concurrency:
 
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # Build each service image and push to GHCR
+  # Build each service image and push to ECR
   # Produces an immutable sha-<commit> tag and a mutable branch tag.
   # ──────────────────────────────────────────────────────────────
   build-and-push:
@@ -26,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # required to push to GHCR
+      id-token: write # required for AWS OIDC federation
     strategy:
       # Keep fail-fast disabled so both services are attempted even if one fails
       fail-fast: false
@@ -36,19 +37,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_BUILD }}
+          role-session-name: gha-build-${{ github.run_id }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
-          # metadata-action normalises the image name to lowercase automatically
-          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.app }}
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.app }}
           tags: |
             # Immutable — primary deployment reference (full SHA)
             type=sha,prefix=sha-,format=long
@@ -75,8 +82,7 @@ jobs:
 
       - name: Save service metadata
         run: |
-          # Derive lowercase image base to satisfy Docker tag requirements
-          IMAGE_BASE=$(echo "${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.app }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_BASE="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.app }}"
           mkdir -p /tmp/meta
           jq -n \
             --arg image  "${IMAGE_BASE}:sha-${{ github.sha }}" \
