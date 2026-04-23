@@ -3,6 +3,11 @@ import * as aws from '@pulumi/aws';
 import { commonTags, stackName } from '../bootstrap';
 import { getFoundationSesConfig } from './ses-config';
 
+/**
+ * Step 1.5 / mail.
+ * Accepts no arguments.
+ * Creates the SES email identity used by the shop service and returns the identity metadata exported to later steps.
+ */
 export function createFoundationSes() {
   const sesConfig = getFoundationSesConfig();
 

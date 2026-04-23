@@ -26,7 +26,11 @@ export interface FoundationSecurityGroupConfig {
   tcpProtocol: string;
 }
 
-// Keeps Phase 0.3 defaults and stack overrides in one place.
+/**
+ * Step 0.3 config helper.
+ * Accepts no arguments.
+ * Resolves the security-group defaults and stack overrides used when building the network trust model.
+ */
 export function getFoundationSecurityGroupConfig(): FoundationSecurityGroupConfig {
   const networkConfig = getFoundationNetworkConfig();
   const publicIngressIpv4Cidrs =
@@ -44,6 +48,11 @@ export function getFoundationSecurityGroupConfig(): FoundationSecurityGroupConfi
   };
 }
 
+/**
+ * Step 0.3 validation helper.
+ * Accepts the public ingress CIDR list.
+ * Throws when the ALB ingress surface would be created without any allowed source ranges.
+ */
 function validatePublicIngressCidrs(publicIngressIpv4Cidrs: string[]) {
   if (publicIngressIpv4Cidrs.length === 0) {
     throw new Error('publicIngressIpv4Cidrs must contain at least one CIDR block.');

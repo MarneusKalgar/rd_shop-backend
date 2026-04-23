@@ -1,11 +1,15 @@
-import { config, projectPrefix } from '../bootstrap';
+import * as pulumi from '@pulumi/pulumi';
+
+import { config, projectPrefix, stack } from '../bootstrap';
 import { getFoundationComputeConfig } from './compute-config';
 
 const defaultCloudMapNamespaceName = `${projectPrefix}.local`;
 const defaultDesiredCount = 1;
+const bootstrapPendingImageTag = 'bootstrap-pending-image';
 const constrainedDeploymentMaximumPercent = 100;
 const constrainedDeploymentMinimumHealthyPercent = 0;
 const defaultShopHealthCheckGracePeriodSeconds = 120;
+const previewOnlyMissingImageTag = 'preview-only-missing-image';
 const rollingDeploymentMaximumPercent = 200;
 const rollingDeploymentMinimumHealthyPercent = 100;
 
@@ -24,8 +28,20 @@ export interface ComputeServicesConfig {
   shopImageUri?: string;
 }
 
+interface ResolvedImageSource {
+  forceZeroDesiredCount: boolean;
+  imageTag?: string;
+  imageUri?: string;
+}
+
+/**
+ * Step 2.3-2.4 service-config helper.
+ * Accepts no arguments.
+ * Resolves the ECS service deployment settings, image-source settings, and Cloud Map namespace used by service provisioning.
+ */
 export function getComputeServicesConfig(): ComputeServicesConfig {
-  const defaultDeploymentSettings = getDefaultDeploymentSettings();
+  const computeConfig = getFoundationComputeConfig();
+  const defaultDeploymentSettings = getDefaultDeploymentSettings(computeConfig);
   const cloudMapNamespaceName = config.get('cloudMapNamespaceName') ?? defaultCloudMapNamespaceName;
   const paymentsDeploymentMaximumPercent =
     config.getNumber('paymentsDeploymentMaximumPercent') ??
@@ -43,10 +59,16 @@ export function getComputeServicesConfig(): ComputeServicesConfig {
     config.getNumber('shopHealthCheckGracePeriodSeconds') ??
     defaultShopHealthCheckGracePeriodSeconds;
   const paymentsDesiredCount = config.getNumber('paymentsDesiredCount') ?? defaultDesiredCount;
-  const shopImageTag = normalizeOptionalValue(config.get('shopImageTag'));
-  const paymentsImageTag = normalizeOptionalValue(config.get('paymentsImageTag'));
-  const shopImageUri = normalizeOptionalValue(config.get('shopImageUri'));
-  const paymentsImageUri = normalizeOptionalValue(config.get('paymentsImageUri'));
+  const shopImageSource = resolveImageSource({
+    imageTag: normalizeOptionalValue(config.get('shopImageTag')),
+    imageUri: normalizeOptionalValue(config.get('shopImageUri')),
+    service: 'shop',
+  });
+  const paymentsImageSource = resolveImageSource({
+    imageTag: normalizeOptionalValue(config.get('paymentsImageTag')),
+    imageUri: normalizeOptionalValue(config.get('paymentsImageUri')),
+    service: 'payments',
+  });
 
   validateDesiredCount('shopDesiredCount', shopDesiredCount);
   validateDesiredCount('paymentsDesiredCount', paymentsDesiredCount);
@@ -60,29 +82,33 @@ export function getComputeServicesConfig(): ComputeServicesConfig {
     paymentsDeploymentMinimumHealthyPercent,
     paymentsDeploymentMaximumPercent,
   );
+  validatePaymentsPlacement(paymentsDesiredCount, computeConfig.maxSize);
   validateDnsName('cloudMapNamespaceName', cloudMapNamespaceName);
   validateGracePeriod('shopHealthCheckGracePeriodSeconds', shopHealthCheckGracePeriodSeconds);
-  validateImageSource('shop', shopImageTag, shopImageUri);
-  validateImageSource('payments', paymentsImageTag, paymentsImageUri);
-
   return {
     cloudMapNamespaceName,
     paymentsDeploymentMaximumPercent,
     paymentsDeploymentMinimumHealthyPercent,
-    paymentsDesiredCount,
-    paymentsImageTag,
-    paymentsImageUri,
+    paymentsDesiredCount: paymentsImageSource.forceZeroDesiredCount ? 0 : paymentsDesiredCount,
+    paymentsImageTag: paymentsImageSource.imageTag,
+    paymentsImageUri: paymentsImageSource.imageUri,
     shopDeploymentMaximumPercent,
     shopDeploymentMinimumHealthyPercent,
-    shopDesiredCount,
+    shopDesiredCount: shopImageSource.forceZeroDesiredCount ? 0 : shopDesiredCount,
     shopHealthCheckGracePeriodSeconds,
-    shopImageTag,
-    shopImageUri,
+    shopImageTag: shopImageSource.imageTag,
+    shopImageUri: shopImageSource.imageUri,
   };
 }
 
-function getDefaultDeploymentSettings() {
-  const computeConfig = getFoundationComputeConfig();
+/**
+ * Step 2.3-2.4 deployment helper.
+ * Accepts the resolved compute-capacity config.
+ * Returns the default ECS deployment percentages for either constrained single-host mode or rolling mode.
+ */
+function getDefaultDeploymentSettings(
+  computeConfig: ReturnType<typeof getFoundationComputeConfig>,
+) {
   const constrainedSingleHost =
     computeConfig.desiredCapacity === 1 &&
     computeConfig.maxSize === 1 &&
@@ -100,6 +126,11 @@ function getDefaultDeploymentSettings() {
       };
 }
 
+/**
+ * Step 2.3-2.4 normalization helper.
+ * Accepts an optional string config value.
+ * Returns the trimmed value when present, otherwise `undefined`.
+ */
 function normalizeOptionalValue(value: string | undefined) {
   if (!value) {
     return undefined;
@@ -109,6 +140,58 @@ function normalizeOptionalValue(value: string | undefined) {
   return trimmedValue.length > 0 ? trimmedValue : undefined;
 }
 
+/**
+ * Step 2.3-2.4 image-source helper.
+ * Accepts the service label plus optional image tag and image URI config values.
+ * Returns the explicit image source, a non-production bootstrap placeholder with desired count forced to zero, or a preview-only placeholder during production previews when image config is still unset.
+ */
+function resolveImageSource({
+  imageTag,
+  imageUri,
+  service,
+}: {
+  imageTag: string | undefined;
+  imageUri: string | undefined;
+  service: 'payments' | 'shop';
+}): ResolvedImageSource {
+  validateImageSource(service, imageTag, imageUri);
+
+  if (!imageTag && !imageUri) {
+    if (stack !== 'production') {
+      void pulumi.log.warn(
+        `${service}ImageTag or ${service}ImageUri is not set. Using the non-production bootstrap placeholder image tag and forcing desired count to 0 until a real image is configured.`,
+      );
+
+      return {
+        forceZeroDesiredCount: true,
+        imageTag: bootstrapPendingImageTag,
+        imageUri: undefined,
+      };
+    }
+
+    void pulumi.log.warn(
+      `${service}ImageTag or ${service}ImageUri is not set for preview. Using a preview-only placeholder tag so \`pulumi preview\` can continue. \`pulumi up\` still requires an explicit image source.`,
+    );
+
+    return {
+      forceZeroDesiredCount: false,
+      imageTag: previewOnlyMissingImageTag,
+      imageUri: undefined,
+    };
+  }
+
+  return {
+    forceZeroDesiredCount: false,
+    imageTag,
+    imageUri,
+  };
+}
+
+/**
+ * Step 2.3-2.4 validation helper.
+ * Accepts the service label and its minimum/maximum deployment percentages.
+ * Throws when the ECS deployment percentages fall outside the supported ranges.
+ */
 function validateDeploymentPercentages(
   label: string,
   minimumHealthyPercent: number,
@@ -135,24 +218,44 @@ function validateDeploymentPercentages(
   }
 }
 
+/**
+ * Step 2.3-2.4 validation helper.
+ * Accepts a desired-count label and value.
+ * Throws when the desired count is negative or non-integer.
+ */
 function validateDesiredCount(label: string, value: number) {
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`${label} must be a non-negative integer.`);
   }
 }
 
+/**
+ * Step 2.3-2.4 validation helper.
+ * Accepts the config label and Cloud Map namespace candidate.
+ * Throws when the namespace does not resemble a usable private DNS zone.
+ */
 function validateDnsName(label: string, value: string) {
   if (!/^[a-z0-9.-]+$/.test(value) || !value.includes('.')) {
     throw new Error(`${label} must look like a valid private DNS zone, e.g. rd-shop.local.`);
   }
 }
 
+/**
+ * Step 2.3-2.4 validation helper.
+ * Accepts the config label and health-check grace period seconds.
+ * Throws when the grace period is negative or non-integer.
+ */
 function validateGracePeriod(label: string, value: number) {
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`${label} must be a non-negative integer.`);
   }
 }
 
+/**
+ * Step 2.3-2.4 validation helper.
+ * Accepts the service name plus its optional image tag and image URI inputs.
+ * Throws when the image source is ambiguous, or when it is missing during production apply.
+ */
 function validateImageSource(
   service: 'payments' | 'shop',
   imageTag: string | undefined,
@@ -164,9 +267,22 @@ function validateImageSource(
     );
   }
 
-  if (!imageTag && !imageUri) {
+  if (!imageTag && !imageUri && stack === 'production' && !pulumi.runtime.isDryRun()) {
     throw new Error(
       `${service}ImageTag or ${service}ImageUri must be set explicitly. Implicit latest image fallback is not allowed.`,
+    );
+  }
+}
+
+/**
+ * Step 2.3-2.4 placement helper.
+ * Accepts the payments desired count and ECS host max size.
+ * Throws when fixed-port bridge-mode payments tasks would require more hosts than the ASG can supply.
+ */
+function validatePaymentsPlacement(paymentsDesiredCount: number, ecsMaxSize: number) {
+  if (paymentsDesiredCount > ecsMaxSize) {
+    throw new Error(
+      'paymentsDesiredCount cannot exceed ecsMaxSize because payments uses fixed host port 5001 in bridge mode and only one payments task can run per ECS host.',
     );
   }
 }

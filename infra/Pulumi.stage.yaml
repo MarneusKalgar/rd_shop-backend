@@ -1,6 +1,8 @@
 config:
   aws:region: eu-central-1
   rd-shop-infra:databaseAllocatedStorageGiB: '20'
+  # Intentionally pinned to 1 day for the current budget/free-tier posture.
+  # Code default stays higher for production; this explicit override documents the temporary tradeoff.
   rd-shop-infra:databaseBackupRetentionDays: '1'
   rd-shop-infra:databaseEngineMajorVersion: '16'
   rd-shop-infra:databaseMultiAz: 'false'
@@ -15,12 +17,18 @@ config:
   rd-shop-infra:privateSubnetCidrs:
     - 10.42.10.0/24
     - 10.42.11.0/24
+  # Stage uses CloudFront default-domain HTTPS for viewers, but CloudFront -> ALB stays HTTP in this mode.
+  # End-to-end TLS requires custom-domain mode with an ACM-backed HTTPS listener.
   rd-shop-infra:publicEdgeMode: cloudfront
   rd-shop-infra:projectPrefix: rd-shop
   rd-shop-infra:publicSubnetCidrs:
     - 10.42.0.0/24
     - 10.42.1.0/24
   rd-shop-infra:sharedInfraOwnerStack: stage
+  # Optional for initial non-production bootstrap.
+  # If omitted, ECS uses a fixed placeholder image tag and desired count 0 until real images are configured.
+  # rd-shop-infra:shopImageTag: sha-<full-commit-sha>
+  # rd-shop-infra:paymentsImageTag: sha-<full-commit-sha>
   rd-shop-infra:shopDatabaseInstanceClass: db.t4g.micro
   rd-shop-infra:shopDatabaseName: rd_shop
   rd-shop-infra:shopDatabaseUsername: shop

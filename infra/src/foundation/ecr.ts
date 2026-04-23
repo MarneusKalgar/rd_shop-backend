@@ -54,7 +54,11 @@ export const repositoryNames = {
   shop: `${projectPrefix}/shop`,
 } as const;
 
-// Creates one repository plus lifecycle policy so both resources stay coupled.
+/**
+ * Step 0.4 helper.
+ * Accepts the logical Pulumi name suffix and the stable ECR repository name.
+ * Creates one repository plus its lifecycle policy and returns the repository resource.
+ */
 function createRepository(logicalName: string, repositoryName: string) {
   const repository = new aws.ecr.Repository(stackName(logicalName), {
     imageScanningConfiguration: {
@@ -77,8 +81,11 @@ function createRepository(logicalName: string, repositoryName: string) {
   return repository;
 }
 
-// Phase 0.4 orchestrator.
-// Shared ECR repos exist once per account, so only owner stack creates physical resources.
+/**
+ * Step 0.4 / shared foundation.
+ * Accepts no arguments.
+ * Creates the shared `shop` and `payments` ECR repositories on the owner stack, then returns stable repository metadata for later compute and CI steps.
+ */
 export function createFoundationEcr() {
   const paymentsRepository = isSharedInfraOwner
     ? createRepository('payments-ecr', repositoryNames.payments)

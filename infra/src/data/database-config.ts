@@ -38,6 +38,11 @@ export interface ServiceDatabaseConfig {
   username: string;
 }
 
+/**
+ * Step 1.1 database config helper.
+ * Accepts no arguments.
+ * Resolves the RDS defaults and stack overrides for both services, then returns the normalized database configuration used by provisioning.
+ */
 export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
   const isProduction = stack === 'production';
   const engineMajorVersion =
@@ -83,6 +88,11 @@ export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
   };
 }
 
+/**
+ * Step 1.1 validation helper.
+ * Accepts the configured allocated storage size in GiB.
+ * Throws when the storage value is below the minimum supported RDS size for this stack.
+ */
 function validateAllocatedStorage(allocatedStorageGiB: number) {
   if (allocatedStorageGiB < minimumAllocatedStorageGiB) {
     throw new Error(
@@ -91,12 +101,22 @@ function validateAllocatedStorage(allocatedStorageGiB: number) {
   }
 }
 
+/**
+ * Step 1.1 validation helper.
+ * Accepts the configured backup retention in days.
+ * Throws when the retention value is negative.
+ */
 function validateBackupRetention(backupRetentionDays: number) {
   if (backupRetentionDays < 0) {
     throw new Error('databaseBackupRetentionDays cannot be negative.');
   }
 }
 
+/**
+ * Step 1.1 validation helper.
+ * Accepts the configured PostgreSQL major version string.
+ * Throws when the version does not look like a numeric PostgreSQL major version.
+ */
 function validateEngineMajorVersion(engineMajorVersion: string) {
   if (!/^\d+$/.test(engineMajorVersion)) {
     throw new Error('databaseEngineMajorVersion must be a major PostgreSQL version like "16".');

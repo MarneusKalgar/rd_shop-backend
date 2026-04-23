@@ -53,6 +53,11 @@ export const shopServiceDefaults = {
   containerPort: shopContainerPort,
 } as const;
 
+/**
+ * Step 2.3 task-definition helper.
+ * Accepts the payments image, log group name, runtime parameter names, and runtime secret ARN.
+ * Returns the JSON-serialized ECS container definition for the payments gRPC task.
+ */
 export function buildPaymentsContainerDefinitions({
   imageUri,
   logGroupName,
@@ -71,6 +76,8 @@ export function buildPaymentsContainerDefinitions({
       portMappings: [
         {
           containerPort: paymentsServiceDefaults.containerPort,
+          // Payments keeps a fixed host port so ECS bridge-mode tasks and Cloud Map SRV discovery
+          // always expose gRPC on the same east-west port. That limits scheduling to one task per host.
           hostPort: paymentsServiceDefaults.containerPort,
           protocol: 'tcp',
         },
@@ -84,6 +91,11 @@ export function buildPaymentsContainerDefinitions({
   ]);
 }
 
+/**
+ * Step 2.3 task-definition helper.
+ * Accepts the shop image, log group name, runtime parameter names, and runtime secret ARN.
+ * Returns the JSON-serialized ECS container definition for the public shop task.
+ */
 export function buildShopContainerDefinitions({
   imageUri,
   logGroupName,
@@ -115,6 +127,11 @@ export function buildShopContainerDefinitions({
   ]);
 }
 
+/**
+ * Step 2.3 container helper.
+ * Accepts the runtime parameter-name map plus the runtime secret ARN and required secret keys.
+ * Returns the combined ECS secret descriptors that wire both SSM parameters and Secrets Manager entries into a container.
+ */
 function buildContainerSecrets({
   parameterNames,
   runtimeSecretArn,
@@ -139,6 +156,11 @@ function buildContainerSecrets({
   return [...parameterSecrets, ...runtimeSecrets];
 }
 
+/**
+ * Step 2.3 logging helper.
+ * Accepts the CloudWatch log group name and stream prefix.
+ * Returns the ECS awslogs configuration block for a container definition.
+ */
 function buildLogConfiguration(logGroupName: pulumi.Input<string>, streamPrefix: string) {
   return {
     logDriver: 'awslogs',
@@ -150,6 +172,11 @@ function buildLogConfiguration(logGroupName: pulumi.Input<string>, streamPrefix:
   };
 }
 
+/**
+ * Step 2.3 health-check helper.
+ * Accepts the Node.js one-liner command used to probe the container.
+ * Returns the ECS health-check block applied to container definitions.
+ */
 function buildNodeHealthCheck(command: string) {
   return {
     command: ['CMD', 'node', '-e', command],

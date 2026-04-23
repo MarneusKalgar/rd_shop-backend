@@ -25,6 +25,11 @@ interface CreateFoundationDatabasesArgs {
   };
 }
 
+/**
+ * Step 1.1 / data layer.
+ * Accepts the private subnet ids plus the shop and payments RDS security-group ids.
+ * Creates the shared subnet group, PostgreSQL parameter group, and both service RDS instances, then returns the connection metadata later steps consume.
+ */
 export function createFoundationDatabases({
   privateSubnetIds,
   securityGroupIds,
@@ -106,6 +111,11 @@ export function createFoundationDatabases({
   };
 }
 
+/**
+ * Step 1.1 database helper.
+ * Accepts the normalized database config, per-service config, subnet group, parameter group, and target security group id.
+ * Creates one RDS instance for either `shop` or `payments` and returns the instance resource.
+ */
 function createDatabaseInstance({
   config,
   logicalName,

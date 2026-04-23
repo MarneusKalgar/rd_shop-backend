@@ -20,14 +20,29 @@ export const commonTags = {
   Stack: stack,
 };
 
+/**
+ * Shared bootstrap helper used by every step.
+ * Accepts a repository name without registry host information.
+ * Returns the full ECR repository ARN for IAM policies and exports.
+ */
 export function repositoryArn(repositoryName: string) {
   return pulumi.interpolate`arn:aws:ecr:${region}:${caller.accountId}:repository/${repositoryName}`;
 }
 
+/**
+ * Shared bootstrap helper used by every step.
+ * Accepts a repository name without registry host information.
+ * Returns the fully qualified ECR registry URL consumed by ECS image references and CI.
+ */
 export function repositoryUrl(repositoryName: string) {
   return pulumi.interpolate`${caller.accountId}.dkr.ecr.${region}.amazonaws.com/${repositoryName}`;
 }
 
+/**
+ * Shared naming helper used by all steps.
+ * Accepts a logical resource suffix.
+ * Returns the stack-scoped physical name prefix applied to Pulumi-managed AWS resources.
+ */
 export function stackName(name: string): string {
   return `${resourcePrefix}-${name}`;
 }

@@ -46,6 +46,11 @@ interface RdsMasterUserSecretPayload {
 
 type ParameterNameMap = Record<string, string>;
 
+/**
+ * Step 1.3-1.4 / runtime config.
+ * Accepts resolved database endpoints, bucket name, broker endpoint, and optional public app URL.
+ * Creates the service runtime Secrets Manager entries and SSM parameters, then returns the secret ARNs and parameter-name maps consumed by ECS.
+ */
 export function createFoundationRuntimeConfig({
   databases,
   fileStorage,
@@ -150,6 +155,11 @@ export function createFoundationRuntimeConfig({
   };
 }
 
+/**
+ * Step 1.3-1.4 connection helper.
+ * Accepts the resolved database host, port, name, username, and password.
+ * Returns the SSL-enforced PostgreSQL connection URL stored in runtime secrets.
+ */
 function buildConnectionUrl({
   databaseName,
   host,
@@ -167,6 +177,11 @@ function buildConnectionUrl({
   return `postgresql://${username}:${encodeURIComponent(password)}@${host}:${port}/${databaseName}?sslmode=require`;
 }
 
+/**
+ * Step 1.3-1.4 database-secret helper.
+ * Accepts the resolved database endpoint metadata plus the RDS master-user secret ARN.
+ * Reads the AWS-managed master secret, applies safe fallbacks, and returns the normalized database secret payload written into service runtime secrets.
+ */
 function buildDatabaseSecretValues({
   databaseHost,
   databaseName,
@@ -244,14 +259,29 @@ function buildDatabaseSecretValues({
   );
 }
 
+/**
+ * Step 1.3-1.4 parameter helper.
+ * Accepts the SSM parameter path prefix and environment variable key.
+ * Returns the full SSM parameter name stored for that runtime setting.
+ */
 function buildParameterName(parameterPathPrefix: string, key: string) {
   return `${parameterPathPrefix}/${key}`;
 }
 
+/**
+ * Step 1.3-1.4 parameter helper.
+ * Accepts the logical Pulumi resource prefix and environment variable key.
+ * Returns the stable Pulumi logical name used for the SSM parameter resource.
+ */
 function buildParameterResourceName(logicalNamePrefix: string, key: string) {
   return `${logicalNamePrefix}-${key.toLowerCase().replace(/_/g, '-')}`;
 }
 
+/**
+ * Step 1.3-1.4 secret helper.
+ * Accepts the secret metadata, recovery window, generated payload, and service tag.
+ * Creates a Secrets Manager secret plus its current version and returns the secret identifiers.
+ */
 function createRuntimeSecret({
   description,
   logicalName,
@@ -291,6 +321,11 @@ function createRuntimeSecret({
   };
 }
 
+/**
+ * Step 1.3-1.4 parameter helper.
+ * Accepts the logical-name prefix, SSM path prefix, target service tag, and key/value map.
+ * Creates one String SSM parameter per defined value and returns the map of environment keys to parameter names.
+ */
 function createStringParameters({
   logicalNamePrefix,
   parameterPathPrefix,

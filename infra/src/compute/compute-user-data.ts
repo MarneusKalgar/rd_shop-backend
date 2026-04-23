@@ -6,6 +6,11 @@ const ecsConfigPath = '/etc/ecs/ecs.config';
 const ecsLogDir = '/var/log/ecs';
 const ecsMetadataUrl = 'http://localhost:51678/v1/metadata';
 
+/**
+ * Step 2.2 host bootstrap helper.
+ * Accepts the ECS cluster name.
+ * Returns the cloud-init script that writes ECS config, waits for Docker readiness, and starts the deferred ECS bootstrap unit on the EC2 host.
+ */
 export function buildComputeUserData(clusterName: string) {
   return `#!/bin/bash
 set -euxo pipefail

@@ -35,8 +35,11 @@ interface CreateSourceSecurityGroupRuleArgs extends CreateSecurityGroupRuleArgs 
   sourceSecurityGroupId: pulumi.Input<string>;
 }
 
-// Phase 0.3 orchestrator.
-// Creates SG shells first, then attaches explicit rules so relationships stay easy to read in preview.
+/**
+ * Step 0.3 / foundation security.
+ * Accepts the VPC id that owns the security boundaries.
+ * Creates the ALB, ECS, RDS, and RabbitMQ security groups plus their explicit ingress and egress rules.
+ */
 export function createFoundationSecurityGroups({ vpcId }: CreateFoundationSecurityGroupsArgs) {
   const securityGroupConfig = getFoundationSecurityGroupConfig();
 
@@ -197,6 +200,11 @@ export function createFoundationSecurityGroups({ vpcId }: CreateFoundationSecuri
   };
 }
 
+/**
+ * Step 0.3 rule helper.
+ * Accepts the target security group id, CIDR blocks, port range, protocol, and rule metadata.
+ * Creates one CIDR-based security-group rule resource.
+ */
 function createCidrRule({
   cidrBlocks,
   description,
@@ -218,6 +226,11 @@ function createCidrRule({
   });
 }
 
+/**
+ * Step 0.3 group helper.
+ * Accepts the VPC id, logical name, description, and scope tag.
+ * Creates one security-group shell that later helper calls attach rules to.
+ */
 function createSecurityGroup({ description, logicalName, scope, vpcId }: CreateSecurityGroupArgs) {
   return new aws.ec2.SecurityGroup(stackName(logicalName), {
     description,
@@ -232,6 +245,11 @@ function createSecurityGroup({ description, logicalName, scope, vpcId }: CreateS
   });
 }
 
+/**
+ * Step 0.3 rule helper.
+ * Accepts the target security group id plus the port range, protocol, and metadata.
+ * Creates one self-referencing ingress or egress rule.
+ */
 function createSelfRule({
   description,
   fromPort,
@@ -252,6 +270,11 @@ function createSelfRule({
   });
 }
 
+/**
+ * Step 0.3 rule helper.
+ * Accepts the target security group id, source security group id, port range, protocol, and metadata.
+ * Creates one security-group-to-security-group rule resource.
+ */
 function createSourceSecurityGroupRule({
   description,
   fromPort,

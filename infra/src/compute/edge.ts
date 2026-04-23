@@ -24,6 +24,11 @@ const shopTargetGroupHealthyThresholdCount = 2;
 const shopTargetGroupPort = shopServiceDefaults.containerPort;
 const shopTargetGroupUnhealthyThresholdCount = 3;
 
+/**
+ * Step 2.4-2.5 / public edge.
+ * Accepts the ALB security-group id, public subnet ids, and VPC id.
+ * Creates the ALB logging bucket, ALB, target group, and either the custom-domain path or the CloudFront path, then returns the public ingress metadata for exports and ECS wiring.
+ */
 export function createComputeEdge({
   albSecurityGroupId,
   publicSubnetIds,
@@ -325,6 +330,8 @@ export function createComputeEdge({
         customOriginConfig: {
           httpPort: 80,
           httpsPort: 443,
+          // Default-domain CloudFront mode is a budget/stage tradeoff: viewer leg is HTTPS,
+          // but the CloudFront -> ALB hop stays HTTP until custom-domain mode enables ALB HTTPS.
           originProtocolPolicy: 'http-only',
           originSslProtocols: ['TLSv1.2'],
         },
@@ -380,6 +387,11 @@ export function createComputeEdge({
   };
 }
 
+/**
+ * Step 2.4-2.5 hosted-zone helper.
+ * Accepts the root domain name and an optional explicit hosted zone id.
+ * Resolves the public Route 53 hosted zone by id or name, creating it on the shared-infra owner stack when necessary.
+ */
 function resolveHostedZone(rootDomainName: string, hostedZoneId?: string) {
   if (hostedZoneId) {
     const zone = aws.route53.getZoneOutput({

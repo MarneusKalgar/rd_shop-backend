@@ -40,7 +40,11 @@ interface CreateSubnetsArgs {
   vpcId: pulumi.Input<string>;
 }
 
-// Uses for...of intentionally so resource side effects stay explicit and easy to follow.
+/**
+ * Step 0.2 network helper.
+ * Accepts the route table id, a logical prefix, and the subnets to attach.
+ * Creates one route-table association per subnet and returns nothing.
+ */
 export function associateSubnetsWithRouteTable({
   routeTableAssociationPrefix,
   routeTableId,
@@ -54,7 +58,11 @@ export function associateSubnetsWithRouteTable({
   }
 }
 
-// Interface endpoints expose AWS APIs inside private subnets over HTTPS only.
+/**
+ * Step 0.2 endpoint helper.
+ * Accepts the VPC id, private subnet CIDRs, HTTPS port, and fallback CIDR.
+ * Creates the shared security group that protects interface VPC endpoints.
+ */
 export function createEndpointSecurityGroup({
   anyIpv4Cidr,
   endpointHttpsPort,
@@ -91,7 +99,11 @@ export function createEndpointSecurityGroup({
   });
 }
 
-// Wraps repetitive VPC endpoint creation so each call site only declares which AWS service it needs.
+/**
+ * Step 0.2 endpoint helper.
+ * Accepts the logical name, target service suffix, private subnet ids, VPC id, and endpoint security group id.
+ * Creates one interface VPC endpoint and returns the endpoint resource.
+ */
 export function createInterfaceEndpoint({
   logicalName,
   securityGroupId,
@@ -115,7 +127,11 @@ export function createInterfaceEndpoint({
   });
 }
 
-// NAT SG accepts traffic only from private subnet CIDRs, then forwards it to internet.
+/**
+ * Step 0.2 NAT helper.
+ * Accepts the VPC id, private subnet CIDRs, and the shared any-traffic defaults.
+ * Creates the NAT-instance security group that allows private-tier egress through the NAT host.
+ */
 export function createNatSecurityGroup({
   allTrafficPort,
   anyIpv4Cidr,
@@ -152,7 +168,11 @@ export function createNatSecurityGroup({
   });
 }
 
-// Creates one subnet per CIDR block and aligns each one with the matching AZ index.
+/**
+ * Step 0.2 subnet helper.
+ * Accepts the AZ list, CIDR blocks, subnet scope, public-IP behavior, and VPC id.
+ * Creates one subnet per CIDR block and returns the subnet resources in declaration order.
+ */
 export function createSubnets({
   availabilityZones,
   cidrBlocks,

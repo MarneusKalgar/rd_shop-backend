@@ -17,12 +17,11 @@ import {
   createSubnets,
 } from './network-resources';
 
-// Phase 0.2 orchestrator.
-// This file intentionally stays at "flow" level:
-// 1. read validated config
-// 2. create VPC + routes
-// 3. create subnets + NAT path
-// 4. attach VPC endpoints
+/**
+ * Step 0.2 / foundation network.
+ * Accepts no arguments.
+ * Creates the VPC, subnets, route tables, NAT instance, and AWS endpoints, then returns the network IDs every later step composes on top of.
+ */
 export function createFoundationNetwork() {
   const networkConfig = getFoundationNetworkConfig();
   const availabilityZones = getFoundationAvailabilityZones(

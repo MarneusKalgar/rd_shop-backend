@@ -71,6 +71,11 @@ export interface FoundationRuntimeConfig {
   shop: ServiceRuntimeConfig;
 }
 
+/**
+ * Step 1.3-1.4 runtime-config helper.
+ * Accepts no arguments.
+ * Resolves the full set of SSM parameter values and secret-backed runtime values that later provisioning writes for both services.
+ */
 export function getFoundationRuntimeConfig(): FoundationRuntimeConfig {
   const messageQueueCredentials = getMessageQueueCredentials();
 
@@ -162,6 +167,11 @@ export function getFoundationRuntimeConfig(): FoundationRuntimeConfig {
   };
 }
 
+/**
+ * Step 1.3-1.4 secret helper.
+ * Accepts the Pulumi config key name and its minimum required length.
+ * Returns the configured secret value, or a preview-only placeholder during dry runs, and throws when no real value exists for apply.
+ */
 function getRequiredSecretConfig(key: string, minimumLength: number) {
   const configuredValue = config.getSecret(key);
 
@@ -178,6 +188,11 @@ function getRequiredSecretConfig(key: string, minimumLength: number) {
   );
 }
 
+/**
+ * Step 1.3-1.4 preview helper.
+ * Accepts the secret key name and minimum length.
+ * Returns a deterministic preview placeholder string long enough for validation during `pulumi preview`.
+ */
 function buildPreviewSecretValue(key: string, minimumLength: number) {
   const repeatedValue = `preview-only-${key}-`;
 
@@ -188,6 +203,11 @@ function buildPreviewSecretValue(key: string, minimumLength: number) {
   return repeatedValue;
 }
 
+/**
+ * Step 1.3-1.4 validation helper.
+ * Accepts the secret config key, resolved secret output, and minimum length.
+ * Returns the secret output unchanged after enforcing the minimum required length.
+ */
 function validateSecretLength(
   key: string,
   secretValue: pulumi.Output<string>,

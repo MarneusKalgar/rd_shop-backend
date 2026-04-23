@@ -5,6 +5,11 @@ import { getFoundationFileStorageConfig } from './file-storage-config';
 
 const corsMaxAgeSeconds = 3000;
 
+/**
+ * Step 1.2 / data layer.
+ * Accepts no arguments.
+ * Creates the private files bucket plus its public-access block, encryption, versioning, and CORS configuration, then returns the exported bucket metadata.
+ */
 export function createFoundationFileStorage() {
   const storageConfig = getFoundationFileStorageConfig();
 

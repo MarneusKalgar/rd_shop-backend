@@ -1,6 +1,8 @@
 config:
   aws:region: eu-central-1
   rd-shop-infra:databaseAllocatedStorageGiB: '20'
+  # Intentionally pinned to 1 day for the current budget/cost tradeoff even though production code defaults to 7 days.
+  # Revisit when the migration exits the free-tier-oriented posture.
   rd-shop-infra:databaseBackupRetentionDays: '1'
   rd-shop-infra:databaseEngineMajorVersion: '16'
   rd-shop-infra:databaseMultiAz: 'true'
@@ -20,6 +22,10 @@ config:
     - 10.52.0.0/24
     - 10.52.1.0/24
   rd-shop-infra:sharedInfraOwnerStack: stage
+  # Required before `pulumi up`.
+  # Production keeps the explicit immutable image requirement and does not use the non-production bootstrap placeholder.
+  # rd-shop-infra:shopImageTag: sha-<full-commit-sha>
+  # rd-shop-infra:paymentsImageTag: sha-<full-commit-sha>
   rd-shop-infra:shopDatabaseInstanceClass: db.t4g.small
   rd-shop-infra:shopDatabaseName: rd_shop
   rd-shop-infra:shopDatabaseUsername: shop

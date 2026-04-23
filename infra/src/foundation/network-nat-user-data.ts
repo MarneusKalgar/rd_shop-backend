@@ -1,8 +1,11 @@
 const natSysctlConfigPath = '/etc/sysctl.d/99-rd-shop-nat.conf';
 const persistedIptablesPath = '/etc/sysconfig/iptables';
 
-// Keeps NAT bootstrap isolated from Pulumi resource code.
-// File now reads as infra orchestration, not mixed TS + shell blob.
+/**
+ * Step 0.2 NAT bootstrap helper.
+ * Accepts no arguments.
+ * Returns the cloud-init shell script that enables IP forwarding, persists iptables rules, and turns an EC2 instance into the stack NAT host.
+ */
 export function buildNatInstanceUserData() {
   return `#!/bin/bash
 set -euxo pipefail

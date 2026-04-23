@@ -33,6 +33,11 @@ export interface MessageQueueCredentials {
   username: pulumi.Output<string>;
 }
 
+/**
+ * Step 3 broker-config helper.
+ * Accepts no arguments.
+ * Resolves the RabbitMQ EC2 broker defaults and stack overrides, then returns the normalized broker configuration used by provisioning.
+ */
 export function getMessageBrokerConfig(): MessageBrokerConfig {
   const isProduction = stack === 'production';
 
@@ -58,6 +63,11 @@ export function getMessageBrokerConfig(): MessageBrokerConfig {
   };
 }
 
+/**
+ * Step 3 credential helper.
+ * Accepts no arguments.
+ * Returns the RabbitMQ username and password outputs used by both broker bootstrap and runtime config wiring.
+ */
 export function getMessageQueueCredentials(): MessageQueueCredentials {
   return {
     password: getRequiredNonEmptySecretConfig('shopRabbitmqPassword', previewRabbitMqPassword),
@@ -65,6 +75,11 @@ export function getMessageQueueCredentials(): MessageQueueCredentials {
   };
 }
 
+/**
+ * Step 3 secret helper.
+ * Accepts the Pulumi config key name and the preview-only fallback value.
+ * Returns the configured secret when present, a preview placeholder during dry runs, and throws on apply when the secret is missing.
+ */
 function getRequiredNonEmptySecretConfig(key: string, previewValue: string) {
   const configuredValue = config.getSecret(key);
 
@@ -81,6 +96,11 @@ function getRequiredNonEmptySecretConfig(key: string, previewValue: string) {
   );
 }
 
+/**
+ * Step 3 validation helper.
+ * Accepts the RabbitMQ secret key name and resolved secret output.
+ * Returns the secret output unchanged after ensuring the value is not blank.
+ */
 function validateNonEmptySecret(key: string, secretValue: pulumi.Output<string>) {
   return secretValue.apply((value) => {
     if (!value.trim()) {

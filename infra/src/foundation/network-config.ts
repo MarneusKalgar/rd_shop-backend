@@ -40,7 +40,11 @@ export interface FoundationNetworkConfig {
   vpcCidr: string;
 }
 
-// Resolves region AZs and enforces Phase 0.2 rule: exactly two subnets per tier, one per AZ.
+/**
+ * Step 0.2 config helper.
+ * Accepts the number of availability zones the network layout requires.
+ * Returns the first available AZ names after verifying the region can satisfy the subnet layout.
+ */
 export function getFoundationAvailabilityZones(requiredAvailabilityZoneCount: number) {
   return aws
     .getAvailabilityZonesOutput({
@@ -57,7 +61,11 @@ export function getFoundationAvailabilityZones(requiredAvailabilityZoneCount: nu
     });
 }
 
-// Centralizes stack overrides and defaults so network.ts stays orchestration-only.
+/**
+ * Step 0.2 config helper.
+ * Accepts no arguments.
+ * Resolves the network defaults and stack overrides that `createFoundationNetwork` uses to build the VPC topology.
+ */
 export function getFoundationNetworkConfig(): FoundationNetworkConfig {
   const requiredAvailabilityZoneCount = defaultRequiredAvailabilityZoneCount;
   const privateSubnetCidrs =
@@ -80,7 +88,11 @@ export function getFoundationNetworkConfig(): FoundationNetworkConfig {
   };
 }
 
-// Uses a vanilla Amazon Linux 2023 AMI for NAT bootstrap until ECS/compute phase adds dedicated images.
+/**
+ * Step 0.2 AMI helper.
+ * Accepts no arguments.
+ * Returns the most recent Amazon Linux 2023 AMI used to bootstrap the NAT instance.
+ */
 export function getNatInstanceAmi() {
   return aws.ec2.getAmiOutput({
     filters: [
@@ -106,6 +118,11 @@ export function getNatInstanceAmi() {
   });
 }
 
+/**
+ * Step 0.2 validation helper.
+ * Accepts the config label, configured subnet CIDRs, and required AZ count.
+ * Throws when the subnet list cannot map one subnet per required availability zone.
+ */
 function validateSubnetCidrs(
   label: string,
   subnetCidrs: string[],

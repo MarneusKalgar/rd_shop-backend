@@ -16,6 +16,11 @@ interface CreateMessageBrokerArgs {
   securityGroupId: pulumi.Input<string>;
 }
 
+/**
+ * Step 3 / messaging.
+ * Accepts the private subnet ids and the RabbitMQ security-group id.
+ * Creates the dedicated RabbitMQ EC2 broker, bootstrap secret, instance role/profile, data volume, and returns the broker connection metadata consumed by runtime config.
+ */
 export function createMessageBroker({
   privateSubnetIds,
   securityGroupId,

@@ -14,6 +14,11 @@ interface CreateFoundationComputeArgs {
   securityGroupId: pulumi.Input<string>;
 }
 
+/**
+ * Step 2.2 / compute foundation.
+ * Accepts the ECS host subnet ids and the shared ECS security-group id.
+ * Creates the ECS cluster, instance role/profile, launch template, Auto Scaling group, and ECS capacity provider, then returns the compute metadata later steps export.
+ */
 export function createFoundationCompute({
   privateSubnetIds,
   securityGroupId,
@@ -172,6 +177,11 @@ export function createFoundationCompute({
   };
 }
 
+/**
+ * Step 2.2 tagging helper.
+ * Accepts the ECS cluster name.
+ * Returns the propagated Auto Scaling group tags required for ECS-managed EC2 capacity.
+ */
 function buildAutoScalingGroupTags(clusterName: string) {
   return [
     ...Object.entries(commonTags).map(([key, value]) => ({

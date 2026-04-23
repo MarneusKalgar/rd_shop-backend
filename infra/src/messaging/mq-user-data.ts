@@ -12,6 +12,11 @@ interface BuildMessageBrokerUserDataArgs {
   region: string;
 }
 
+/**
+ * Step 3 broker bootstrap helper.
+ * Accepts the broker bootstrap secret ARN, attached volume metadata, container image, broker port, and AWS region.
+ * Returns the cloud-init script that mounts the data volume, fetches broker credentials, and starts the RabbitMQ container on the EC2 broker host.
+ */
 export function buildMessageBrokerUserData({
   brokerSecretArn,
   dataVolumeDeviceName,

@@ -44,6 +44,11 @@ const ecsManagedExecutionPolicyArn =
 const paymentsDiscoveryServiceName = 'payments';
 const serviceDiscoveryRecordTtlSeconds = 10;
 
+/**
+ * Step 2.3-2.4 / compute services.
+ * Accepts the ECS cluster/capacity metadata plus ECR, edge, runtime config, SES, and bucket dependencies.
+ * Creates task roles, log groups, Cloud Map namespace, ECS task definitions, and both ECS services, then returns the exported service metadata.
+ */
 export function createComputeServices({
   capacityProviderName,
   clusterArn,
@@ -359,10 +364,20 @@ export function createComputeServices({
   };
 }
 
+/**
+ * Step 2.3-2.4 IAM helper.
+ * Accepts no arguments.
+ * Returns the SSM parameter ARN prefix that ECS task execution roles need in order to read runtime parameters for the current stack.
+ */
 function buildRuntimeParameterPathArn() {
   return pulumi.interpolate`arn:aws:ssm:${aws.config.region ?? 'eu-central-1'}:${accountId}:parameter/${projectPrefix}/${stack}/*`;
 }
 
+/**
+ * Step 2.3 log helper.
+ * Accepts the logical Pulumi name, concrete log group name, and owning service tag.
+ * Creates one CloudWatch log group for an ECS service and returns the resource.
+ */
 function createLogGroup(logicalName: string, logGroupName: string, service: 'payments' | 'shop') {
   return new aws.cloudwatch.LogGroup(stackName(logicalName), {
     name: logGroupName,
@@ -376,6 +391,11 @@ function createLogGroup(logicalName: string, logGroupName: string, service: 'pay
   });
 }
 
+/**
+ * Step 2.3 IAM helper.
+ * Accepts the role description, logical name, and owning service tag.
+ * Creates one ECS task IAM role and returns the role resource.
+ */
 function createRole({
   description,
   logicalName,
@@ -401,6 +421,11 @@ function createRole({
   });
 }
 
+/**
+ * Step 2.3 image helper.
+ * Accepts the explicit image URI, repository URL, service label, and optional image tag.
+ * Returns the final container image URI used by ECS, enforcing explicit image-source policy.
+ */
 function resolveImageUri({
   explicitImageUri,
   repositoryUrl,
