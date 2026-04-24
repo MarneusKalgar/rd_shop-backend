@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - ci/stage-test/**
+      - ci/build-test/**
     paths:
       - '.github/workflows/deploy-stage.yml'
       - '.github/workflows/deploy-stage-test.yml'
