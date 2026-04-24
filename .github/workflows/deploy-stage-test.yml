@@ -84,7 +84,7 @@ jobs:
           pulumi-version: '^3'
 
       - name: Verify Pulumi access
-        working-directory: /Users/ichernob/Desktop/learn/r_d/rd_shop/infra
+        working-directory: infra
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
@@ -92,7 +92,7 @@ jobs:
           pulumi whoami
 
       - name: Preview stage stack
-        working-directory: /Users/ichernob/Desktop/learn/r_d/rd_shop/infra
+        working-directory: infra
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
