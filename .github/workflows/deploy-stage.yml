@@ -18,6 +18,8 @@ jobs:
     name: Deploy to Stage
     runs-on: ubuntu-latest
     environment: stage # Separate env variables / secrets scoped to stage
+    env:
+      PULUMI_STACK: stage
 
     permissions:
       actions: read # Required to download artifacts from workflow_run
@@ -37,7 +39,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: ${{ vars.AWS_REGION || 'eu-central-1' }}
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -59,52 +61,221 @@ jobs:
         id: manifest
         uses: ./.github/actions/parse-release-manifest
 
-      # ── 4. SSH into stage VM and deploy ──────────────────────────────────────
-      #
-      # Secrets required (scoped to the `stage` GitHub Environment):
-      #   SSH_PRIVATE_KEY     — private key for the deploy user
-      #   ENV_FILE_SHOP       — base64-encoded .env file for shop app
-      #   ENV_FILE_PAYMENTS   — base64-encoded .env file for payments app
-      #   GHCR_TOKEN          — GitHub PAT with read:packages scope (for docker login on VM)
-      #
-      # Variables required (scoped to the `stage` GitHub Environment):
-      #   SSH_HOST         — hostname / IP of the stage VM
-      #   SSH_USER         — SSH username on the VM
-      #   DEPLOY_DIR       — absolute path where the repo is checked out on the VM
-      #
-      - name: Deploy to stage
-        uses: ./.github/actions/deploy-to-stage
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          ssh-host: ${{ vars.SSH_HOST }}
-          ssh-user: ${{ vars.SSH_USER }}
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-          deploy-dir: ${{ vars.DEPLOY_DIR }}
-          shop-image: ${{ steps.manifest.outputs.shop-image }}
-          payments-image: ${{ steps.manifest.outputs.payments-image }}
-          commit-sha: ${{ steps.manifest.outputs.commit }}
-          ghcr-token: ${{ secrets.GHCR_TOKEN }}
-          ghcr-user: ${{ github.repository_owner }}
-          env-file-shop: ${{ secrets.ENV_FILE_SHOP }}
-          env-file-payments: ${{ secrets.ENV_FILE_PAYMENTS }}
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
 
-      # ── 5. Post-deploy smoke test ─────────────────────────────────────────────
-      #
-      # Variable required (scoped to the `stage` GitHub Environment):
-      #   BASE_URL — local URL on the VM, e.g.: http://localhost:8080
-      #
-      - name: Smoke test — shop health check
-        uses: ./.github/actions/smoke-test-shop
+      - name: Install infra dependencies
+        run: npm ci --prefix infra
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
         with:
-          ssh-host: ${{ vars.SSH_HOST }}
-          ssh-user: ${{ vars.SSH_USER }}
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-          base-url: ${{ vars.BASE_URL }}
+          pulumi-version: '^3'
+
+      - name: Configure stage stack image inputs
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi login
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+          pulumi config set --stack "${{ env.PULUMI_STACK }}" rd-shop-infra:shopImageUri "${{ steps.manifest.outputs.shop-image }}"
+          pulumi config set --stack "${{ env.PULUMI_STACK }}" rd-shop-infra:paymentsImageUri "${{ steps.manifest.outputs.payments-image }}"
+
+      - name: Apply stage stack
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+          pulumi up --stack "${{ env.PULUMI_STACK }}" --yes --non-interactive
+
+      - name: Capture stage outputs
+        id: stack
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+
+          echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "payments_service_name=$(pulumi stack output paymentsServiceName)" >> "$GITHUB_OUTPUT"
+          echo "payments_task_definition_arn=$(pulumi stack output paymentsTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+          echo "shop_service_name=$(pulumi stack output shopServiceName)" >> "$GITHUB_OUTPUT"
+          echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+
+          public_endpoint_url="$(pulumi stack output publicEndpointUrl 2>/dev/null || true)"
+          if [[ -z "${public_endpoint_url}" || "${public_endpoint_url}" == "null" ]]; then
+            echo "Stage public endpoint URL is not available" >&2
+            exit 1
+          fi
+          echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Quiesce ECS services before DB init
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+        run: |
+          set -euo pipefail
+
+          payments_desired_count=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}" \
+            --query 'services[0].desiredCount' \
+            --output text)
+          shop_desired_count=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}" \
+            --query 'services[0].desiredCount' \
+            --output text)
+
+          echo "PAYMENTS_DESIRED_COUNT=${payments_desired_count}" >> "$GITHUB_ENV"
+          echo "SHOP_DESIRED_COUNT=${shop_desired_count}" >> "$GITHUB_ENV"
+
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${PAYMENTS_SERVICE_NAME}" \
+            --desired-count 0 >/dev/null
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${SHOP_SERVICE_NAME}" \
+            --desired-count 0 >/dev/null
+
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}"
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}"
+
+      - name: Run stage database init tasks
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.payments_task_definition_arn }}
+          SHOP_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.shop_task_definition_arn }}
+        run: |
+          set -euo pipefail
+
+          run_task() {
+            local label="$1"
+            local task_definition_arn="$2"
+            local container_name="$3"
+            local command_json="$4"
+            local environment_json="${5:-[]}"
+
+            local overrides
+            overrides=$(jq -n \
+              --arg name "${container_name}" \
+              --argjson command "${command_json}" \
+              --argjson environment "${environment_json}" \
+              '{containerOverrides:[{name:$name,command:$command,environment:$environment}]}')
+
+            local run_task_output
+            run_task_output=$(aws ecs run-task \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --launch-type EC2 \
+              --count 1 \
+              --task-definition "${task_definition_arn}" \
+              --started-by "gha-stage-${{ github.run_id }}-${label}" \
+              --overrides "${overrides}" \
+              --output json)
+
+            if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
+              echo "Failed to start task ${label}"
+              echo "${run_task_output}" | jq .
+              exit 1
+            fi
+
+            local task_arn
+            task_arn=$(echo "${run_task_output}" | jq -r '.tasks[0].taskArn')
+
+            aws ecs wait tasks-stopped --cluster "${ECS_CLUSTER_NAME}" --tasks "${task_arn}"
+
+            local task_description
+            task_description=$(aws ecs describe-tasks \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --tasks "${task_arn}" \
+              --output json)
+
+            local exit_code
+            exit_code=$(echo "${task_description}" | jq -r \
+              --arg container_name "${container_name}" \
+              '.tasks[0].containers[] | select(.name == $container_name) | .exitCode // ""')
+
+            if [[ -z "${exit_code}" || "${exit_code}" != "0" ]]; then
+              echo "Task ${label} failed"
+              echo "${task_description}" | jq .
+              exit 1
+            fi
+          }
+
+          run_task \
+            payments-migrate \
+            "${PAYMENTS_TASK_DEFINITION_ARN}" \
+            payments \
+            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/payments/data-source.js"]'
+
+          run_task \
+            shop-migrate \
+            "${SHOP_TASK_DEFINITION_ARN}" \
+            shop \
+            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/shop/data-source.js"]'
+
+          run_task \
+            shop-seed \
+            "${SHOP_TASK_DEFINITION_ARN}" \
+            shop \
+            '["dist/apps/shop/db/seed/index.js"]' \
+            '[{"name":"ALLOW_SEED_IN_PRODUCTION","value":"true"}]'
+
+      - name: Restore ECS services and trigger rollout
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+        run: |
+          set -euo pipefail
+
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${PAYMENTS_SERVICE_NAME}" \
+            --desired-count "${PAYMENTS_DESIRED_COUNT}" \
+            --force-new-deployment >/dev/null
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${SHOP_SERVICE_NAME}" \
+            --desired-count "${SHOP_DESIRED_COUNT}" \
+            --force-new-deployment >/dev/null
+
+      - name: Wait for ECS services to stabilize
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}"
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}"
+
+      - name: Smoke test — shop health check
+        uses: ./.github/actions/smoke-test-shop-http
+        with:
+          base-url: ${{ steps.stack.outputs.public_endpoint_url }}
 
       # ── 6. Write step summary ─────────────────────────────────────────────────
       - name: Write deploy summary
         if: always()
         uses: ./.github/actions/write-deploy-summary
         with:
+          environment: stage
           commit: ${{ steps.manifest.outputs.commit }}
           ref: ${{ steps.manifest.outputs.ref }}
           shop-image: ${{ steps.manifest.outputs.shop-image }}

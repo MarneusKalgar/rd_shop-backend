@@ -1,0 +1,115 @@
+name: Deploy — Stage Test Wrapper
+
+on:
+  # Branch-local harness for validating the future AWS/Pulumi stage lane
+  # without touching the real default-branch workflow_run path.
+  push:
+    branches:
+      - ci/stage-test/**
+    paths:
+      - '.github/workflows/deploy-stage.yml'
+      - '.github/workflows/deploy-stage-test.yml'
+      - '.github/workflows/build-and-push.yml'
+      - '.github/actions/**'
+      - 'infra/**'
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+  ECR_REPOSITORY_PREFIX: rd-shop
+  PULUMI_STACK: stage
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-stage-preflight:
+    name: Verify Stage Preflight
+    runs-on: ubuntu-latest
+    environment: stage
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: gha-stage-test-${{ github.run_id }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create synthetic release manifest
+        run: |
+          jq -n \
+            --arg commit "${{ github.sha }}" \
+            --arg ref "${{ github.ref_name }}" \
+            --arg shop_image "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/shop:development" \
+            --arg payments_image "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/payments:development" \
+            '{
+              commit: $commit,
+              ref: $ref,
+              services: {
+                shop: { image: $shop_image, digest: "stage-test-wrapper-placeholder" },
+                payments: { image: $payments_image, digest: "stage-test-wrapper-placeholder" }
+              }
+            }' > release-manifest.json
+
+      - name: Parse synthetic release manifest
+        id: manifest
+        uses: ./.github/actions/parse-release-manifest
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install infra dependencies
+        run: npm ci --prefix infra
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+        with:
+          pulumi-version: '^3'
+
+      - name: Verify Pulumi access
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi login
+          pulumi whoami
+
+      - name: Preview stage stack
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+          pulumi preview --stack "${{ env.PULUMI_STACK }}" --non-interactive
+
+      - name: Write test summary
+        if: always()
+        run: |
+          {
+            echo "## Stage test wrapper"
+            echo ""
+            echo "- Branch: ${{ github.ref_name }}"
+            echo "- Stage role: ${{ vars.AWS_ROLE_ARN }}"
+            echo "- ECR registry: ${{ steps.login-ecr.outputs.registry }}"
+            echo "- Shop image stand-in: ${{ steps.manifest.outputs.shop-image }}"
+            echo "- Payments image stand-in: ${{ steps.manifest.outputs.payments-image }}"
+            echo "- Pulumi stack: ${{ env.PULUMI_STACK }}"
+            echo "- Mutation: none (preview only)"
+          } >> "$GITHUB_STEP_SUMMARY"
