@@ -172,6 +172,7 @@ jobs:
           echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
 
       - name: Quiesce ECS services before DB init
+        id: quiesce_services
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
@@ -210,6 +211,7 @@ jobs:
             --services "${SHOP_SERVICE_NAME}"
 
       - name: Run stage database init tasks
+        id: db_init
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_LOG_GROUP_NAME: ${{ steps.stack.outputs.payments_log_group_name }}
@@ -247,7 +249,7 @@ jobs:
             if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
               echo "Failed to start task ${label}"
               echo "${run_task_output}" | jq .
-              exit 1
+              return 1
             fi
 
             local task_arn
@@ -305,33 +307,56 @@ jobs:
               fi
 
               echo "${task_description}" | jq .
-              exit 1
+              return 1
             fi
+
+            return 0
           }
 
-          run_task \
+          task_failures=()
+
+          if ! run_task \
             payments-migrate \
             "${PAYMENTS_TASK_DEFINITION_ARN}" \
             payments \
             '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/payments/data-source.js"]' \
-            "${PAYMENTS_LOG_GROUP_NAME}"
+            "${PAYMENTS_LOG_GROUP_NAME}"; then
+            task_failures+=("payments-migrate")
+          fi
 
-          run_task \
+          shop_migrate_succeeded=false
+          if run_task \
             shop-migrate \
             "${SHOP_TASK_DEFINITION_ARN}" \
             shop \
             '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/shop/data-source.js"]' \
-            "${SHOP_LOG_GROUP_NAME}"
+            "${SHOP_LOG_GROUP_NAME}"; then
+            shop_migrate_succeeded=true
+          else
+            task_failures+=("shop-migrate")
+          fi
 
-          run_task \
-            shop-seed \
-            "${SHOP_TASK_DEFINITION_ARN}" \
-            shop \
-            "${SHOP_LOG_GROUP_NAME}" \
-            '["dist/apps/shop/db/seed/index.js"]' \
-            '[{"name":"ALLOW_SEED_IN_PRODUCTION","value":"true"}]'
+          if [[ "${shop_migrate_succeeded}" == "true" ]]; then
+            if ! run_task \
+              shop-seed \
+              "${SHOP_TASK_DEFINITION_ARN}" \
+              shop \
+              '["dist/apps/shop/db/seed/index.js"]' \
+              "${SHOP_LOG_GROUP_NAME}" \
+              '[{"name":"ALLOW_SEED_IN_PRODUCTION","value":"true"}]'; then
+              task_failures+=("shop-seed")
+            fi
+          else
+            echo "Skipping shop-seed because shop-migrate failed"
+          fi
+
+          if (( ${#task_failures[@]} > 0 )); then
+            echo "DB init failures: ${task_failures[*]}"
+            exit 1
+          fi
 
       - name: Restore ECS services and trigger rollout
+        if: ${{ always() && steps.quiesce_services.outcome == 'success' }}
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
@@ -351,6 +376,7 @@ jobs:
             --force-new-deployment >/dev/null
 
       - name: Wait for ECS services to stabilize
+        if: ${{ always() && steps.quiesce_services.outcome == 'success' }}
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
