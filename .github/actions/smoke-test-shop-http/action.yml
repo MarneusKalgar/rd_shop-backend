@@ -3,7 +3,7 @@ description: >
   Runs a direct HTTP smoke test against the deployed shop endpoint:
   1. Polls /health until the app is alive.
   2. Checks /ready for hard dependencies.
-  3. Logs /status for full dependency state.
+  3. Checks /status to ensure the payments soft dependency is reachable.
 
 inputs:
   base-url:
@@ -47,5 +47,11 @@ runs:
           exit 1
         fi
 
-        echo "Full status (informational) ..."
-        curl -s --max-time 10 "${BASE_URL}/status" | jq . || true
+        echo "Checking full status ..."
+        status_response=$(curl -sf --max-time 10 "${BASE_URL}/status")
+        echo "${status_response}" | jq .
+
+        if ! echo "${status_response}" | jq -e '.details.payments.status == "up"' >/dev/null; then
+          echo "Status check failed - payments dependency is down"
+          exit 1
+        fi

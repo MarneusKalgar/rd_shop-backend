@@ -179,6 +179,10 @@ export function createComputeServices({
         dnsRecords: [
           {
             ttl: serviceDiscoveryRecordTtlSeconds,
+            type: 'A',
+          },
+          {
+            ttl: serviceDiscoveryRecordTtlSeconds,
             type: 'SRV',
           },
         ],
