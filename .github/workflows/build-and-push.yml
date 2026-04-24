@@ -76,6 +76,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Keep default provenance/index behavior for now. If ECR UI noise from
+          # tagged image indexes and untagged child artifacts becomes a problem,
+          # add `provenance: false` in a later cleanup pass.
           # Layer cache scoped per service
           cache-from: type=gha,scope=docker-${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.app }}
