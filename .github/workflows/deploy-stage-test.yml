@@ -157,8 +157,10 @@ jobs:
           pulumi stack select "${{ env.PULUMI_STACK }}"
 
           echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "payments_log_group_name=$(pulumi stack output paymentsLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "payments_service_name=$(pulumi stack output paymentsServiceName)" >> "$GITHUB_OUTPUT"
           echo "payments_task_definition_arn=$(pulumi stack output paymentsTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+          echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "shop_service_name=$(pulumi stack output shopServiceName)" >> "$GITHUB_OUTPUT"
           echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
 
@@ -210,7 +212,9 @@ jobs:
       - name: Run stage database init tasks
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_LOG_GROUP_NAME: ${{ steps.stack.outputs.payments_log_group_name }}
           PAYMENTS_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.payments_task_definition_arn }}
+          SHOP_LOG_GROUP_NAME: ${{ steps.stack.outputs.shop_log_group_name }}
           SHOP_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.shop_task_definition_arn }}
         run: |
           set -euo pipefail
@@ -220,7 +224,8 @@ jobs:
             local task_definition_arn="$2"
             local container_name="$3"
             local command_json="$4"
-            local environment_json="${5:-[]}"
+            local log_group_name="$5"
+            local environment_json="${6:-[]}"
 
             local overrides
             overrides=$(jq -n \
@@ -256,13 +261,49 @@ jobs:
               --tasks "${task_arn}" \
               --output json)
 
+            local task_stopped_reason
+            task_stopped_reason=$(echo "${task_description}" | jq -r '.tasks[0].stoppedReason // ""')
+
             local exit_code
             exit_code=$(echo "${task_description}" | jq -r \
               --arg container_name "${container_name}" \
               '.tasks[0].containers[] | select(.name == $container_name) | .exitCode // ""')
 
+            local container_reason
+            container_reason=$(echo "${task_description}" | jq -r \
+              --arg container_name "${container_name}" \
+              '.tasks[0].containers[] | select(.name == $container_name) | .reason // ""')
+
             if [[ -z "${exit_code}" || "${exit_code}" != "0" ]]; then
               echo "Task ${label} failed"
+              if [[ -n "${task_stopped_reason}" ]]; then
+                echo "Stopped reason: ${task_stopped_reason}"
+              fi
+              if [[ -n "${container_reason}" ]]; then
+                echo "Container reason: ${container_reason}"
+              fi
+
+              local task_id
+              task_id="${task_arn##*/}"
+
+              local log_stream_name
+              log_stream_name=$(aws logs describe-log-streams \
+                --log-group-name "${log_group_name}" \
+                --log-stream-name-prefix "${container_name}/${container_name}/" \
+                --output json | jq -r --arg task_id "${task_id}" \
+                '.logStreams[]? | select(.logStreamName | contains($task_id)) | .logStreamName' | head -n 1)
+
+              if [[ -n "${log_stream_name}" ]]; then
+                echo "CloudWatch logs (${log_group_name} / ${log_stream_name}):"
+                aws logs get-log-events \
+                  --log-group-name "${log_group_name}" \
+                  --log-stream-name "${log_stream_name}" \
+                  --limit 100 \
+                  --output json | jq -r '.events[]?.message'
+              else
+                echo "CloudWatch log stream not found for task ${task_id} in ${log_group_name}"
+              fi
+
               echo "${task_description}" | jq .
               exit 1
             fi
@@ -272,18 +313,21 @@ jobs:
             payments-migrate \
             "${PAYMENTS_TASK_DEFINITION_ARN}" \
             payments \
-            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/payments/data-source.js"]'
+            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/payments/data-source.js"]' \
+            "${PAYMENTS_LOG_GROUP_NAME}"
 
           run_task \
             shop-migrate \
             "${SHOP_TASK_DEFINITION_ARN}" \
             shop \
-            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/shop/data-source.js"]'
+            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/shop/data-source.js"]' \
+            "${SHOP_LOG_GROUP_NAME}"
 
           run_task \
             shop-seed \
             "${SHOP_TASK_DEFINITION_ARN}" \
             shop \
+            "${SHOP_LOG_GROUP_NAME}" \
             '["dist/apps/shop/db/seed/index.js"]' \
             '[{"name":"ALLOW_SEED_IN_PRODUCTION","value":"true"}]'
 

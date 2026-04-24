@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 import { isProduction } from '../utils/env';
 
 export const getTypeOrmPaths = () => {
@@ -10,9 +12,13 @@ export const getTypeOrmPaths = () => {
   }
 
   if (isProd) {
+    // ECS one-off migration tasks run from /app, not from apps/<service>.
+    // Resolve against the compiled helper location so paths stay correct in both cases.
+    const projectDistRoot = resolve(__dirname, '../../../..');
+
     return {
-      entities: [`../../dist/apps/${resolvedProject}/**/*.entity.js`],
-      migrations: [`../../dist/apps/${resolvedProject}/db/migrations/*.js`],
+      entities: [resolve(projectDistRoot, '**/*.entity.js')],
+      migrations: [resolve(projectDistRoot, 'db/migrations/*.js')],
     };
   }
 
