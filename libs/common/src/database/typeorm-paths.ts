@@ -12,13 +12,16 @@ export const getTypeOrmPaths = () => {
   }
 
   if (isProd) {
-    // ECS one-off migration tasks run from /app, not from apps/<service>.
-    // Resolve against the compiled helper location so paths stay correct in both cases.
-    const projectDistRoot = resolve(__dirname, '../../../..');
+    // The runtime helper used by the CLI is emitted to dist/libs/common/database.
+    // Resolve the dist root from there, then search only inside the current app subtree.
+    // That supports both flat app output (dist/apps/<app>/...) and nested output
+    // (dist/apps/<app>/apps/<app>/src/...).
+    const projectDistRoot = resolve(__dirname, '../../..');
+    const projectAppDistRoot = resolve(projectDistRoot, 'apps', resolvedProject);
 
     return {
-      entities: [resolve(projectDistRoot, '**/*.entity.js')],
-      migrations: [resolve(projectDistRoot, 'db/migrations/*.js')],
+      entities: [resolve(projectAppDistRoot, '**/*.entity.js')],
+      migrations: [resolve(projectAppDistRoot, '**/db/migrations/*.js')],
     };
   }
 
