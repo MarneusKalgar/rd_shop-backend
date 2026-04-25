@@ -18,7 +18,8 @@ import {
   GetPaymentStatusRequest,
   GetPaymentStatusResponse,
 } from './interfaces';
-import { mapGrpcError, PaymentsGrpcClient } from './utils';
+import { PaymentsGrpcClient } from './payments-grpc-client.service';
+import { mapGrpcError } from './utils';
 
 interface PaymentsProtoService {
   authorize(request: AuthorizeRequest): Observable<AuthorizeResponse>;
