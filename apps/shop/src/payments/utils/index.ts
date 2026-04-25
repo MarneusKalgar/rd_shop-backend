@@ -7,7 +7,95 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ClientGrpc, ClientProxyFactory, Transport } from '@nestjs/microservices';
 import { resolveSrv } from 'node:dns/promises';
+import { defer, mergeMap, Observable } from 'rxjs';
+
+export interface PaymentsGrpcClient {
+  getService<T extends object>(name: string): T;
+}
+
+interface CloseableClientGrpc extends ClientGrpc {
+  close?: () => void;
+}
+
+type GrpcObservableMethod = (...args: unknown[]) => Observable<unknown>;
+
+export function createPaymentsGrpcClient({
+  host,
+  logger,
+  port,
+  protoPath,
+}: {
+  host: string;
+  logger: Logger;
+  port: number;
+  protoPath: string;
+}): PaymentsGrpcClient {
+  let cachedClient: CloseableClientGrpc | undefined;
+  let cachedUrl: string | undefined;
+  const serviceCache = new Map<string, unknown>();
+
+  const getClient = async () => {
+    const resolvedUrl = await resolvePaymentsGrpcUrl({ host, logger, port });
+
+    if (!cachedClient || cachedUrl !== resolvedUrl) {
+      cachedClient?.close?.();
+      cachedClient = ClientProxyFactory.create({
+        options: {
+          loader: { enums: String },
+          package: 'payments',
+          protoPath,
+          url: resolvedUrl,
+        },
+        transport: Transport.GRPC,
+      }) as CloseableClientGrpc;
+      cachedUrl = resolvedUrl;
+    }
+
+    return cachedClient;
+  };
+
+  return {
+    getService<T extends object>(serviceName: string) {
+      const cachedService = serviceCache.get(serviceName);
+
+      if (cachedService) {
+        return cachedService as T;
+      }
+
+      const service = new Proxy(
+        {},
+        {
+          get(_target, propertyKey) {
+            if (typeof propertyKey !== 'string') {
+              return undefined;
+            }
+
+            return (...args: unknown[]) =>
+              defer(async () => {
+                const client = await getClient();
+                const grpcService =
+                  client.getService<Record<string, GrpcObservableMethod>>(serviceName);
+                const method = grpcService[propertyKey];
+
+                if (typeof method !== 'function') {
+                  throw new Error(
+                    `Payments gRPC method ${serviceName}.${propertyKey} is not available.`,
+                  );
+                }
+
+                return method(...args);
+              }).pipe(mergeMap((result) => result));
+          },
+        },
+      ) as T;
+
+      serviceCache.set(serviceName, service);
+      return service;
+    },
+  };
+}
 
 export function mapGrpcError(err: unknown): never {
   const grpc = err as { code?: number; message?: string };
@@ -60,12 +148,14 @@ export async function resolvePaymentsGrpcUrl({
     const errorCode = (error as { code?: string }).code;
 
     if (errorCode === 'ENODATA' || errorCode === 'ENOTFOUND' || errorCode === 'SERVFAIL') {
-      logger.log(`Using configured payments gRPC endpoint ${configuredUrl}`);
+      logger.log(
+        `Payments gRPC SRV not available for ${host} (${errorCode}); using configured endpoint ${configuredUrl}`,
+      );
       return configuredUrl;
     }
 
     logger.warn(
-      `Failed to resolve payments gRPC SRV for ${host}; falling back to configured endpoint ${configuredUrl}`,
+      `Failed to resolve payments gRPC SRV for ${host} (${errorCode ?? 'unknown'}); falling back to configured endpoint ${configuredUrl}`,
     );
     return configuredUrl;
   }

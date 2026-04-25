@@ -1,10 +1,10 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClientGrpc } from '@nestjs/microservices';
 import { HealthIndicatorResult, HealthIndicatorService } from '@nestjs/terminus';
 import { firstValueFrom, Observable, timeout } from 'rxjs';
 
 import { PAYMENTS_GRPC_CLIENT } from '@/payments/constants';
+import { PaymentsGrpcClient } from '@/payments/utils';
 
 interface PaymentsPingService {
   ping(request: Record<string, never>): Observable<{ status: string }>;
@@ -17,7 +17,7 @@ export class PaymentsHealthIndicator implements OnModuleInit {
 
   constructor(
     private readonly healthIndicatorService: HealthIndicatorService,
-    @Inject(PAYMENTS_GRPC_CLIENT) private readonly client: ClientGrpc,
+    @Inject(PAYMENTS_GRPC_CLIENT) private readonly client: PaymentsGrpcClient,
     private readonly configService: ConfigService,
   ) {}
 

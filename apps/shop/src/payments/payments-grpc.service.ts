@@ -8,7 +8,6 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ClientGrpc } from '@nestjs/microservices';
 import CircuitBreaker from 'opossum';
 import { firstValueFrom, Observable, timeout, TimeoutError } from 'rxjs';
 
@@ -19,7 +18,7 @@ import {
   GetPaymentStatusRequest,
   GetPaymentStatusResponse,
 } from './interfaces';
-import { mapGrpcError } from './utils';
+import { mapGrpcError, PaymentsGrpcClient } from './utils';
 
 interface PaymentsProtoService {
   authorize(request: AuthorizeRequest): Observable<AuthorizeResponse>;
@@ -37,7 +36,7 @@ export class PaymentsGrpcService implements OnModuleInit {
   private paymentsProtoService: PaymentsProtoService;
 
   constructor(
-    @Inject(PAYMENTS_GRPC_CLIENT) private readonly client: ClientGrpc,
+    @Inject(PAYMENTS_GRPC_CLIENT) private readonly client: PaymentsGrpcClient,
     private readonly configService: ConfigService,
   ) {}
 
