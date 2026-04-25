@@ -29,7 +29,6 @@ config:
   # If omitted, ECS uses a fixed placeholder image tag and desired count 0 until real images are configured.
   # rd-shop-infra:shopImageTag: sha-<full-commit-sha>
   # rd-shop-infra:paymentsImageTag: sha-<full-commit-sha>
-  rd-shop-infra:shopAllowSeedInProduction: 'true'
   rd-shop-infra:shopDatabaseInstanceClass: db.t4g.micro
   rd-shop-infra:shopDatabaseName: rd_shop
   rd-shop-infra:shopDatabaseUsername: shop
