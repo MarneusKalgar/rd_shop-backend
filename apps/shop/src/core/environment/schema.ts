@@ -85,6 +85,10 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  DEPLOYMENT_ENVIRONMENT?: string;
+
+  @IsOptional()
+  @IsString()
   EMAIL_VERIFICATION_EXPIRES_IN?: string;
 
   @IsNumber()

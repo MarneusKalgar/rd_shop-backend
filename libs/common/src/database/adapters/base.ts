@@ -49,7 +49,10 @@ export abstract class BasePostgresAdapter implements IDatabaseAdapter {
         if (sslMode === 'disable') {
           return false;
         }
-        if (sslMode === 'require' || sslMode === 'verify-ca' || sslMode === 'verify-full') {
+        if (sslMode === 'require') {
+          return { rejectUnauthorized: false };
+        }
+        if (sslMode === 'verify-ca' || sslMode === 'verify-full') {
           return true;
         }
         if (sslMode === 'prefer' || sslMode === 'allow') {

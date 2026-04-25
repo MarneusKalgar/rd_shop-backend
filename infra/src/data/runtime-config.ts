@@ -174,7 +174,9 @@ function buildConnectionUrl({
   username: string;
 }) {
   // URI userinfo must keep reserved characters encoded; the pg connection parser decodes before auth.
-  return `postgresql://${username}:${encodeURIComponent(password)}@${host}:${port}/${databaseName}?sslmode=require`;
+  // Keep libpq-compatible `require` semantics so ECS tools use TLS without failing on the
+  // managed RDS certificate chain unless the URL explicitly asks for stricter verification.
+  return `postgresql://${username}:${encodeURIComponent(password)}@${host}:${port}/${databaseName}?uselibpqcompat=true&sslmode=require`;
 }
 
 /**

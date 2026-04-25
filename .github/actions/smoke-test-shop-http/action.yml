@@ -1,0 +1,57 @@
+name: Smoke Test — Shop HTTP
+description: >
+  Runs a direct HTTP smoke test against the deployed shop endpoint:
+  1. Polls /health until the app is alive.
+  2. Checks /ready for hard dependencies.
+  3. Checks /status to ensure the payments soft dependency is reachable.
+
+inputs:
+  base-url:
+    description: 'Public base URL of the deployed shop app, e.g. https://example.cloudfront.net'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Smoke test via HTTP
+      shell: bash
+      env:
+        BASE_URL: ${{ inputs.base-url }}
+      run: |
+        set -euo pipefail
+
+        echo "Waiting for app to start (liveness) ..."
+        liveness_ok=false
+        for i in $(seq 1 24); do
+          if curl -sf --max-time 5 "${BASE_URL}/health"; then
+            echo ""
+            echo "Liveness OK"
+            liveness_ok=true
+            break
+          fi
+          echo "  attempt ${i}/24 - retrying in 5s"
+        done
+
+        if [[ "${liveness_ok}" != "true" ]]; then
+          echo "App did not start after 120s"
+          exit 1
+        fi
+
+        echo "Checking dependencies (readiness) ..."
+        if curl -sf --max-time 10 "${BASE_URL}/ready"; then
+          echo ""
+          echo "Readiness OK - all hard dependencies healthy"
+        else
+          echo "Readiness check failed - one or more hard dependencies are down"
+          curl -s --max-time 10 "${BASE_URL}/ready" || true
+          exit 1
+        fi
+
+        echo "Checking full status ..."
+        status_response=$(curl -sf --max-time 10 "${BASE_URL}/status")
+        echo "${status_response}" | jq .
+
+        if ! echo "${status_response}" | jq -e '.details.payments.status == "up"' >/dev/null; then
+          echo "Status check failed - payments dependency is down"
+          exit 1
+        fi

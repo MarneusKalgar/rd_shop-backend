@@ -1,35 +1,46 @@
-name: Build and Push
+name: Build and Push — Test Wrapper
 
 on:
+  # Branch-local harness for validating the real build lane
+  # without touching the development branch workflow.
   push:
     branches:
-      - development
+      - ci/build-test/**
+      - ci/stage-test/**
+    paths:
+      - '.github/workflows/build-and-push.yml'
+      - '.github/workflows/build-and-push-test.yml'
+      - '.github/workflows/deploy-stage.yml'
+      - '.github/workflows/deploy-stage-test.yml'
+      - '.github/actions/**'
+      - 'infra/**'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'apps/**'
+      - 'libs/**'
+      - 'proto/**'
+      - 'nest-cli.json'
+      - 'tsconfig.json'
+      - 'tsconfig.build.json'
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REPOSITORY_PREFIX: rd-shop
   NODE_VERSION: '24'
 
-# Allow one build per commit SHA — different SHAs can run concurrently
-# since each produces an independent immutable artifact.
-# cancel-in-progress: false ensures every merged commit gets an artifact.
 concurrency:
   group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
-  # ──────────────────────────────────────────────────────────────
-  # Build each service image and push to ECR
-  # Produces an immutable sha-<commit> tag and a mutable branch tag.
-  # ──────────────────────────────────────────────────────────────
   build-and-push:
     name: Build & Push (${{ matrix.app }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # required for AWS OIDC federation
+      id-token: write
     strategy:
-      # Keep fail-fast disabled so both services are attempted even if one fails
       fail-fast: false
       matrix:
         app: [shop, payments]
@@ -42,7 +53,7 @@ jobs:
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ vars.AWS_ROLE_ARN_BUILD }}
-          role-session-name: gha-build-${{ github.run_id }}
+          role-session-name: gha-build-test-${{ github.run_id }}
 
       - name: Verify AWS identity
         run: aws sts get-caller-identity
@@ -57,9 +68,7 @@ jobs:
         with:
           images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.app }}
           tags: |
-            # Immutable — primary deployment reference (full SHA)
             type=sha,prefix=sha-,format=long
-            # Mutable — convenience reference per branch
             type=ref,event=branch
 
       - name: Set up Docker Buildx
@@ -76,10 +85,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Keep default provenance/index behavior for now. If ECR UI noise from
-          # tagged image indexes and untagged child artifacts becomes a problem,
-          # add `provenance: false` in a later cleanup pass.
-          # Layer cache scoped per service
           cache-from: type=gha,scope=docker-${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.app }}
 
@@ -98,16 +103,10 @@ jobs:
       - name: Upload service metadata artifact
         uses: actions/upload-artifact@v7
         with:
-          # Per-service artifact — downloaded and merged in release-manifest job
           name: image-meta-${{ matrix.app }}
           path: /tmp/meta/${{ matrix.app }}.json
           retention-days: 30
 
-  # ──────────────────────────────────────────────────────────────
-  # Assemble the release manifest from per-service metadata.
-  # This file is the single source of truth for deployments —
-  # both stage and production read it to know what to deploy.
-  # ──────────────────────────────────────────────────────────────
   release-manifest:
     name: Release Manifest
     runs-on: ubuntu-latest
@@ -144,7 +143,18 @@ jobs:
       - name: Upload release manifest
         uses: actions/upload-artifact@v7
         with:
-          # Keyed by SHA — stage and production deploy jobs download this artifact
           name: release-manifest-${{ github.sha }}
           path: release-manifest.json
           retention-days: 90
+
+      - name: Write test summary
+        if: always()
+        run: |
+          {
+            echo "## Build test wrapper"
+            echo ""
+            echo "- Branch: ${{ github.ref_name }}"
+            echo "- AWS role: ${{ vars.AWS_ROLE_ARN_BUILD }}"
+            echo "- Mode: real push + real release manifest"
+            echo "- Release manifest: release-manifest-${{ github.sha }}"
+          } >> "$GITHUB_STEP_SUMMARY"

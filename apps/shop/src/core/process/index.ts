@@ -53,7 +53,7 @@ export const setupProcessErrorHandlers = (): void => {
 export const registerShutdownHandlers = (app: INestApplication): void => {
   const shutdown = (signal: string) => {
     void (async () => {
-      app.get(Logger).log(`${signal} received — starting graceful shutdown`, 'Bootstrap');
+      Logger.log(`${signal} received — starting graceful shutdown`, 'Bootstrap');
       await safeClose(app);
       process.exit(0);
     })();
