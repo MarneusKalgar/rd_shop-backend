@@ -69,4 +69,10 @@ Both implement `IDatabaseAdapter`: `getDataSourceOptions()`, `getModuleOptions()
 
 ## Seed
 
-Idempotent scripts in `apps/shop/src/db/seed/`. Production-guarded by `ALLOW_SEED_IN_PRODUCTION` env var.
+Idempotent scripts in `apps/shop/src/db/seed/`.
+
+- `runner.ts` holds the shared `runSeed()` body plus two wrappers: `seedWithProductionGuard()` and `seedStage()`.
+- `ALLOW_SEED_IN_PRODUCTION` is a permission flag for the guarded production seed entrypoint. It means "allow production writes for this seed run" and should stay `false` for normal service runtime.
+- `DEPLOYMENT_ENVIRONMENT` is a stack identity marker emitted by Pulumi runtime config (`development`, `stage`, `production`, ...). It tells the app which deployed environment it is running in.
+- Stage deploy uses the dedicated `stage.ts` entrypoint, which asserts `DEPLOYMENT_ENVIRONMENT=stage` and does not depend on `ALLOW_SEED_IN_PRODUCTION`.
+- Generic production/manual seed flows use the `prod.ts` entrypoint, which requires `ALLOW_SEED_IN_PRODUCTION=true`.

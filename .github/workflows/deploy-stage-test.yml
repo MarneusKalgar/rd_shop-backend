@@ -342,9 +342,8 @@ jobs:
               shop-seed \
               "${SHOP_TASK_DEFINITION_ARN}" \
               shop \
-              '["dist/apps/shop/db/seed/index.js"]' \
-              "${SHOP_LOG_GROUP_NAME}" \
-              '[{"name":"ALLOW_SEED_IN_PRODUCTION","value":"true"}]'; then
+              '["dist/apps/shop/db/seed/stage.js"]' \
+              "${SHOP_LOG_GROUP_NAME}"; then
               task_failures+=("shop-seed")
             fi
           else
