@@ -1,8 +1,8 @@
 name: Deploy — Stage Test Wrapper
 
 on:
-  # Branch-local harness for validating the future AWS/Pulumi stage lane
-  # without touching the real default-branch workflow_run path.
+  # Branch-local harness for validating the actual AWS/Pulumi stage lane
+  # without waiting for the default-branch workflow_run path.
   push:
     branches:
       - ci/stage-test/**
@@ -10,24 +10,34 @@ on:
       - '.github/workflows/deploy-stage.yml'
       - '.github/workflows/deploy-stage-test.yml'
       - '.github/workflows/build-and-push.yml'
+      - '.github/workflows/build-and-push-test.yml'
       - '.github/actions/**'
       - 'infra/**'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'apps/**'
+      - 'libs/**'
+      - 'proto/**'
+      - 'nest-cli.json'
+      - 'tsconfig.json'
+      - 'tsconfig.build.json'
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
-  ECR_REPOSITORY_PREFIX: rd-shop
   PULUMI_STACK: stage
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: deploy-stage
+  cancel-in-progress: false
 
 jobs:
-  verify-stage-preflight:
-    name: Verify Stage Preflight
+  deploy:
+    name: Deploy to Stage Test Wrapper
     runs-on: ubuntu-latest
     environment: stage
     permissions:
+      actions: read
       contents: read
       id-token: write
     steps:
@@ -44,27 +54,57 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
-      - name: Log in to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Create synthetic release manifest
+      - name: Wait for matching build wrapper run
+        id: build-run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          jq -n \
-            --arg commit "${{ github.sha }}" \
-            --arg ref "${{ github.ref_name }}" \
-            --arg shop_image "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/shop:development" \
-            --arg payments_image "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/payments:development" \
-            '{
-              commit: $commit,
-              ref: $ref,
-              services: {
-                shop: { image: $shop_image, digest: "stage-test-wrapper-placeholder" },
-                payments: { image: $payments_image, digest: "stage-test-wrapper-placeholder" }
-              }
-            }' > release-manifest.json
+          set -euo pipefail
 
-      - name: Parse synthetic release manifest
+          for attempt in $(seq 1 40); do
+            run_json="$(gh api \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-and-push-test.yml/runs?branch=${GITHUB_REF_NAME}&event=push&per_page=20")"
+
+            matching_run="$(echo "${run_json}" | jq -c --arg sha "${GITHUB_SHA}" \
+              '.workflow_runs | map(select(.head_sha == $sha)) | first // empty')"
+
+            if [[ -n "${matching_run}" ]]; then
+              run_id="$(echo "${matching_run}" | jq -r '.id')"
+              run_status="$(echo "${matching_run}" | jq -r '.status')"
+              run_conclusion="$(echo "${matching_run}" | jq -r '.conclusion // ""')"
+
+              echo "Build wrapper run ${run_id}: status=${run_status} conclusion=${run_conclusion:-pending}"
+
+              if [[ "${run_status}" == "completed" ]]; then
+                if [[ "${run_conclusion}" != "success" ]]; then
+                  echo "Matching build wrapper run failed" >&2
+                  exit 1
+                fi
+
+                echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              echo "Matching build wrapper run not found yet"
+            fi
+
+            if [[ "${attempt}" == "40" ]]; then
+              echo "Timed out waiting for matching build wrapper run" >&2
+              exit 1
+            fi
+
+            echo "Retrying in 15s (${attempt}/40)"
+            sleep 15
+          done
+
+      - name: Download release manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-manifest-${{ github.sha }}
+          run-id: ${{ steps.build-run.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Parse release manifest
         id: manifest
         uses: ./.github/actions/parse-release-manifest
 
@@ -91,25 +131,382 @@ jobs:
           pulumi login
           pulumi whoami
 
-      - name: Preview stage stack
+      - name: Configure stage stack image inputs
         working-directory: infra
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
           pulumi stack select "${{ env.PULUMI_STACK }}"
-          pulumi preview --stack "${{ env.PULUMI_STACK }}" --non-interactive
+          pulumi config set --stack "${{ env.PULUMI_STACK }}" rd-shop-infra:shopImageUri "${{ steps.manifest.outputs.shop-image }}"
+          pulumi config set --stack "${{ env.PULUMI_STACK }}" rd-shop-infra:paymentsImageUri "${{ steps.manifest.outputs.payments-image }}"
 
-      - name: Write test summary
+      - name: Apply stage stack
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+          pulumi up --stack "${{ env.PULUMI_STACK }}" --yes --non-interactive
+
+      - name: Capture stage outputs
+        id: stack
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+
+          echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "payments_log_group_name=$(pulumi stack output paymentsLogGroupName)" >> "$GITHUB_OUTPUT"
+          echo "payments_service_name=$(pulumi stack output paymentsServiceName)" >> "$GITHUB_OUTPUT"
+          echo "payments_task_definition_arn=$(pulumi stack output paymentsTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+          echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
+          echo "shop_service_name=$(pulumi stack output shopServiceName)" >> "$GITHUB_OUTPUT"
+          echo "shop_target_group_arn=$(pulumi stack output shopTargetGroupArn)" >> "$GITHUB_OUTPUT"
+          echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+
+          public_endpoint_url="$(pulumi stack output publicEndpointUrl 2>/dev/null || true)"
+          if [[ -z "${public_endpoint_url}" || "${public_endpoint_url}" == "null" ]]; then
+            echo "Stage public endpoint URL is not available" >&2
+            exit 1
+          fi
+          echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Quiesce ECS services before DB init
+        id: quiesce_services
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+        run: |
+          set -euo pipefail
+
+          payments_desired_count=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}" \
+            --query 'services[0].desiredCount' \
+            --output text)
+          shop_desired_count=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}" \
+            --query 'services[0].desiredCount' \
+            --output text)
+
+          echo "PAYMENTS_DESIRED_COUNT=${payments_desired_count}" >> "$GITHUB_ENV"
+          echo "SHOP_DESIRED_COUNT=${shop_desired_count}" >> "$GITHUB_ENV"
+
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${PAYMENTS_SERVICE_NAME}" \
+            --desired-count 0 >/dev/null
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${SHOP_SERVICE_NAME}" \
+            --desired-count 0 >/dev/null
+
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}"
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}"
+
+      - name: Run stage database init tasks
+        id: db_init
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_LOG_GROUP_NAME: ${{ steps.stack.outputs.payments_log_group_name }}
+          PAYMENTS_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.payments_task_definition_arn }}
+          SHOP_LOG_GROUP_NAME: ${{ steps.stack.outputs.shop_log_group_name }}
+          SHOP_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.shop_task_definition_arn }}
+        run: |
+          set -euo pipefail
+
+          run_task() {
+            local label="$1"
+            local task_definition_arn="$2"
+            local container_name="$3"
+            local command_json="$4"
+            local log_group_name="$5"
+            local environment_json="${6:-[]}"
+
+            local overrides
+            overrides=$(jq -n \
+              --arg name "${container_name}" \
+              --argjson command "${command_json}" \
+              --argjson environment "${environment_json}" \
+              '{containerOverrides:[{name:$name,command:$command,environment:$environment}]}')
+
+            local run_task_output
+            run_task_output=$(aws ecs run-task \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --launch-type EC2 \
+              --count 1 \
+              --task-definition "${task_definition_arn}" \
+              --started-by "gha-stage-test-${{ github.run_id }}-${label}" \
+              --overrides "${overrides}" \
+              --output json)
+
+            if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
+              echo "Failed to start task ${label}"
+              echo "${run_task_output}" | jq .
+              return 1
+            fi
+
+            local task_arn
+            task_arn=$(echo "${run_task_output}" | jq -r '.tasks[0].taskArn')
+
+            aws ecs wait tasks-stopped --cluster "${ECS_CLUSTER_NAME}" --tasks "${task_arn}"
+
+            local task_description
+            task_description=$(aws ecs describe-tasks \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --tasks "${task_arn}" \
+              --output json)
+
+            local task_stopped_reason
+            task_stopped_reason=$(echo "${task_description}" | jq -r '.tasks[0].stoppedReason // ""')
+
+            local exit_code
+            exit_code=$(echo "${task_description}" | jq -r \
+              --arg container_name "${container_name}" \
+              '.tasks[0].containers[] | select(.name == $container_name) | .exitCode // ""')
+
+            local container_reason
+            container_reason=$(echo "${task_description}" | jq -r \
+              --arg container_name "${container_name}" \
+              '.tasks[0].containers[] | select(.name == $container_name) | .reason // ""')
+
+            if [[ -z "${exit_code}" || "${exit_code}" != "0" ]]; then
+              echo "Task ${label} failed"
+              if [[ -n "${task_stopped_reason}" ]]; then
+                echo "Stopped reason: ${task_stopped_reason}"
+              fi
+              if [[ -n "${container_reason}" ]]; then
+                echo "Container reason: ${container_reason}"
+              fi
+
+              local task_id
+              task_id="${task_arn##*/}"
+
+              local log_stream_name
+              log_stream_name=$(aws logs describe-log-streams \
+                --log-group-name "${log_group_name}" \
+                --log-stream-name-prefix "${container_name}/${container_name}/" \
+                --output json | jq -r --arg task_id "${task_id}" \
+                '.logStreams[]? | select(.logStreamName | contains($task_id)) | .logStreamName' | head -n 1)
+
+              if [[ -n "${log_stream_name}" ]]; then
+                echo "CloudWatch logs (${log_group_name} / ${log_stream_name}):"
+                aws logs get-log-events \
+                  --log-group-name "${log_group_name}" \
+                  --log-stream-name "${log_stream_name}" \
+                  --limit 100 \
+                  --output json | jq -r '.events[]?.message'
+              else
+                echo "CloudWatch log stream not found for task ${task_id} in ${log_group_name}"
+              fi
+
+              echo "${task_description}" | jq .
+              return 1
+            fi
+
+            return 0
+          }
+
+          task_failures=()
+
+          if ! run_task \
+            payments-migrate \
+            "${PAYMENTS_TASK_DEFINITION_ARN}" \
+            payments \
+            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/payments/data-source.js"]' \
+            "${PAYMENTS_LOG_GROUP_NAME}"; then
+            task_failures+=("payments-migrate")
+          fi
+
+          shop_migrate_succeeded=false
+          if run_task \
+            shop-migrate \
+            "${SHOP_TASK_DEFINITION_ARN}" \
+            shop \
+            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/shop/data-source.js"]' \
+            "${SHOP_LOG_GROUP_NAME}"; then
+            shop_migrate_succeeded=true
+          else
+            task_failures+=("shop-migrate")
+          fi
+
+          if [[ "${shop_migrate_succeeded}" == "true" ]]; then
+            if ! run_task \
+              shop-seed \
+              "${SHOP_TASK_DEFINITION_ARN}" \
+              shop \
+              '["dist/apps/shop/db/seed/stage.js"]' \
+              "${SHOP_LOG_GROUP_NAME}"; then
+              task_failures+=("shop-seed")
+            fi
+          else
+            echo "Skipping shop-seed because shop-migrate failed"
+          fi
+
+          if (( ${#task_failures[@]} > 0 )); then
+            echo "DB init failures: ${task_failures[*]}"
+            exit 1
+          fi
+
+      - name: Restore ECS services and trigger rollout
+        if: ${{ always() && steps.quiesce_services.outcome == 'success' }}
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+        run: |
+          set -euo pipefail
+
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${PAYMENTS_SERVICE_NAME}" \
+            --desired-count "${PAYMENTS_DESIRED_COUNT}" \
+            --force-new-deployment >/dev/null
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${SHOP_SERVICE_NAME}" \
+            --desired-count "${SHOP_DESIRED_COUNT}" \
+            --force-new-deployment >/dev/null
+
+      - name: Wait for ECS services to stabilize
+        if: ${{ always() && steps.quiesce_services.outcome == 'success' }}
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}"
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}"
+
+      - name: Dump ECS stabilization diagnostics
+        if: ${{ failure() && steps.quiesce_services.outcome == 'success' }}
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+          SHOP_TARGET_GROUP_ARN: ${{ steps.stack.outputs.shop_target_group_arn }}
+        run: |
+          set -euo pipefail
+
+          echo "=== ECS service state ==="
+          aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}" "${SHOP_SERVICE_NAME}" \
+            --output json | jq '.services[] | {
+              serviceName,
+              status,
+              desiredCount,
+              runningCount,
+              pendingCount,
+              deployments: [.deployments[] | {
+                status,
+                rolloutState,
+                desiredCount,
+                runningCount,
+                pendingCount,
+                taskDefinition
+              }],
+              events: [.events[:10][] | {createdAt, message}]
+            }'
+
+          dump_tasks() {
+            local service_name="$1"
+            local task_arns
+
+            task_arns=$(aws ecs list-tasks \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --service-name "${service_name}" \
+              --desired-status RUNNING \
+              --query 'taskArns' \
+              --output text)
+
+            if [[ -z "${task_arns}" || "${task_arns}" == "None" ]]; then
+              task_arns=$(aws ecs list-tasks \
+                --cluster "${ECS_CLUSTER_NAME}" \
+                --service-name "${service_name}" \
+                --desired-status STOPPED \
+                --query 'taskArns[:5]' \
+                --output text)
+            fi
+
+            if [[ -z "${task_arns}" || "${task_arns}" == "None" ]]; then
+              echo "No tasks found for ${service_name}"
+              return
+            fi
+
+            echo "=== Tasks for ${service_name} ==="
+            aws ecs describe-tasks \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --tasks ${task_arns} \
+              --output json | jq '.tasks[] | {
+                taskArn,
+                lastStatus,
+                desiredStatus,
+                healthStatus,
+                stoppedReason,
+                containers: [.containers[] | {
+                  name,
+                  lastStatus,
+                  healthStatus,
+                  exitCode,
+                  reason
+                }]
+              }'
+          }
+
+          dump_tasks "${PAYMENTS_SERVICE_NAME}"
+          dump_tasks "${SHOP_SERVICE_NAME}"
+
+          if [[ -n "${SHOP_TARGET_GROUP_ARN}" && "${SHOP_TARGET_GROUP_ARN}" != "null" ]]; then
+            echo "=== Shop target group health ==="
+            aws elbv2 describe-target-health \
+              --target-group-arn "${SHOP_TARGET_GROUP_ARN}" \
+              --output json | jq '.TargetHealthDescriptions[] | {
+                target: .Target,
+                health: .TargetHealth
+              }'
+          fi
+
+      - name: Smoke test — shop health check
+        uses: ./.github/actions/smoke-test-shop-http
+        with:
+          base-url: ${{ steps.stack.outputs.public_endpoint_url }}
+
+      - name: Write deploy summary
+        if: always()
+        uses: ./.github/actions/write-deploy-summary
+        with:
+          environment: stage
+          commit: ${{ steps.manifest.outputs.commit }}
+          ref: ${{ steps.manifest.outputs.ref }}
+          shop-image: ${{ steps.manifest.outputs.shop-image }}
+          shop-digest: ${{ steps.manifest.outputs.shop-digest }}
+          payments-image: ${{ steps.manifest.outputs.payments-image }}
+          payments-digest: ${{ steps.manifest.outputs.payments-digest }}
+
+      - name: Write wrapper note
         if: always()
         run: |
           {
             echo "## Stage test wrapper"
             echo ""
+            echo "- Path: branch-local push trigger"
             echo "- Branch: ${{ github.ref_name }}"
             echo "- Stage role: ${{ vars.AWS_ROLE_ARN }}"
-            echo "- ECR registry: ${{ steps.login-ecr.outputs.registry }}"
-            echo "- Shop image stand-in: ${{ steps.manifest.outputs.shop-image }}"
-            echo "- Payments image stand-in: ${{ steps.manifest.outputs.payments-image }}"
+            echo "- Build wrapper run: ${{ steps.build-run.outputs.run_id }}"
+            echo "- Shop image: ${{ steps.manifest.outputs.shop-image }}"
+            echo "- Payments image: ${{ steps.manifest.outputs.payments-image }}"
             echo "- Pulumi stack: ${{ env.PULUMI_STACK }}"
-            echo "- Mutation: none (preview only)"
+            echo "- Mutation: real stage deploy path"
           } >> "$GITHUB_STEP_SUMMARY"

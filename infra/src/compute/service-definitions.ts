@@ -12,6 +12,7 @@ const healthCheckIntervalSeconds = 30;
 const healthCheckTimeoutSeconds = 5;
 const healthCheckRetries = 3;
 const healthCheckStartPeriodSeconds = 30;
+const distrolessNodeBinaryPath = '/nodejs/bin/node';
 
 const paymentsRuntimeSecretKeys = [
   'DATABASE_HOST',
@@ -179,7 +180,7 @@ function buildLogConfiguration(logGroupName: pulumi.Input<string>, streamPrefix:
  */
 function buildNodeHealthCheck(command: string) {
   return {
-    command: ['CMD', 'node', '-e', command],
+    command: ['CMD', distrolessNodeBinaryPath, '-e', command],
     interval: healthCheckIntervalSeconds,
     retries: healthCheckRetries,
     startPeriod: healthCheckStartPeriodSeconds,

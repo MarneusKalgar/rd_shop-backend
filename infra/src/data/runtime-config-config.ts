@@ -118,6 +118,7 @@ export function getFoundationRuntimeConfig(): FoundationRuntimeConfig {
         DB_SLOW_QUERY_THRESHOLD_MS: String(
           config.getNumber('shopDbSlowQueryThresholdMs') ?? defaultShopDbSlowQueryThresholdMs,
         ),
+        DEPLOYMENT_ENVIRONMENT: stack,
         EMAIL_VERIFICATION_EXPIRES_IN:
           config.get('shopEmailVerificationExpiresIn') ?? defaultShopEmailVerificationExpiresIn,
         EVENT_LOOP_LAG_THRESHOLD_MS: String(

@@ -7,6 +7,17 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 
+/**
+ * Sorts SRV records for a single-target gRPC dial.
+ * Lower priority wins; within the same priority bucket, higher weight wins.
+ */
+export function compareSrvRecords(
+  left: { priority: number; weight: number },
+  right: { priority: number; weight: number },
+): number {
+  return left.priority - right.priority || right.weight - left.weight;
+}
+
 export function mapGrpcError(err: unknown): never {
   const grpc = err as { code?: number; message?: string };
   const message = grpc.message ?? 'Payment service error';

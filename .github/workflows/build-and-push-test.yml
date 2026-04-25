@@ -1,15 +1,19 @@
 name: Build and Push — Test Wrapper
 
 on:
-  # Branch-local harness for validating OIDC auth and Docker build changes
-  # without touching the real development build workflow.
+  # Branch-local harness for validating the real build lane
+  # without touching the development branch workflow.
   push:
     branches:
       - ci/build-test/**
+      - ci/stage-test/**
     paths:
       - '.github/workflows/build-and-push.yml'
       - '.github/workflows/build-and-push-test.yml'
+      - '.github/workflows/deploy-stage.yml'
+      - '.github/workflows/deploy-stage-test.yml'
       - '.github/actions/**'
+      - 'infra/**'
       - 'Dockerfile'
       - 'package.json'
       - 'package-lock.json'
@@ -23,14 +27,15 @@ on:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REPOSITORY_PREFIX: rd-shop
+  NODE_VERSION: '24'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
-  verify-auth-and-build:
-    name: Verify Auth & Build (${{ matrix.app }})
+  build-and-push:
+    name: Build & Push (${{ matrix.app }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,18 +74,78 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build image without push
+      - name: Build and push image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
           target: prod-distroless-${{ matrix.app }}
           build-args: APP=${{ matrix.app }}
-          push: false
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=docker-build-test-${{ matrix.app }}
-          cache-to: type=gha,mode=max,scope=docker-build-test-${{ matrix.app }}
+          cache-from: type=gha,scope=docker-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.app }}
+
+      - name: Save service metadata
+        run: |
+          IMAGE_BASE="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.app }}"
+          mkdir -p /tmp/meta
+          jq -n \
+            --arg image  "${IMAGE_BASE}:sha-${{ github.sha }}" \
+            --arg digest "${{ steps.build.outputs.digest }}" \
+            '{"image": $image, "digest": $digest}' \
+            > /tmp/meta/${{ matrix.app }}.json
+          echo "=== ${{ matrix.app }} metadata ==="
+          cat /tmp/meta/${{ matrix.app }}.json
+
+      - name: Upload service metadata artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-meta-${{ matrix.app }}
+          path: /tmp/meta/${{ matrix.app }}.json
+          retention-days: 30
+
+  release-manifest:
+    name: Release Manifest
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Download all service metadata
+        uses: actions/download-artifact@v8
+        with:
+          pattern: image-meta-*
+          path: /tmp/meta
+          merge-multiple: true
+
+      - name: Assemble release-manifest.json
+        run: |
+          jq -n \
+            --arg commit "${{ github.sha }}" \
+            --arg ref    "${{ github.ref_name }}" \
+            --slurpfile  shop     /tmp/meta/shop.json \
+            --slurpfile  payments /tmp/meta/payments.json \
+            '{
+              commit:   $commit,
+              ref:      $ref,
+              services: {
+                shop:     $shop[0],
+                payments: $payments[0]
+              }
+            }' > release-manifest.json
+
+      - name: Print release manifest
+        run: |
+          echo "=== release-manifest.json ==="
+          cat release-manifest.json
+
+      - name: Upload release manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-manifest-${{ github.sha }}
+          path: release-manifest.json
+          retention-days: 90
 
       - name: Write test summary
         if: always()
@@ -89,8 +154,7 @@ jobs:
             echo "## Build test wrapper"
             echo ""
             echo "- Branch: ${{ github.ref_name }}"
-            echo "- App: ${{ matrix.app }}"
             echo "- AWS role: ${{ vars.AWS_ROLE_ARN_BUILD }}"
-            echo "- ECR registry: ${{ steps.login-ecr.outputs.registry }}"
-            echo "- Image push: skipped intentionally"
+            echo "- Mode: real push + real release manifest"
+            echo "- Release manifest: release-manifest-${{ github.sha }}"
           } >> "$GITHUB_STEP_SUMMARY"

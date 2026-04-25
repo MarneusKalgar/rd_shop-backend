@@ -103,9 +103,12 @@ jobs:
           pulumi stack select "${{ env.PULUMI_STACK }}"
 
           echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "payments_log_group_name=$(pulumi stack output paymentsLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "payments_service_name=$(pulumi stack output paymentsServiceName)" >> "$GITHUB_OUTPUT"
           echo "payments_task_definition_arn=$(pulumi stack output paymentsTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+          echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "shop_service_name=$(pulumi stack output shopServiceName)" >> "$GITHUB_OUTPUT"
+          echo "shop_target_group_arn=$(pulumi stack output shopTargetGroupArn)" >> "$GITHUB_OUTPUT"
           echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
 
           public_endpoint_url="$(pulumi stack output publicEndpointUrl 2>/dev/null || true)"
@@ -116,6 +119,7 @@ jobs:
           echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
 
       - name: Quiesce ECS services before DB init
+        id: quiesce_services
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
@@ -154,9 +158,12 @@ jobs:
             --services "${SHOP_SERVICE_NAME}"
 
       - name: Run stage database init tasks
+        id: db_init
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_LOG_GROUP_NAME: ${{ steps.stack.outputs.payments_log_group_name }}
           PAYMENTS_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.payments_task_definition_arn }}
+          SHOP_LOG_GROUP_NAME: ${{ steps.stack.outputs.shop_log_group_name }}
           SHOP_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.shop_task_definition_arn }}
         run: |
           set -euo pipefail
@@ -166,7 +173,8 @@ jobs:
             local task_definition_arn="$2"
             local container_name="$3"
             local command_json="$4"
-            local environment_json="${5:-[]}"
+            local log_group_name="$5"
+            local environment_json="${6:-[]}"
 
             local overrides
             overrides=$(jq -n \
@@ -188,7 +196,7 @@ jobs:
             if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
               echo "Failed to start task ${label}"
               echo "${run_task_output}" | jq .
-              exit 1
+              return 1
             fi
 
             local task_arn
@@ -202,38 +210,99 @@ jobs:
               --tasks "${task_arn}" \
               --output json)
 
+            local task_stopped_reason
+            task_stopped_reason=$(echo "${task_description}" | jq -r '.tasks[0].stoppedReason // ""')
+
             local exit_code
             exit_code=$(echo "${task_description}" | jq -r \
               --arg container_name "${container_name}" \
               '.tasks[0].containers[] | select(.name == $container_name) | .exitCode // ""')
 
+            local container_reason
+            container_reason=$(echo "${task_description}" | jq -r \
+              --arg container_name "${container_name}" \
+              '.tasks[0].containers[] | select(.name == $container_name) | .reason // ""')
+
             if [[ -z "${exit_code}" || "${exit_code}" != "0" ]]; then
               echo "Task ${label} failed"
+              if [[ -n "${task_stopped_reason}" ]]; then
+                echo "Stopped reason: ${task_stopped_reason}"
+              fi
+              if [[ -n "${container_reason}" ]]; then
+                echo "Container reason: ${container_reason}"
+              fi
+
+              local task_id
+              task_id="${task_arn##*/}"
+
+              local log_stream_name
+              log_stream_name=$(aws logs describe-log-streams \
+                --log-group-name "${log_group_name}" \
+                --log-stream-name-prefix "${container_name}/${container_name}/" \
+                --output json | jq -r --arg task_id "${task_id}" \
+                '.logStreams[]? | select(.logStreamName | contains($task_id)) | .logStreamName' | head -n 1)
+
+              if [[ -n "${log_stream_name}" ]]; then
+                echo "CloudWatch logs (${log_group_name} / ${log_stream_name}):"
+                aws logs get-log-events \
+                  --log-group-name "${log_group_name}" \
+                  --log-stream-name "${log_stream_name}" \
+                  --limit 100 \
+                  --output json | jq -r '.events[]?.message'
+              else
+                echo "CloudWatch log stream not found for task ${task_id} in ${log_group_name}"
+              fi
+
               echo "${task_description}" | jq .
-              exit 1
+              return 1
             fi
+
+            return 0
           }
 
-          run_task \
+          task_failures=()
+
+          if ! run_task \
             payments-migrate \
             "${PAYMENTS_TASK_DEFINITION_ARN}" \
             payments \
-            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/payments/data-source.js"]'
+            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/payments/data-source.js"]' \
+            "${PAYMENTS_LOG_GROUP_NAME}"; then
+            task_failures+=("payments-migrate")
+          fi
 
-          run_task \
+          shop_migrate_succeeded=false
+          if run_task \
             shop-migrate \
             "${SHOP_TASK_DEFINITION_ARN}" \
             shop \
-            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/shop/data-source.js"]'
+            '["node_modules/typeorm/cli.js","migration:run","-d","dist/apps/shop/data-source.js"]' \
+            "${SHOP_LOG_GROUP_NAME}"; then
+            shop_migrate_succeeded=true
+          else
+            task_failures+=("shop-migrate")
+          fi
 
-          run_task \
-            shop-seed \
-            "${SHOP_TASK_DEFINITION_ARN}" \
-            shop \
-            '["dist/apps/shop/db/seed/index.js"]' \
-            '[{"name":"ALLOW_SEED_IN_PRODUCTION","value":"true"}]'
+          if [[ "${shop_migrate_succeeded}" == "true" ]]; then
+            if ! run_task \
+              shop-seed \
+              "${SHOP_TASK_DEFINITION_ARN}" \
+              shop \
+              '["dist/apps/shop/db/seed/stage.js"]' \
+              "${SHOP_LOG_GROUP_NAME}"; then
+              task_failures+=("shop-seed")
+            fi
+          else
+            echo "Skipping shop-seed because shop-migrate failed"
+          fi
+
+          if (( ${#task_failures[@]} > 0 )); then
+            echo "DB init failures: ${task_failures[*]}"
+            exit 1
+          fi
 
       - name: Restore ECS services and trigger rollout
+        if: ${{ always() && steps.quiesce_services.outcome == 'success' }}
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
@@ -253,6 +322,7 @@ jobs:
             --force-new-deployment >/dev/null
 
       - name: Wait for ECS services to stabilize
+        if: ${{ always() && steps.quiesce_services.outcome == 'success' }}
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
@@ -264,6 +334,95 @@ jobs:
           aws ecs wait services-stable \
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${SHOP_SERVICE_NAME}"
+
+      - name: Dump ECS stabilization diagnostics
+        if: ${{ failure() && steps.quiesce_services.outcome == 'success' }}
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+          SHOP_TARGET_GROUP_ARN: ${{ steps.stack.outputs.shop_target_group_arn }}
+        run: |
+          set -euo pipefail
+
+          echo "=== ECS service state ==="
+          aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}" "${SHOP_SERVICE_NAME}" \
+            --output json | jq '.services[] | {
+              serviceName,
+              status,
+              desiredCount,
+              runningCount,
+              pendingCount,
+              deployments: [.deployments[] | {
+                status,
+                rolloutState,
+                desiredCount,
+                runningCount,
+                pendingCount,
+                taskDefinition
+              }],
+              events: [.events[:10][] | {createdAt, message}]
+            }'
+
+          dump_tasks() {
+            local service_name="$1"
+            local task_arns
+
+            task_arns=$(aws ecs list-tasks \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --service-name "${service_name}" \
+              --desired-status RUNNING \
+              --query 'taskArns' \
+              --output text)
+
+            if [[ -z "${task_arns}" || "${task_arns}" == "None" ]]; then
+              task_arns=$(aws ecs list-tasks \
+                --cluster "${ECS_CLUSTER_NAME}" \
+                --service-name "${service_name}" \
+                --desired-status STOPPED \
+                --query 'taskArns[:5]' \
+                --output text)
+            fi
+
+            if [[ -z "${task_arns}" || "${task_arns}" == "None" ]]; then
+              echo "No tasks found for ${service_name}"
+              return
+            fi
+
+            echo "=== Tasks for ${service_name} ==="
+            aws ecs describe-tasks \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --tasks ${task_arns} \
+              --output json | jq '.tasks[] | {
+                taskArn,
+                lastStatus,
+                desiredStatus,
+                healthStatus,
+                stoppedReason,
+                containers: [.containers[] | {
+                  name,
+                  lastStatus,
+                  healthStatus,
+                  exitCode,
+                  reason
+                }]
+              }'
+          }
+
+          dump_tasks "${PAYMENTS_SERVICE_NAME}"
+          dump_tasks "${SHOP_SERVICE_NAME}"
+
+          if [[ -n "${SHOP_TARGET_GROUP_ARN}" && "${SHOP_TARGET_GROUP_ARN}" != "null" ]]; then
+            echo "=== Shop target group health ==="
+            aws elbv2 describe-target-health \
+              --target-group-arn "${SHOP_TARGET_GROUP_ARN}" \
+              --output json | jq '.TargetHealthDescriptions[] | {
+                target: .Target,
+                health: .TargetHealth
+              }'
+          fi
 
       - name: Smoke test — shop health check
         uses: ./.github/actions/smoke-test-shop-http
