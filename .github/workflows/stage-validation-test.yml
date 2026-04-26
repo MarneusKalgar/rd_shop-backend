@@ -27,6 +27,7 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
   PAYMENTS_RUNTIME_SECRET_NAME: rd-shop/payments/stage
   PULUMI_STACK: stage
+  STAGE_VALIDATION_TASK_MEMORY: '192'
   STAGE_VALIDATION_NAMESPACE: ${{ format('{0}-{1}', vars.STAGE_VALIDATION_NAMESPACE || 'stage-validation', github.run_id) }}
   STAGE_VALIDATION_PRODUCT_ID: ${{ vars.STAGE_VALIDATION_PRODUCT_ID }}
   STAGE_VALIDATION_USER_PASSWORD: ${{ secrets.STAGE_VALIDATION_USER_PASSWORD }}
@@ -164,7 +165,8 @@ jobs:
               --arg name "${container_name}" \
               --argjson command "${command_json}" \
               --argjson environment "${environment_json}" \
-              '{containerOverrides:[{name:$name,command:$command,environment:$environment}]}')
+              --argjson memory "${STAGE_VALIDATION_TASK_MEMORY}" \
+              '{containerOverrides:[{name:$name,command:$command,environment:$environment,memory:$memory}]}')
 
             local run_task_output
             run_task_output=$(aws ecs run-task \
@@ -268,7 +270,8 @@ jobs:
               --arg name "${container_name}" \
               --argjson command "${command_json}" \
               --argjson environment "${environment_json}" \
-              '{containerOverrides:[{name:$name,command:$command,environment:$environment}]}')
+              --argjson memory "${STAGE_VALIDATION_TASK_MEMORY}" \
+              '{containerOverrides:[{name:$name,command:$command,environment:$environment,memory:$memory}]}')
 
             local run_task_output
             run_task_output=$(aws ecs run-task \
@@ -325,7 +328,7 @@ jobs:
           payments_database_url="$(aws secretsmanager get-secret-value \
             --secret-id "${PAYMENTS_RUNTIME_SECRET_NAME}" \
             --query SecretString \
-            --output text | jq -r 'fromjson | .DATABASE_URL')"
+            --output text | jq -r '.DATABASE_URL')"
 
           environment_json=$(jq -nc \
             --arg namespace "${STAGE_VALIDATION_NAMESPACE}" \
