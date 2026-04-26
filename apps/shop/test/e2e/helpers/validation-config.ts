@@ -23,7 +23,7 @@ export function buildCheckoutIdempotencyKey(): string | undefined {
   }
 
   checkoutSequence += 1;
-  return `${configuredNamespace}-${checkoutSequence}`;
+  return `${configuredNamespace}-${getStageValidationTestScope()}-${checkoutSequence}`;
 }
 
 /** Returns the pinned validation product ID when stage validation is enabled. */
@@ -54,10 +54,32 @@ export function prefixValidationKey(key: string): string {
     return key;
   }
 
-  return `${configuredNamespace}-${key}`;
+  return `${configuredNamespace}-${getStageValidationTestScope()}-${key}`;
 }
 
 /** Returns whether the e2e auth helper should sign in only instead of signup + signin. */
 export function useStageValidationUsers(): boolean {
   return stageValidationEnabled;
+}
+
+function getStageValidationTestScope(): string {
+  if (typeof expect === 'undefined' || typeof expect.getState !== 'function') {
+    return 'suite';
+  }
+
+  const testPath = expect.getState().testPath;
+
+  if (!testPath) {
+    return 'suite';
+  }
+
+  return (
+    testPath
+      .split('/')
+      .pop()
+      ?.replace(/\.e2e-spec\.ts$/, '')
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase() ?? 'suite'
+  );
 }
