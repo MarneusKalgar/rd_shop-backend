@@ -75,7 +75,7 @@ function getStageValidationTestScope(): string {
 
   return (
     testPath
-      .split('/')
+      .split(/[\\/]/)
       .pop()
       ?.replace(/\.e2e-spec\.ts$/, '')
       .replace(/[^a-z0-9]+/gi, '-')
