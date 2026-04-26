@@ -238,15 +238,14 @@ jobs:
             "${SHOP_LOG_GROUP_NAME}" \
             "${environment_json}"
 
-      - name: Run stage e2e subset
+      - name: Run stage e2e suite
         if: ${{ steps.seed.outcome == 'success' }}
-        working-directory: apps/shop
         env:
           STAGE_VALIDATION_BASE_URL: ${{ steps.stack.outputs.public_endpoint_url }}
           STAGE_VALIDATION_NAMESPACE: ${{ env.STAGE_VALIDATION_NAMESPACE }}
           STAGE_VALIDATION_PRODUCT_ID: ${{ env.STAGE_VALIDATION_PRODUCT_ID }}
           STAGE_VALIDATION_USER_PASSWORD: ${{ env.STAGE_VALIDATION_USER_PASSWORD }}
-        run: npm run test:e2e:stage
+        run: npm run test:e2e:shop:stage
 
       - name: Cleanup stage validation dataset
         if: ${{ always() && steps.stack.outcome == 'success' }}
