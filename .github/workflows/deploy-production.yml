@@ -39,7 +39,7 @@ jobs:
       # Must come first: checkout wipes the workspace, so the artifact download
       # must happen after it. Also required to resolve local actions under .github/actions/
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.sha }}
 
