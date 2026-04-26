@@ -1,1 +1,3 @@
-export const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8092';
+import { getStageValidationBaseUrl } from '@/db/stage-validation/runtime';
+
+export const BASE_URL = getStageValidationBaseUrl();

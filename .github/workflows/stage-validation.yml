@@ -1,0 +1,289 @@
+name: Stage Validation
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['Deploy — Stage']
+    branches: [development]
+    types: [completed]
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+  PAYMENTS_RUNTIME_SECRET_NAME: rd-shop/payments/stage
+  PULUMI_STACK: stage
+  STAGE_VALIDATION_NAMESPACE: ${{ format('{0}-{1}', vars.STAGE_VALIDATION_NAMESPACE || 'stage-validation', github.run_id) }}
+  STAGE_VALIDATION_PRODUCT_ID: ${{ vars.STAGE_VALIDATION_PRODUCT_ID }}
+  STAGE_VALIDATION_USER_PASSWORD: ${{ secrets.STAGE_VALIDATION_USER_PASSWORD }}
+
+concurrency:
+  group: stage-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate Stage
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: stage
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: gha-stage-validation-${{ github.run_id }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            infra/package-lock.json
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Install infra dependencies
+        run: npm ci --prefix infra
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+        with:
+          pulumi-version: '^3'
+
+      - name: Capture stage outputs
+        id: stack
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi login
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+
+          echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
+          echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+
+          public_endpoint_url="$(pulumi stack output publicEndpointUrl 2>/dev/null || true)"
+          if [[ -z "${public_endpoint_url}" || "${public_endpoint_url}" == "null" ]]; then
+            echo "Stage public endpoint URL is not available" >&2
+            exit 1
+          fi
+
+          echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Seed stage validation dataset
+        id: seed
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          SHOP_LOG_GROUP_NAME: ${{ steps.stack.outputs.shop_log_group_name }}
+          SHOP_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.shop_task_definition_arn }}
+        run: |
+          set -euo pipefail
+
+          run_task() {
+            local label="$1"
+            local task_definition_arn="$2"
+            local container_name="$3"
+            local command_json="$4"
+            local log_group_name="$5"
+            local environment_json="${6:-[]}"
+
+            local overrides
+            overrides=$(jq -n \
+              --arg name "${container_name}" \
+              --argjson command "${command_json}" \
+              --argjson environment "${environment_json}" \
+              '{containerOverrides:[{name:$name,command:$command,environment:$environment}]}')
+
+            local run_task_output
+            run_task_output=$(aws ecs run-task \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --launch-type EC2 \
+              --count 1 \
+              --task-definition "${task_definition_arn}" \
+              --started-by "gha-stage-validation-${{ github.run_id }}-${label}" \
+              --overrides "${overrides}" \
+              --output json)
+
+            if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
+              echo "Failed to start task ${label}" >&2
+              echo "${run_task_output}" | jq .
+              return 1
+            fi
+
+            local task_arn
+            task_arn=$(echo "${run_task_output}" | jq -r '.tasks[0].taskArn')
+            aws ecs wait tasks-stopped --cluster "${ECS_CLUSTER_NAME}" --tasks "${task_arn}"
+
+            local task_id
+            task_id="${task_arn##*/}"
+            local exit_code
+            exit_code=$(aws ecs describe-tasks \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --tasks "${task_arn}" \
+              --query "tasks[0].containers[?name=='${container_name}'].exitCode | [0]" \
+              --output text)
+
+            if [[ -z "${exit_code}" || "${exit_code}" != "0" ]]; then
+              echo "Task ${label} failed with exit code ${exit_code}" >&2
+
+              local log_stream_name
+              log_stream_name=$(aws logs describe-log-streams \
+                --log-group-name "${log_group_name}" \
+                --log-stream-name-prefix "${container_name}/${container_name}/" \
+                --output json | jq -r --arg task_id "${task_id}" \
+                '.logStreams[]? | select(.logStreamName | contains($task_id)) | .logStreamName' | head -n 1)
+
+              if [[ -n "${log_stream_name}" ]]; then
+                echo "CloudWatch logs (${log_group_name} / ${log_stream_name}):"
+                aws logs get-log-events \
+                  --log-group-name "${log_group_name}" \
+                  --log-stream-name "${log_stream_name}" \
+                  --limit 200 \
+                  --output json | jq -r '.events[]?.message'
+              fi
+
+              return 1
+            fi
+          }
+
+          environment_json=$(jq -nc \
+            --arg namespace "${STAGE_VALIDATION_NAMESPACE}" \
+            --arg product_id "${STAGE_VALIDATION_PRODUCT_ID}" \
+            --arg user_password "${STAGE_VALIDATION_USER_PASSWORD}" \
+            '[
+              {"name":"STAGE_VALIDATION_NAMESPACE","value":$namespace},
+              {"name":"STAGE_VALIDATION_PRODUCT_ID","value":$product_id},
+              {"name":"STAGE_VALIDATION_USER_PASSWORD","value":$user_password}
+            ]')
+
+          run_task \
+            stage-validation-seed \
+            "${SHOP_TASK_DEFINITION_ARN}" \
+            shop \
+            '["dist/apps/shop/db/stage-validation/seed.js"]' \
+            "${SHOP_LOG_GROUP_NAME}" \
+            "${environment_json}"
+
+      - name: Run stage e2e subset
+        if: ${{ steps.seed.outcome == 'success' }}
+        working-directory: apps/shop
+        env:
+          STAGE_VALIDATION_BASE_URL: ${{ steps.stack.outputs.public_endpoint_url }}
+          STAGE_VALIDATION_NAMESPACE: ${{ env.STAGE_VALIDATION_NAMESPACE }}
+          STAGE_VALIDATION_PRODUCT_ID: ${{ env.STAGE_VALIDATION_PRODUCT_ID }}
+          STAGE_VALIDATION_USER_PASSWORD: ${{ env.STAGE_VALIDATION_USER_PASSWORD }}
+        run: npm run test:e2e:stage
+
+      - name: Cleanup stage validation dataset
+        if: ${{ always() && steps.stack.outcome == 'success' }}
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          SHOP_LOG_GROUP_NAME: ${{ steps.stack.outputs.shop_log_group_name }}
+          SHOP_TASK_DEFINITION_ARN: ${{ steps.stack.outputs.shop_task_definition_arn }}
+        run: |
+          set -euo pipefail
+
+          run_task() {
+            local label="$1"
+            local task_definition_arn="$2"
+            local container_name="$3"
+            local command_json="$4"
+            local log_group_name="$5"
+            local environment_json="${6:-[]}"
+
+            local overrides
+            overrides=$(jq -n \
+              --arg name "${container_name}" \
+              --argjson command "${command_json}" \
+              --argjson environment "${environment_json}" \
+              '{containerOverrides:[{name:$name,command:$command,environment:$environment}]}')
+
+            local run_task_output
+            run_task_output=$(aws ecs run-task \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --launch-type EC2 \
+              --count 1 \
+              --task-definition "${task_definition_arn}" \
+              --started-by "gha-stage-validation-${{ github.run_id }}-${label}" \
+              --overrides "${overrides}" \
+              --output json)
+
+            if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
+              echo "Failed to start task ${label}" >&2
+              echo "${run_task_output}" | jq .
+              return 1
+            fi
+
+            local task_arn
+            task_arn=$(echo "${run_task_output}" | jq -r '.tasks[0].taskArn')
+            aws ecs wait tasks-stopped --cluster "${ECS_CLUSTER_NAME}" --tasks "${task_arn}"
+
+            local task_id
+            task_id="${task_arn##*/}"
+            local exit_code
+            exit_code=$(aws ecs describe-tasks \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --tasks "${task_arn}" \
+              --query "tasks[0].containers[?name=='${container_name}'].exitCode | [0]" \
+              --output text)
+
+            if [[ -z "${exit_code}" || "${exit_code}" != "0" ]]; then
+              echo "Task ${label} failed with exit code ${exit_code}" >&2
+
+              local log_stream_name
+              log_stream_name=$(aws logs describe-log-streams \
+                --log-group-name "${log_group_name}" \
+                --log-stream-name-prefix "${container_name}/${container_name}/" \
+                --output json | jq -r --arg task_id "${task_id}" \
+                '.logStreams[]? | select(.logStreamName | contains($task_id)) | .logStreamName' | head -n 1)
+
+              if [[ -n "${log_stream_name}" ]]; then
+                echo "CloudWatch logs (${log_group_name} / ${log_stream_name}):"
+                aws logs get-log-events \
+                  --log-group-name "${log_group_name}" \
+                  --log-stream-name "${log_stream_name}" \
+                  --limit 200 \
+                  --output json | jq -r '.events[]?.message'
+              fi
+
+              return 1
+            fi
+          }
+
+          payments_database_url="$(aws secretsmanager get-secret-value \
+            --secret-id "${PAYMENTS_RUNTIME_SECRET_NAME}" \
+            --query SecretString \
+            --output text | jq -r 'fromjson | .DATABASE_URL')"
+
+          environment_json=$(jq -nc \
+            --arg namespace "${STAGE_VALIDATION_NAMESPACE}" \
+            --arg payments_database_url "${payments_database_url}" \
+            --arg product_id "${STAGE_VALIDATION_PRODUCT_ID}" \
+            '[
+              {"name":"STAGE_VALIDATION_NAMESPACE","value":$namespace},
+              {"name":"STAGE_VALIDATION_PRODUCT_ID","value":$product_id},
+              {"name":"VALIDATION_PAYMENTS_DATABASE_URL","value":$payments_database_url}
+            ]')
+
+          run_task \
+            stage-validation-cleanup \
+            "${SHOP_TASK_DEFINITION_ARN}" \
+            shop \
+            '["dist/apps/shop/db/stage-validation/cleanup.js"]' \
+            "${SHOP_LOG_GROUP_NAME}" \
+            "${environment_json}"

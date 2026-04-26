@@ -1,11 +1,20 @@
-import { addToCartAndCheckout, poll, signupAndSignin, waitForReady } from '@test/e2e/helpers';
+import {
+  addToCartAndCheckout,
+  getScenarioUserEmail,
+  getScenarioUserPassword,
+  poll,
+  prefixValidationKey,
+  resolveE2EProductId,
+  signupAndSignin,
+  waitForReady,
+} from '@test/e2e/helpers';
 import supertest from 'supertest';
 
 import { BASE_URL } from './constants';
 import { OrderBody, PaymentBody, ProductBody } from './interfaces';
 
-const E2E_USER_EMAIL = 'e2e-order-test@example.com';
-const E2E_USER_PASSWORD = 'E2eTestPass1!';
+const SCENARIO_USER_EMAIL = getScenarioUserEmail('order', 'e2e-order-test@example.com');
+const SCENARIO_USER_PASSWORD = getScenarioUserPassword('E2eTestPass1!');
 
 describe('Order lifecycle (e2e)', () => {
   let token: string;
@@ -14,15 +23,10 @@ describe('Order lifecycle (e2e)', () => {
   beforeAll(async () => {
     await waitForReady(`${BASE_URL}/health`);
 
-    const ts = await signupAndSignin(E2E_USER_EMAIL, E2E_USER_PASSWORD);
+    const ts = await signupAndSignin(SCENARIO_USER_EMAIL, SCENARIO_USER_PASSWORD);
     token = ts.accessToken;
 
-    const res = await supertest(BASE_URL).get('/api/v1/products').expect(200);
-    const { data: products } = res.body as unknown as { data: ProductBody[] };
-    // Require stock >= 3: Flow 1 uses 1, Flow 2 uses 1, Flow 3 uses 1 (idempotent second call is free)
-    const available = products.find((p) => p.stock >= 3);
-    if (!available) throw new Error('No product with stock >= 3 found in seed data');
-    productId = available.id;
+    productId = await resolveE2EProductId(3);
   }, 130_000);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -147,7 +151,7 @@ describe('Order lifecycle (e2e)', () => {
     let flow3OrderId: string | undefined;
 
     it('second checkout with same idempotencyKey returns the same order ID', async () => {
-      const idempotencyKey = `e2e-idem-${Date.now()}`;
+      const idempotencyKey = prefixValidationKey(`e2e-idem-${Date.now()}`);
 
       // First checkout — creates the order
       const first = await addToCartAndCheckout(token, productId, 1, idempotencyKey);

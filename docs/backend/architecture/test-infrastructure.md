@@ -35,7 +35,7 @@ test/
     cart/
       cart-flow.e2e-spec.ts
     orders/
-      constants.ts         BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8092'
+      constants.ts         BASE_URL = process.env.STAGE_VALIDATION_BASE_URL ?? 'http://localhost:8092'
       interfaces.ts        OrderBody, PaymentBody, ProductBody, OrdersListBody, OrderItemBody
       order-lifecycle.e2e-spec.ts
       orders-querying.e2e-spec.ts
