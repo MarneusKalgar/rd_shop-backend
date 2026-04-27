@@ -82,14 +82,14 @@ jobs:
 
           for attempt in $(seq 1 40); do
             run_json="$(gh api \
-              "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-and-push-test.yml/runs?branch=${GITHUB_REF_NAME}&event=push&per_page=100")"
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-and-push-test.yml/runs?event=push&per_page=100")"
 
             if [[ "${attempt}" == "1" || "${attempt}" == "10" || "${attempt}" == "20" || "${attempt}" == "30" || "${attempt}" == "40" ]]; then
               echo "::group::Recent build wrapper runs (${attempt}/40)"
               echo "${run_json}" | jq -r '
                 .workflow_runs[:10]
                 | if length == 0 then
-                    "No build wrapper runs returned for this branch filter"
+                    "No build wrapper runs returned"
                   else
                     .[] | "- id=\(.id) status=\(.status) conclusion=\(.conclusion // "pending") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
                   end
@@ -97,9 +97,9 @@ jobs:
               echo "::endgroup::"
             fi
 
-            matching_run_json="$(echo "${run_json}" | jq -c --arg sha "${GITHUB_SHA}" '
+            matching_run_json="$(echo "${run_json}" | jq -c --arg sha "${GITHUB_SHA}" --arg branch "${GITHUB_REF_NAME}" '
               .workflow_runs
-              | map(select(.head_sha == $sha))
+              | map(select(.head_sha == $sha and .head_branch == $branch))
               | sort_by(.created_at)
               | last // empty
             ')"
