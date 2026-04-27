@@ -339,12 +339,18 @@ function createEc2FoundationDatabases({
     vpcSecurityGroupIds: [securityGroupIds.rdsShop, securityGroupIds.rdsPayments],
   });
 
-  new aws.ec2.VolumeAttachment(stackName('postgres-data-volume-attachment'), {
-    deviceName: config.host.dataVolumeDeviceName,
-    instanceId: databaseHost.id,
-    stopInstanceBeforeDetaching: true,
-    volumeId: databaseDataVolume.id,
-  });
+  new aws.ec2.VolumeAttachment(
+    stackName('postgres-data-volume-attachment'),
+    {
+      deviceName: config.host.dataVolumeDeviceName,
+      instanceId: databaseHost.id,
+      stopInstanceBeforeDetaching: true,
+      volumeId: databaseDataVolume.id,
+    },
+    {
+      deleteBeforeReplace: true,
+    },
+  );
 
   const shopDatabaseSecret = createEc2DatabaseAccessSecret({
     config,
