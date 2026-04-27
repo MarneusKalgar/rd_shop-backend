@@ -59,49 +59,6 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
-      - name: Wait for matching deploy wrapper run
-        id: deploy-run
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          for attempt in $(seq 1 40); do
-            run_json="$(gh api \
-              "/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-stage-test.yml/runs?branch=${GITHUB_REF_NAME}&event=push&per_page=20")"
-
-            matching_run="$(echo "${run_json}" | jq -c --arg sha "${GITHUB_SHA}" \
-              '.workflow_runs | map(select(.head_sha == $sha)) | first // empty')"
-
-            if [[ -n "${matching_run}" ]]; then
-              run_id="$(echo "${matching_run}" | jq -r '.id')"
-              run_status="$(echo "${matching_run}" | jq -r '.status')"
-              run_conclusion="$(echo "${matching_run}" | jq -r '.conclusion // ""')"
-
-              echo "Deploy wrapper run ${run_id}: status=${run_status} conclusion=${run_conclusion:-pending}"
-
-              if [[ "${run_status}" == "completed" ]]; then
-                if [[ "${run_conclusion}" != "success" ]]; then
-                  echo "Matching deploy wrapper run failed" >&2
-                  exit 1
-                fi
-
-                echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-            else
-              echo "Matching deploy wrapper run not found yet"
-            fi
-
-            if [[ "${attempt}" == "40" ]]; then
-              echo "Timed out waiting for matching deploy wrapper run" >&2
-              exit 1
-            fi
-
-            echo "Retrying in 15s (${attempt}/40)"
-            sleep 15
-          done
-
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:

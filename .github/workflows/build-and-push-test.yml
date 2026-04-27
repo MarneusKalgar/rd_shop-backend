@@ -26,6 +26,7 @@ on:
       - 'nest-cli.json'
       - 'tsconfig.json'
       - 'tsconfig.build.json'
+  workflow_dispatch:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
