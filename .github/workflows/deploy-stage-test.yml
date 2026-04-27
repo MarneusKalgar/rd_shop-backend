@@ -3,28 +3,12 @@ name: Deploy — Stage Test Wrapper
 on:
   # Branch-local harness for validating the actual AWS/Pulumi stage lane
   # without waiting for the default-branch workflow_run path.
-  push:
-    branches:
-      - ci/stage-test/**
-      - ci/stage-validation-test/**
-    paths:
-      - '.github/workflows/deploy-stage.yml'
-      - '.github/workflows/deploy-stage-test.yml'
-      - '.github/workflows/build-and-push.yml'
-      - '.github/workflows/build-and-push-test.yml'
-      - '.github/workflows/stage-validation.yml'
-      - '.github/workflows/stage-validation-test.yml'
-      - '.github/actions/**'
-      - 'infra/**'
-      - 'Dockerfile'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'apps/**'
-      - 'libs/**'
-      - 'proto/**'
-      - 'nest-cli.json'
-      - 'tsconfig.json'
-      - 'tsconfig.build.json'
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Build and Push — Test Wrapper run id to use for release manifest download
+        required: true
+        type: string
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}

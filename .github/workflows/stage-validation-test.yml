@@ -1,27 +1,7 @@
 name: Stage Validation Test Wrapper
 
 on:
-  push:
-    branches:
-      - ci/stage-validation-test/**
-    paths:
-      - '.github/workflows/stage-validation.yml'
-      - '.github/workflows/stage-validation-test.yml'
-      - '.github/workflows/deploy-stage.yml'
-      - '.github/workflows/deploy-stage-test.yml'
-      - '.github/workflows/build-and-push.yml'
-      - '.github/workflows/build-and-push-test.yml'
-      - '.github/actions/**'
-      - 'infra/**'
-      - 'Dockerfile'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'apps/**'
-      - 'libs/**'
-      - 'proto/**'
-      - 'nest-cli.json'
-      - 'tsconfig.json'
-      - 'tsconfig.build.json'
+  workflow_dispatch:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
