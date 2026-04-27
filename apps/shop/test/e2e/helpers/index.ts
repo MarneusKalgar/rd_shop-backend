@@ -9,5 +9,6 @@ export {
   getScenarioUserEmail,
   getScenarioUserPassword,
   prefixValidationKey,
+  waitForStageValidationRequestInterval,
 } from './validation-config';
 export { waitForReady } from './wait-for-ready';

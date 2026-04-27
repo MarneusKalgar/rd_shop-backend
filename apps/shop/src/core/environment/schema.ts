@@ -206,6 +206,10 @@ export class EnvironmentVariables {
   @IsString()
   STAGE_VALIDATION_USER_PASSWORD?: string;
 
+  @IsNumber()
+  @IsOptional()
+  THROTTLE_SHORT_LIMIT?: number;
+
   @IsOptional()
   @IsString()
   THROTTLE_SKIP?: string;

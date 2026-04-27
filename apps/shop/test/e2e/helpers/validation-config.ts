@@ -13,8 +13,10 @@ const configuredNamespace = getStageValidationNamespace();
 const configuredProductId = getStageValidationProductId();
 const configuredUserPassword = getStageValidationUserPassword();
 const stageValidationEnabled = isStageValidationE2EEnabled();
+const stageValidationRequestSpacingMs = 400;
 
 let checkoutSequence = 0;
+let lastStageValidationRequestAt = 0;
 
 /** Builds a unique idempotency key inside the configured validation namespace. */
 export function buildCheckoutIdempotencyKey(): string | undefined {
@@ -60,6 +62,21 @@ export function prefixValidationKey(key: string): string {
 /** Returns whether the e2e auth helper should sign in only instead of signup + signin. */
 export function useStageValidationUsers(): boolean {
   return stageValidationEnabled;
+}
+
+/** Spaces stage-validation requests so the live stage app stays below the global short bucket. */
+export async function waitForStageValidationRequestInterval(): Promise<void> {
+  if (!stageValidationEnabled) {
+    return;
+  }
+
+  const waitTimeMs = lastStageValidationRequestAt + stageValidationRequestSpacingMs - Date.now();
+
+  if (waitTimeMs > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, waitTimeMs));
+  }
+
+  lastStageValidationRequestAt = Date.now();
 }
 
 function getStageValidationTestScope(): string {

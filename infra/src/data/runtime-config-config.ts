@@ -44,7 +44,7 @@ const defaultShopRabbitmqVhost = '/';
 const defaultShopS3PresignedUrlDownloadExpiration = 3600;
 const defaultShopS3PresignedUrlExpiration = 900;
 const defaultShopSesFromAddress = 'noreply@rdshop.com';
-const defaultShopThrottleSkip = 'false';
+const defaultShopThrottleShortLimit = stack === 'stage' ? 6 : 3;
 const defaultShopVerboseTestLogs = 'false';
 const defaultRuntimeNodeEnv = 'production';
 const minimumJwtAccessSecretLength = 32;
@@ -149,7 +149,9 @@ export function getFoundationRuntimeConfig(): FoundationRuntimeConfig {
         ),
         RABBITMQ_VHOST: config.get('shopRabbitmqVhost') ?? defaultShopRabbitmqVhost,
         SES_FROM_ADDRESS: config.get('shopSesFromAddress') ?? defaultShopSesFromAddress,
-        THROTTLE_SKIP: config.get('shopThrottleSkip') ?? defaultShopThrottleSkip,
+        THROTTLE_SHORT_LIMIT: String(
+          config.getNumber('shopThrottleShortLimit') ?? defaultShopThrottleShortLimit,
+        ),
         VERBOSE_TEST_LOGS: config.get('shopVerboseTestLogs') ?? defaultShopVerboseTestLogs,
       },
       secretValues: {

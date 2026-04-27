@@ -6,6 +6,7 @@ import {
   signupAndSignin,
   waitForReady,
 } from '@test/e2e/helpers';
+import { waitForStageValidationRequestInterval } from '@test/e2e/helpers/validation-config';
 import supertest from 'supertest';
 
 import { BASE_URL } from './constants';
@@ -19,6 +20,12 @@ describe('Order querying (e2e)', () => {
   let productId: string;
   let orderId1: string;
   let orderId2: string;
+
+  async function getOrdersList(path = '/api/v1/orders') {
+    await waitForStageValidationRequestInterval();
+
+    return supertest(BASE_URL).get(path).set('Authorization', `Bearer ${token}`).expect(200);
+  }
 
   beforeAll(async () => {
     await waitForReady(`${BASE_URL}/health`);
@@ -41,10 +48,7 @@ describe('Order querying (e2e)', () => {
 
   describe('GET /api/v1/orders', () => {
     it('includes both created orders', async () => {
-      const res = await supertest(BASE_URL)
-        .get('/api/v1/orders')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      const res = await getOrdersList();
 
       const { data } = res.body as unknown as OrdersListBody;
       const ids = data.map((o) => o.id);
@@ -53,10 +57,7 @@ describe('Order querying (e2e)', () => {
     });
 
     it('respects the limit query param and returns nextCursor when more records exist', async () => {
-      const res = await supertest(BASE_URL)
-        .get('/api/v1/orders?limit=1')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      const res = await getOrdersList('/api/v1/orders?limit=1');
 
       const body = res.body as unknown as OrdersListBody;
       expect(body.data).toHaveLength(1);
@@ -66,18 +67,12 @@ describe('Order querying (e2e)', () => {
     });
 
     it('cursor pagination: second page returns a different order', async () => {
-      const firstPageRes = await supertest(BASE_URL)
-        .get('/api/v1/orders?limit=1')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      const firstPageRes = await getOrdersList('/api/v1/orders?limit=1');
 
       const { data: firstData, nextCursor } = firstPageRes.body as unknown as OrdersListBody;
       expect(nextCursor).toBeTruthy();
 
-      const secondPageRes = await supertest(BASE_URL)
-        .get(`/api/v1/orders?limit=1&cursor=${nextCursor!}`)
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      const secondPageRes = await getOrdersList(`/api/v1/orders?limit=1&cursor=${nextCursor!}`);
 
       const { data: secondData } = secondPageRes.body as unknown as OrdersListBody;
       expect(secondData).toHaveLength(1);

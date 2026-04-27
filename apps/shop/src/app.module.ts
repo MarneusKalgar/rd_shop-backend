@@ -10,6 +10,7 @@ import { GqlThrottlerGuard } from './auth/guards';
 import { CartModule } from './cart/cart.module';
 import { QueryLoggerMiddleware } from './common/middlewares';
 import { getPinoLoggerConfig, getTypeOrmModuleOptions } from './config';
+import { getThrottlerModuleOptions } from './config/throttler';
 import { getEnvFile, validate } from './core/environment';
 import { FilesModule } from './files/files.module';
 import { GraphqlModule } from './graphql/graphql.module';
@@ -33,13 +34,10 @@ import { UsersModule } from './users/users.module';
       inject: [ConfigService],
       useFactory: getTypeOrmModuleOptions,
     }),
-    ThrottlerModule.forRoot({
-      skipIf: () => process.env.THROTTLE_SKIP === 'true',
-      throttlers: [
-        { limit: 3, name: 'short', ttl: 1000 },
-        { limit: 20, name: 'medium', ttl: 10000 },
-        { limit: 100, name: 'long', ttl: 60000 },
-      ],
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: getThrottlerModuleOptions,
     }),
     AuthModule,
     UsersModule,
