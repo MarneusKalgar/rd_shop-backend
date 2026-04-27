@@ -378,13 +378,22 @@ jobs:
           }
 
           diagnostics_dumped=false
+          readiness_commands=$(jq -nc --arg container_name "${DATABASE_BOOTSTRAP_CONTAINER_NAME}" '{
+            commands: [
+              "set -euo pipefail",
+              "if [[ ! -f /var/lib/cloud/instance/boot-finished ]]; then echo stage-postgres-wait=cloud-init-not-finished; exit 10; fi",
+              "if ! sudo docker container inspect " + $container_name + " >/dev/null 2>&1; then echo stage-postgres-wait=container-not-created; exit 11; fi",
+              "if ! sudo docker ps --filter name=" + $container_name + " --filter status=running --quiet | grep -q .; then echo stage-postgres-wait=container-not-running; exit 12; fi",
+              "sudo docker exec " + $container_name + " pg_isready -h 127.0.0.1 -p 5432 -U postgres"
+            ]
+          }')
 
           for attempt in $(seq 1 30); do
             command_id="$(aws ssm send-command \
               --instance-ids "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
               --document-name 'AWS-RunShellScript' \
               --comment 'Wait for the stage PostgreSQL host to become ready' \
-              --parameters "{\"commands\":[\"sudo docker exec ${DATABASE_BOOTSTRAP_CONTAINER_NAME} pg_isready -h 127.0.0.1 -p 5432 -U postgres\"]}" \
+              --parameters "${readiness_commands}" \
               --query 'Command.CommandId' \
               --output text 2>/tmp/stage-db-wait.err || true)"
 
@@ -403,28 +412,49 @@ jobs:
               --command-id "${command_id}" \
               --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" || true
 
-            command_status="$(aws ssm get-command-invocation \
+            invocation_json="$(aws ssm get-command-invocation \
               --command-id "${command_id}" \
               --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
-              --query 'Status' \
-              --output text)"
+              --output json || true)"
+
+            command_status="$(echo "${invocation_json}" | jq -r '.Status // "Unknown"')"
+            command_stdout="$(echo "${invocation_json}" | jq -r '.StandardOutputContent // ""')"
+            command_stderr="$(echo "${invocation_json}" | jq -r '.StandardErrorContent // ""')"
 
             if [[ "${command_status}" == "Success" ]]; then
               exit 0
             fi
 
-            echo "Stage PostgreSQL host readiness status: ${command_status} (${attempt}/30)"
-            aws ssm get-command-invocation \
-              --command-id "${command_id}" \
-              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
-              --query '{stdout:StandardOutputContent,stderr:StandardErrorContent}' \
-              --output json || true
+            if grep -q 'stage-postgres-wait=cloud-init-not-finished' <<<"${command_stdout}${command_stderr}"; then
+              echo "Stage PostgreSQL host is still bootstrapping via cloud-init (${attempt}/30)"
+              sleep 10
+              continue
+            fi
 
-            if [[ "${command_status}" == "Failed" && "${diagnostics_dumped}" != "true" ]]; then
-              diagnostics_dumped=true
-              dump_stage_postgres_host_diagnostics
+            if grep -q 'stage-postgres-wait=container-not-created' <<<"${command_stdout}${command_stderr}"; then
+              echo "Stage PostgreSQL bootstrap finished without creating the container (${attempt}/30)"
+              echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
+              if [[ "${diagnostics_dumped}" != "true" ]]; then
+                diagnostics_dumped=true
+                dump_stage_postgres_host_diagnostics
+              fi
               exit 1
             fi
+
+            if grep -q 'stage-postgres-wait=container-not-running' <<<"${command_stdout}${command_stderr}"; then
+              echo "Stage PostgreSQL container exists but is not running yet (${attempt}/30)"
+              echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
+              if [[ "${attempt}" -ge 3 && "${diagnostics_dumped}" != "true" ]]; then
+                diagnostics_dumped=true
+                dump_stage_postgres_host_diagnostics
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+
+            echo "Stage PostgreSQL host readiness status: ${command_status} (${attempt}/30)"
+            echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
 
             sleep 10
           done

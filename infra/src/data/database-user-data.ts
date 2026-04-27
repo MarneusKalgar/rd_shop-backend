@@ -46,7 +46,7 @@ for attempt in {1..180}; do
     break
   fi
 
-  device_by_id=$(find /dev/disk/by-id -maxdepth 1 -type l ( -name "*$expected_volume_serial" -o -name "*$expected_volume_id" ) | head -n 1 || true)
+  device_by_id=$(find /dev/disk/by-id -maxdepth 1 -type l '(' -name "*$expected_volume_serial" -o -name "*$expected_volume_id" ')' | head -n 1 || true)
   if [[ -n "$device_by_id" ]]; then
     resolved_device=$(readlink -f "$device_by_id")
     break
