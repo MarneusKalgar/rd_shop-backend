@@ -3,12 +3,28 @@ name: Deploy — Stage Test Wrapper
 on:
   # Branch-local harness for validating the actual AWS/Pulumi stage lane
   # without waiting for the default-branch workflow_run path.
-  workflow_dispatch:
-    inputs:
-      build_run_id:
-        description: Build and Push — Test Wrapper run id to use for release manifest download
-        required: true
-        type: string
+  push:
+    branches:
+      - ci/stage-test/**
+      - ci/stage-validation-test/**
+    paths:
+      - '.github/workflows/deploy-stage.yml'
+      - '.github/workflows/deploy-stage-test.yml'
+      - '.github/workflows/build-and-push.yml'
+      - '.github/workflows/build-and-push-test.yml'
+      - '.github/workflows/stage-validation.yml'
+      - '.github/workflows/stage-validation-test.yml'
+      - '.github/actions/**'
+      - 'infra/**'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'apps/**'
+      - 'libs/**'
+      - 'proto/**'
+      - 'nest-cli.json'
+      - 'tsconfig.json'
+      - 'tsconfig.build.json'
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
@@ -41,11 +57,108 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
+      - name: Log deploy test context
+        run: |
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Workflow: ${GITHUB_WORKFLOW}"
+          echo "Branch: ${GITHUB_REF_NAME}"
+          echo "Commit: ${GITHUB_SHA}"
+          echo "Run id: ${GITHUB_RUN_ID}"
+          echo "Run attempt: ${GITHUB_RUN_ATTEMPT}"
+
+      - name: Wait for matching build wrapper run
+        id: build_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "::group::Build waiter context"
+          echo "Workflow file: build-and-push-test.yml"
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Branch: ${GITHUB_REF_NAME}"
+          echo "Commit: ${GITHUB_SHA}"
+          echo "::endgroup::"
+
+          for attempt in $(seq 1 40); do
+            run_json="$(gh api \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-and-push-test.yml/runs?branch=${GITHUB_REF_NAME}&event=push&per_page=100")"
+
+            if [[ "${attempt}" == "1" || "${attempt}" == "10" || "${attempt}" == "20" || "${attempt}" == "30" || "${attempt}" == "40" ]]; then
+              echo "::group::Recent build wrapper runs (${attempt}/40)"
+              echo "${run_json}" | jq -r '
+                .workflow_runs[:10]
+                | if length == 0 then
+                    "No build wrapper runs returned for this branch filter"
+                  else
+                    .[] | "- id=\(.id) status=\(.status) conclusion=\(.conclusion // \"pending\") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
+                  end
+              '
+              echo "::endgroup::"
+            fi
+
+            matching_run_json="$(echo "${run_json}" | jq -c --arg sha "${GITHUB_SHA}" '
+              .workflow_runs
+              | map(select(.head_sha == $sha))
+              | sort_by(.created_at)
+              | last // empty
+            ')"
+
+            if [[ -n "${matching_run_json}" ]]; then
+              run_id="$(echo "${matching_run_json}" | jq -r '.id')"
+
+              echo "Found build wrapper run ${run_id} for ${GITHUB_SHA}"
+              echo "::group::Matched build wrapper run"
+              echo "${matching_run_json}" | jq '{id, status, conclusion, event, head_branch, head_sha, created_at, updated_at, html_url}'
+              echo "::endgroup::"
+              echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+
+              if ! gh run watch "${run_id}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --exit-status \
+                --interval 15; then
+                echo "::group::Build wrapper run failure details"
+                gh api \
+                  "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" | jq '{id, status, conclusion, event, head_branch, head_sha, created_at, updated_at, html_url}'
+                echo "::endgroup::"
+                exit 1
+              fi
+
+              exit 0
+            fi
+
+            if [[ "${attempt}" == "40" ]]; then
+              echo "Timed out waiting for matching build wrapper run to appear" >&2
+              exit 1
+            fi
+
+            echo "Matching build wrapper run not visible yet (${attempt}/40)"
+            sleep 15
+          done
+
+      - name: Log matched build wrapper artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          echo "::group::Matched build wrapper artifacts"
+          gh api \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${{ steps.build_run.outputs.run_id }}/artifacts" | jq -r '
+              .artifacts
+              | if length == 0 then
+                  "No artifacts uploaded for matched build wrapper run"
+                else
+                  .[] | "- name=\(.name) size=\(.size_in_bytes) expired=\(.expired) created=\(.created_at)"
+                end
+            '
+          echo "::endgroup::"
+
       - name: Download release manifest
         uses: actions/download-artifact@v8
         with:
           name: release-manifest-${{ github.sha }}
-          run-id: ${{ inputs.build_run_id }}
+          run-id: ${{ steps.build_run.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Parse release manifest
@@ -576,10 +689,10 @@ jobs:
           {
             echo "## Stage test wrapper"
             echo ""
-            echo "- Path: manual dispatch"
+            echo "- Path: push + waiter"
             echo "- Branch: ${{ github.ref_name }}"
             echo "- Stage role: ${{ vars.AWS_ROLE_ARN }}"
-            echo "- Build wrapper run: ${{ inputs.build_run_id }}"
+            echo "- Build wrapper run: ${{ steps.build_run.outputs.run_id }}"
             echo "- Shop image: ${{ steps.manifest.outputs.shop-image }}"
             echo "- Payments image: ${{ steps.manifest.outputs.payments-image }}"
             echo "- Pulumi stack: ${{ env.PULUMI_STACK }}"
