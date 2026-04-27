@@ -184,9 +184,8 @@ jobs:
           fi
           echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
 
-      - name: Quiesce newly created ECS services before DB init
+      - name: Quiesce ECS services before DB init
         id: post_apply_quiesce_services
-        if: ${{ steps.current_stack.outputs.services_present != 'true' }}
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
@@ -194,19 +193,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          payments_desired_count=$(aws ecs describe-services \
-            --cluster "${ECS_CLUSTER_NAME}" \
-            --services "${PAYMENTS_SERVICE_NAME}" \
-            --query 'services[0].desiredCount' \
-            --output text)
-          shop_desired_count=$(aws ecs describe-services \
-            --cluster "${ECS_CLUSTER_NAME}" \
-            --services "${SHOP_SERVICE_NAME}" \
-            --query 'services[0].desiredCount' \
-            --output text)
+          if [[ -z "${PAYMENTS_DESIRED_COUNT:-}" || -z "${SHOP_DESIRED_COUNT:-}" ]]; then
+            payments_desired_count=$(aws ecs describe-services \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --services "${PAYMENTS_SERVICE_NAME}" \
+              --query 'services[0].desiredCount' \
+              --output text)
+            shop_desired_count=$(aws ecs describe-services \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --services "${SHOP_SERVICE_NAME}" \
+              --query 'services[0].desiredCount' \
+              --output text)
 
-          echo "PAYMENTS_DESIRED_COUNT=${payments_desired_count}" >> "$GITHUB_ENV"
-          echo "SHOP_DESIRED_COUNT=${shop_desired_count}" >> "$GITHUB_ENV"
+            echo "PAYMENTS_DESIRED_COUNT=${payments_desired_count}" >> "$GITHUB_ENV"
+            echo "SHOP_DESIRED_COUNT=${shop_desired_count}" >> "$GITHUB_ENV"
+          fi
 
           aws ecs update-service \
             --cluster "${ECS_CLUSTER_NAME}" \

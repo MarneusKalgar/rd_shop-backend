@@ -47,6 +47,7 @@ const computeEdge = createComputeEdge({
 
 // Step 1.3-1.4 / runtime config: publish service secrets and SSM parameters after data and broker endpoints exist.
 const foundationRuntimeConfig = createFoundationRuntimeConfig({
+  databaseBackend: foundationDatabases.databaseBackend,
   databases: {
     payments: {
       databaseHost: foundationDatabases.paymentsDatabaseAddress,

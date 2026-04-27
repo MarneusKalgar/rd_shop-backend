@@ -4,9 +4,11 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 
 import { commonTags, projectPrefix, stack, stackName } from '../bootstrap';
+import { FoundationDatabaseBackend } from './database-config';
 import { getFoundationRuntimeConfig } from './runtime-config-config';
 
 interface CreateFoundationRuntimeConfigArgs {
+  databaseBackend: pulumi.Input<FoundationDatabaseBackend>;
   databases: {
     payments: ServiceDatabaseRuntimeConfig;
     shop: ServiceDatabaseRuntimeConfig;
@@ -52,6 +54,7 @@ type ParameterNameMap = Record<string, string>;
  * Creates the service runtime Secrets Manager entries and SSM parameters, then returns the secret ARNs and parameter-name maps consumed by ECS.
  */
 export function createFoundationRuntimeConfig({
+  databaseBackend,
   databases,
   fileStorage,
   messageQueue,
@@ -60,6 +63,7 @@ export function createFoundationRuntimeConfig({
   const runtimeConfig = getFoundationRuntimeConfig();
 
   const shopDatabaseSecretValues = buildDatabaseSecretValues({
+    databaseBackend,
     databaseHost: databases.shop.databaseHost,
     databaseName: databases.shop.databaseName,
     databasePort: databases.shop.databasePort,
@@ -68,6 +72,7 @@ export function createFoundationRuntimeConfig({
     serviceName: 'shop',
   });
   const paymentsDatabaseSecretValues = buildDatabaseSecretValues({
+    databaseBackend,
     databaseHost: databases.payments.databaseHost,
     databaseName: databases.payments.databaseName,
     databasePort: databases.payments.databasePort,
@@ -167,18 +172,20 @@ function buildConnectionUrl({
   host,
   password,
   port,
+  sslMode,
   username,
 }: {
   databaseName: string;
   host: string;
   password: string;
   port: string;
+  sslMode: 'disable' | 'require';
   username: string;
 }) {
   // URI userinfo must keep reserved characters encoded; the pg connection parser decodes before auth.
-  // Keep libpq-compatible `require` semantics so ECS tools use TLS without failing on the
-  // managed RDS certificate chain unless the URL explicitly asks for stricter verification.
-  return `postgresql://${username}:${encodeURIComponent(password)}@${host}:${port}/${databaseName}?uselibpqcompat=true&sslmode=require`;
+  // Keep libpq-compatible semantics so managed RDS uses TLS while the stage EC2 PostgreSQL host
+  // stays on plaintext intra-VPC connections until SSL is explicitly configured there.
+  return `postgresql://${username}:${encodeURIComponent(password)}@${host}:${port}/${databaseName}?uselibpqcompat=true&sslmode=${sslMode}`;
 }
 
 /**
@@ -187,6 +194,7 @@ function buildConnectionUrl({
  * Reads the AWS-managed master secret, applies safe fallbacks, and returns the normalized database secret payload written into service runtime secrets.
  */
 function buildDatabaseSecretValues({
+  databaseBackend,
   databaseHost,
   databaseName,
   databasePort,
@@ -194,6 +202,7 @@ function buildDatabaseSecretValues({
   masterUserSecretArn,
   serviceName,
 }: {
+  databaseBackend: pulumi.Input<FoundationDatabaseBackend>;
   databaseHost: pulumi.Input<string>;
   databaseName: pulumi.Input<string>;
   databasePort: pulumi.Input<number>;
@@ -217,9 +226,17 @@ function buildDatabaseSecretValues({
 
   return pulumi.secret(
     pulumi
-      .all([databaseHost, databaseName, databasePort, databaseUsername, masterUserSecretString])
+      .all([
+        databaseBackend,
+        databaseHost,
+        databaseName,
+        databasePort,
+        databaseUsername,
+        masterUserSecretString,
+      ])
       .apply(
         ([
+          resolvedDatabaseBackend,
           resolvedDatabaseHost,
           resolvedDatabaseName,
           resolvedDatabasePort,
@@ -252,6 +269,7 @@ function buildDatabaseSecretValues({
               host: databaseHostValue,
               password: secretPayload.password,
               port: databasePortValue,
+              sslMode: resolvedDatabaseBackend === 'rds' ? 'require' : 'disable',
               username: databaseUsernameValue,
             }),
             POSTGRES_DB: resolvedDatabaseName,
