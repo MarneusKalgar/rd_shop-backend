@@ -28,6 +28,7 @@ export function buildDatabaseHostUserData({
   region,
 }: BuildDatabaseHostUserDataArgs) {
   const postgresHostDataDir = `${dataVolumeMountPath}/pgdata`;
+  const normalizedDataVolumeId = dataVolumeId.replace(/-/g, '');
 
   return `#!/bin/bash
 set -euxo pipefail
@@ -36,16 +37,24 @@ dnf install -y awscli docker jq
 systemctl enable --now docker
 
 resolved_device=''
+expected_volume_id='${dataVolumeId}'
+expected_volume_serial='${normalizedDataVolumeId}'
 
-for attempt in {1..60}; do
+for attempt in {1..180}; do
   if [[ -b '${dataVolumeDeviceName}' ]]; then
     resolved_device='${dataVolumeDeviceName}'
     break
   fi
 
-  device_by_id=$(find /dev/disk/by-id -maxdepth 1 -type l -name '*${dataVolumeId}' | head -n 1 || true)
+  device_by_id=$(find /dev/disk/by-id -maxdepth 1 -type l ( -name "*$expected_volume_serial" -o -name "*$expected_volume_id" ) | head -n 1 || true)
   if [[ -n "$device_by_id" ]]; then
     resolved_device=$(readlink -f "$device_by_id")
+    break
+  fi
+
+  device_by_serial=$(lsblk -dn -o PATH,SERIAL | awk -v serial="$expected_volume_serial" '$2 == serial { print $1; exit }' || true)
+  if [[ -n "$device_by_serial" ]]; then
+    resolved_device="$device_by_serial"
     break
   fi
 
@@ -54,6 +63,10 @@ done
 
 if [[ -z "$resolved_device" ]]; then
   echo 'PostgreSQL data volume device not found' >&2
+  echo 'Visible block devices:' >&2
+  lsblk -dn -o PATH,SIZE,MODEL,SERIAL >&2 || true
+  echo 'Visible by-id entries:' >&2
+  ls -l /dev/disk/by-id >&2 || true
   exit 1
 fi
 
