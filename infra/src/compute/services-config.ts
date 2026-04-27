@@ -1,6 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 
-import { config, projectPrefix, stack } from '../bootstrap';
+import { config, projectPrefix } from '../bootstrap';
 import { getFoundationComputeConfig } from './compute-config';
 
 const defaultCloudMapNamespaceName = `${projectPrefix}.local`;
@@ -9,7 +9,6 @@ const bootstrapPendingImageTag = 'bootstrap-pending-image';
 const constrainedDeploymentMaximumPercent = 100;
 const constrainedDeploymentMinimumHealthyPercent = 0;
 const defaultShopHealthCheckGracePeriodSeconds = 120;
-const previewOnlyMissingImageTag = 'preview-only-missing-image';
 const rollingDeploymentMaximumPercent = 200;
 const rollingDeploymentMinimumHealthyPercent = 100;
 
@@ -143,7 +142,7 @@ function normalizeOptionalValue(value: string | undefined) {
 /**
  * Step 2.3-2.4 image-source helper.
  * Accepts the service label plus optional image tag and image URI config values.
- * Returns the explicit image source, a non-production bootstrap placeholder with desired count forced to zero, or a preview-only placeholder during production previews when image config is still unset.
+ * Returns the explicit image source, or a bootstrap placeholder with desired count forced to zero until a real image is configured.
  */
 function resolveImageSource({
   imageTag,
@@ -157,25 +156,13 @@ function resolveImageSource({
   validateImageSource(service, imageTag, imageUri);
 
   if (!imageTag && !imageUri) {
-    if (stack !== 'production') {
-      void pulumi.log.warn(
-        `${service}ImageTag or ${service}ImageUri is not set. Using the non-production bootstrap placeholder image tag and forcing desired count to 0 until a real image is configured.`,
-      );
-
-      return {
-        forceZeroDesiredCount: true,
-        imageTag: bootstrapPendingImageTag,
-        imageUri: undefined,
-      };
-    }
-
     void pulumi.log.warn(
-      `${service}ImageTag or ${service}ImageUri is not set for preview. Using a preview-only placeholder tag so \`pulumi preview\` can continue. \`pulumi up\` still requires an explicit image source.`,
+      `${service}ImageTag or ${service}ImageUri is not set. Using the bootstrap placeholder image tag and forcing desired count to 0 until a real image is configured.`,
     );
 
     return {
-      forceZeroDesiredCount: false,
-      imageTag: previewOnlyMissingImageTag,
+      forceZeroDesiredCount: true,
+      imageTag: bootstrapPendingImageTag,
       imageUri: undefined,
     };
   }
@@ -254,7 +241,7 @@ function validateGracePeriod(label: string, value: number) {
 /**
  * Step 2.3-2.4 validation helper.
  * Accepts the service name plus its optional image tag and image URI inputs.
- * Throws when the image source is ambiguous, or when it is missing during production apply.
+ * Throws when the image source is ambiguous.
  */
 function validateImageSource(
   service: 'payments' | 'shop',
@@ -264,12 +251,6 @@ function validateImageSource(
   if (imageTag && imageUri) {
     throw new Error(
       `${service}ImageTag and ${service}ImageUri are mutually exclusive. Set only one explicit image source.`,
-    );
-  }
-
-  if (!imageTag && !imageUri && stack === 'production' && !pulumi.runtime.isDryRun()) {
-    throw new Error(
-      `${service}ImageTag or ${service}ImageUri must be set explicitly. Implicit latest image fallback is not allowed.`,
     );
   }
 }

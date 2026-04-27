@@ -1,6 +1,6 @@
 import * as aws from '@pulumi/aws';
 
-import { commonTags, stackName } from '../bootstrap';
+import { commonTags, isSharedInfraOwner, stackName } from '../bootstrap';
 import { getFoundationSesConfig } from './ses-config';
 
 /**
@@ -11,24 +11,40 @@ import { getFoundationSesConfig } from './ses-config';
 export function createFoundationSes() {
   const sesConfig = getFoundationSesConfig();
 
-  const shopSesIdentity = new aws.sesv2.EmailIdentity(stackName('shop-ses-identity'), {
+  if (isSharedInfraOwner) {
+    const shopSesIdentity = new aws.sesv2.EmailIdentity(stackName('shop-ses-identity'), {
+      emailIdentity: sesConfig.fromAddress,
+      region: sesConfig.region,
+      tags: {
+        ...commonTags,
+        Component: 'mail',
+        Name: sesConfig.fromAddress,
+        Scope: 'private',
+        Service: 'shop',
+      },
+    });
+
+    return {
+      shopSesFromAddress: sesConfig.fromAddress,
+      shopSesIdentity: shopSesIdentity.emailIdentity,
+      shopSesIdentityArn: shopSesIdentity.arn,
+      shopSesIdentityType: shopSesIdentity.identityType,
+      shopSesVerificationStatus: shopSesIdentity.verificationStatus,
+      shopSesVerifiedForSendingStatus: shopSesIdentity.verifiedForSendingStatus,
+    };
+  }
+
+  const existingShopSesIdentity = aws.sesv2.getEmailIdentityOutput({
     emailIdentity: sesConfig.fromAddress,
     region: sesConfig.region,
-    tags: {
-      ...commonTags,
-      Component: 'mail',
-      Name: sesConfig.fromAddress,
-      Scope: 'private',
-      Service: 'shop',
-    },
   });
 
   return {
     shopSesFromAddress: sesConfig.fromAddress,
-    shopSesIdentity: shopSesIdentity.emailIdentity,
-    shopSesIdentityArn: shopSesIdentity.arn,
-    shopSesIdentityType: shopSesIdentity.identityType,
-    shopSesVerificationStatus: shopSesIdentity.verificationStatus,
-    shopSesVerifiedForSendingStatus: shopSesIdentity.verifiedForSendingStatus,
+    shopSesIdentity: existingShopSesIdentity.emailIdentity,
+    shopSesIdentityArn: existingShopSesIdentity.arn,
+    shopSesIdentityType: existingShopSesIdentity.identityType,
+    shopSesVerificationStatus: existingShopSesIdentity.verificationStatus,
+    shopSesVerifiedForSendingStatus: existingShopSesIdentity.verifiedForSendingStatus,
   };
 }

@@ -33,6 +33,7 @@ export interface FoundationNetworkConfig {
   allTrafficPort: number;
   anyIpv4Cidr: string;
   endpointHttpsPort: number;
+  natInstanceAmiId?: string;
   natInstanceType: string;
   privateSubnetCidrs: string[];
   publicSubnetCidrs: string[];
@@ -80,6 +81,7 @@ export function getFoundationNetworkConfig(): FoundationNetworkConfig {
     allTrafficPort: defaultAllTrafficPort,
     anyIpv4Cidr: defaultAnyIpv4Cidr,
     endpointHttpsPort: defaultEndpointHttpsPort,
+    natInstanceAmiId: config.get('natInstanceAmiId') ?? undefined,
     natInstanceType: config.get('natInstanceType') ?? defaultNatInstanceType,
     privateSubnetCidrs,
     publicSubnetCidrs,
@@ -116,6 +118,19 @@ export function getNatInstanceAmi() {
     mostRecent: true,
     owners: [amazonLinuxOwnerId],
   });
+}
+
+/**
+ * Step 0.2 AMI helper.
+ * Accepts the resolved network config.
+ * Returns either an explicitly pinned NAT AMI id or the latest Amazon Linux 2023 AMI id used for NAT bootstrap.
+ */
+export function resolveNatInstanceAmiId(networkConfig: FoundationNetworkConfig) {
+  if (networkConfig.natInstanceAmiId) {
+    return networkConfig.natInstanceAmiId;
+  }
+
+  return getNatInstanceAmi().id;
 }
 
 /**

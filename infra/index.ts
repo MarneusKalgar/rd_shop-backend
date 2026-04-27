@@ -105,8 +105,10 @@ const computeServices = createComputeServices({
   runtimeConfig: {
     paymentsRuntimeParameterNames: foundationRuntimeConfig.paymentsRuntimeParameterNames,
     paymentsRuntimeSecretArn: foundationRuntimeConfig.paymentsRuntimeSecretArn,
+    paymentsRuntimeSecretVersionId: foundationRuntimeConfig.paymentsRuntimeSecretVersionId,
     shopRuntimeParameterNames: foundationRuntimeConfig.shopRuntimeParameterNames,
     shopRuntimeSecretArn: foundationRuntimeConfig.shopRuntimeSecretArn,
+    shopRuntimeSecretVersionId: foundationRuntimeConfig.shopRuntimeSecretVersionId,
   },
   ses: {
     shopSesIdentityArn: foundationSes.shopSesIdentityArn,
@@ -155,6 +157,9 @@ export const shopRepositoryName = foundation.ecr.shopRepositoryName;
 export const shopRepositoryUrl = foundation.ecr.shopRepositoryUrl;
 
 // Data layer: shared PostgreSQL resources.
+export const databaseBackend = foundationDatabases.databaseBackend;
+export const databaseBootstrapContainerName = foundationDatabases.databaseBootstrapContainerName;
+export const databaseBootstrapInstanceId = foundationDatabases.databaseBootstrapInstanceId;
 export const databaseParameterGroupName = foundationDatabases.databaseParameterGroupName;
 export const databaseSubnetGroupName = foundationDatabases.databaseSubnetGroupName;
 
@@ -188,11 +193,14 @@ export const filesBucketRegionalDomainName = foundationFileStorage.filesBucketRe
 export const paymentsRuntimeParameterNames = foundationRuntimeConfig.paymentsRuntimeParameterNames;
 export const paymentsRuntimeSecretArn = foundationRuntimeConfig.paymentsRuntimeSecretArn;
 export const paymentsRuntimeSecretName = foundationRuntimeConfig.paymentsRuntimeSecretName;
+export const paymentsRuntimeSecretVersionId =
+  foundationRuntimeConfig.paymentsRuntimeSecretVersionId;
 
 // Runtime config: shop service inputs.
 export const shopRuntimeParameterNames = foundationRuntimeConfig.shopRuntimeParameterNames;
 export const shopRuntimeSecretArn = foundationRuntimeConfig.shopRuntimeSecretArn;
 export const shopRuntimeSecretName = foundationRuntimeConfig.shopRuntimeSecretName;
+export const shopRuntimeSecretVersionId = foundationRuntimeConfig.shopRuntimeSecretVersionId;
 
 // Mail: SES identity.
 export const shopSesFromAddress = foundationSes.shopSesFromAddress;

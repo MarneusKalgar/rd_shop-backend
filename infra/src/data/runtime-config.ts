@@ -149,9 +149,11 @@ export function createFoundationRuntimeConfig({
     paymentsRuntimeParameterNames: paymentsParameterNames,
     paymentsRuntimeSecretArn: paymentsRuntimeSecret.arn,
     paymentsRuntimeSecretName: paymentsRuntimeSecret.name,
+    paymentsRuntimeSecretVersionId: paymentsRuntimeSecret.versionId,
     shopRuntimeParameterNames: shopParameterNames,
     shopRuntimeSecretArn: shopRuntimeSecret.arn,
     shopRuntimeSecretName: shopRuntimeSecret.name,
+    shopRuntimeSecretVersionId: shopRuntimeSecret.versionId,
   };
 }
 
@@ -312,7 +314,7 @@ function createRuntimeSecret({
     },
   });
 
-  new aws.secretsmanager.SecretVersion(stackName(`${logicalName}-version`), {
+  const secretVersion = new aws.secretsmanager.SecretVersion(stackName(`${logicalName}-version`), {
     secretId: secret.id,
     secretString,
   });
@@ -320,6 +322,7 @@ function createRuntimeSecret({
   return {
     arn: secret.arn,
     name: secret.name,
+    versionId: secretVersion.versionId,
   };
 }
 

@@ -132,6 +132,9 @@ jobs:
           pulumi stack select "${{ env.PULUMI_STACK }}"
 
           echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "database_backend=$(pulumi stack output databaseBackend)" >> "$GITHUB_OUTPUT"
+          echo "database_bootstrap_container_name=$(pulumi stack output databaseBootstrapContainerName 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+          echo "database_bootstrap_instance_id=$(pulumi stack output databaseBootstrapInstanceId 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
           echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
 
@@ -142,6 +145,60 @@ jobs:
           fi
 
           echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for stage PostgreSQL host
+        if: ${{ steps.stack.outputs.database_backend == 'ec2-postgres' }}
+        env:
+          DATABASE_BOOTSTRAP_CONTAINER_NAME: ${{ steps.stack.outputs.database_bootstrap_container_name }}
+          DATABASE_BOOTSTRAP_INSTANCE_ID: ${{ steps.stack.outputs.database_bootstrap_instance_id }}
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 30); do
+            command_id="$(aws ssm send-command \
+              --instance-ids "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --document-name 'AWS-RunShellScript' \
+              --comment 'Wait for the stage PostgreSQL host to become ready' \
+              --parameters "{\"commands\":[\"sudo docker exec ${DATABASE_BOOTSTRAP_CONTAINER_NAME} pg_isready -h 127.0.0.1 -p 5432 -U postgres\"]}" \
+              --query 'Command.CommandId' \
+              --output text 2>/tmp/stage-db-wait.err || true)"
+
+            if [[ -z "${command_id}" || "${command_id}" == "None" ]]; then
+              if grep -Eq 'TargetNotConnected|InvalidInstanceId' /tmp/stage-db-wait.err; then
+                echo "Stage PostgreSQL host is not ready for SSM yet (${attempt}/30)"
+                sleep 10
+                continue
+              fi
+
+              cat /tmp/stage-db-wait.err >&2 || true
+              exit 1
+            fi
+
+            aws ssm wait command-executed \
+              --command-id "${command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" || true
+
+            command_status="$(aws ssm get-command-invocation \
+              --command-id "${command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --query 'Status' \
+              --output text)"
+
+            if [[ "${command_status}" == "Success" ]]; then
+              exit 0
+            fi
+
+            echo "Stage PostgreSQL host readiness status: ${command_status} (${attempt}/30)"
+            aws ssm get-command-invocation \
+              --command-id "${command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --query '{stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json || true
+            sleep 10
+          done
+
+          echo "Timed out waiting for the stage PostgreSQL host to become ready" >&2
+          exit 1
 
       - name: Seed stage validation dataset
         id: seed

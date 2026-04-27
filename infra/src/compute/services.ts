@@ -31,8 +31,10 @@ interface CreateComputeServicesArgs {
   runtimeConfig: {
     paymentsRuntimeParameterNames: RuntimeParameterNames;
     paymentsRuntimeSecretArn: pulumi.Input<string>;
+    paymentsRuntimeSecretVersionId: pulumi.Input<string>;
     shopRuntimeParameterNames: RuntimeParameterNames;
     shopRuntimeSecretArn: pulumi.Input<string>;
+    shopRuntimeSecretVersionId: pulumi.Input<string>;
   };
   ses: {
     shopSesIdentityArn: pulumi.Input<string>;
@@ -218,6 +220,7 @@ export function createComputeServices({
       logGroupName: shopLogGroup.name,
       runtimeParameterNames: runtimeConfig.shopRuntimeParameterNames,
       runtimeSecretArn: runtimeConfig.shopRuntimeSecretArn,
+      runtimeSecretVersionId: runtimeConfig.shopRuntimeSecretVersionId,
     }),
     executionRoleArn: taskExecutionRole.arn,
     family: stackName('shop-task'),
@@ -239,6 +242,7 @@ export function createComputeServices({
       logGroupName: paymentsLogGroup.name,
       runtimeParameterNames: runtimeConfig.paymentsRuntimeParameterNames,
       runtimeSecretArn: runtimeConfig.paymentsRuntimeSecretArn,
+      runtimeSecretVersionId: runtimeConfig.paymentsRuntimeSecretVersionId,
     }),
     executionRoleArn: taskExecutionRole.arn,
     family: stackName('payments-task'),
