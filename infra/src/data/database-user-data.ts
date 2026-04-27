@@ -1,4 +1,5 @@
 const postgresContainerDataDir = '/var/lib/postgresql/data';
+const postgresContainerPgDataDir = `${postgresContainerDataDir}/pgdata`;
 
 interface BuildDatabaseHostUserDataArgs {
   bootstrapSecretArn: string;
@@ -26,6 +27,8 @@ export function buildDatabaseHostUserData({
   port,
   region,
 }: BuildDatabaseHostUserDataArgs) {
+  const postgresHostDataDir = `${dataVolumeMountPath}/pgdata`;
+
   return `#!/bin/bash
 set -euxo pipefail
 
@@ -68,7 +71,11 @@ if ! grep -q "$filesystem_uuid" /etc/fstab; then
 fi
 
 mount -a
-chown -R 999:999 '${dataVolumeMountPath}'
+
+# A fresh ext4 volume root contains lost+found. Keep PGDATA on a subdirectory so
+# the official Postgres image can initialize an empty data directory reliably.
+mkdir -p '${postgresHostDataDir}'
+chown -R 999:999 '${postgresHostDataDir}'
 
 mkdir -p /etc/rd-shop /opt/rd-shop/postgres-init
 aws secretsmanager get-secret-value \
@@ -99,6 +106,7 @@ docker run -d \
   --restart unless-stopped \
   -p ${port}:5432 \
   -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+  -e PGDATA='${postgresContainerPgDataDir}' \
   -v '${dataVolumeMountPath}:${postgresContainerDataDir}' \
   -v /opt/rd-shop/postgres-init/10-create-service-dbs.sql:/docker-entrypoint-initdb.d/10-create-service-dbs.sql:ro \
   '${image}'
