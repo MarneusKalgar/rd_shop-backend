@@ -91,7 +91,7 @@ jobs:
                 | if length == 0 then
                     "No build wrapper runs returned for this branch filter"
                   else
-                    .[] | "- id=\(.id) status=\(.status) conclusion=\(.conclusion // \"pending\") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
+                    .[] | "- id=\(.id) status=\(.status) conclusion=\(.conclusion // "pending") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
                   end
               '
               echo "::endgroup::"
