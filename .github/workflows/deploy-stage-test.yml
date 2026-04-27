@@ -66,9 +66,10 @@ jobs:
 
           for attempt in $(seq 1 40); do
             run_json="$(gh api \
+              --method GET \
               -f event=push \
               -f head_sha="${GITHUB_SHA}" \
-              -F per_page=20 \
+              -f per_page=20 \
               "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-and-push-test.yml/runs")"
 
             matching_run="$(echo "${run_json}" | jq -c --arg branch "${GITHUB_REF_NAME}" \
