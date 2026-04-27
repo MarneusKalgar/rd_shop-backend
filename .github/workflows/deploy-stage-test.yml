@@ -3,28 +3,12 @@ name: Deploy — Stage Test Wrapper
 on:
   # Branch-local harness for validating the actual AWS/Pulumi stage lane
   # without waiting for the default-branch workflow_run path.
+  # Run on every push to these dedicated CI branches so wrapper
+  # behavior is not gated by path-filter edge cases.
   push:
     branches:
       - ci/stage-test/**
       - ci/stage-validation-test/**
-    paths:
-      - '.github/workflows/deploy-stage.yml'
-      - '.github/workflows/deploy-stage-test.yml'
-      - '.github/workflows/build-and-push.yml'
-      - '.github/workflows/build-and-push-test.yml'
-      - '.github/workflows/stage-validation.yml'
-      - '.github/workflows/stage-validation-test.yml'
-      - '.github/actions/**'
-      - 'infra/**'
-      - 'Dockerfile'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'apps/**'
-      - 'libs/**'
-      - 'proto/**'
-      - 'nest-cli.json'
-      - 'tsconfig.json'
-      - 'tsconfig.build.json'
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
@@ -40,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: stage
     permissions:
-      actions: read
+      actions: write
       contents: read
       id-token: write
     steps:
@@ -73,6 +57,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          dispatched_build_run=false
+
           echo "::group::Build waiter context"
           echo "Workflow file: build-and-push-test.yml"
           echo "Repository: ${GITHUB_REPOSITORY}"
@@ -82,7 +68,7 @@ jobs:
 
           for attempt in $(seq 1 40); do
             run_json="$(gh api \
-              "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-and-push-test.yml/runs?event=push&per_page=100")"
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-and-push-test.yml/runs?per_page=100")"
 
             if [[ "${attempt}" == "1" || "${attempt}" == "10" || "${attempt}" == "20" || "${attempt}" == "30" || "${attempt}" == "40" ]]; then
               echo "::group::Recent build wrapper runs (${attempt}/40)"
@@ -91,7 +77,7 @@ jobs:
                 | if length == 0 then
                     "No build wrapper runs returned"
                   else
-                    .[] | "- id=\(.id) status=\(.status) conclusion=\(.conclusion // "pending") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
+                    .[] | "- id=\(.id) event=\(.event) status=\(.status) conclusion=\(.conclusion // "pending") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
                   end
               '
               echo "::endgroup::"
@@ -125,6 +111,16 @@ jobs:
               fi
 
               exit 0
+            fi
+
+            if [[ "${dispatched_build_run}" != "true" && "${attempt}" == "8" ]]; then
+              echo "::group::Dispatch build wrapper fallback"
+              gh workflow run build-and-push-test.yml \
+                --repo "${GITHUB_REPOSITORY}" \
+                --ref "${GITHUB_REF_NAME}"
+              dispatched_build_run=true
+              echo "Dispatched build wrapper manually for ${GITHUB_REF_NAME} at ${GITHUB_SHA}"
+              echo "::endgroup::"
             fi
 
             if [[ "${attempt}" == "40" ]]; then
