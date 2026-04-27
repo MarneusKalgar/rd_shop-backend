@@ -15,6 +15,8 @@
     "db:revert:prod": "NODE_ENV=production APP=shop node ../../node_modules/typeorm/cli.js migration:revert -d ../../dist/apps/shop/data-source.js",
     "db:seed:dev": "NODE_ENV=development APP=shop ts-node -r tsconfig-paths/register ./src/db/seed/index.ts",
     "db:seed:prod": "NODE_ENV=production APP=shop node ../../dist/apps/shop/db/seed/prod.js",
+    "db:stage-validation:cleanup:prod": "NODE_ENV=production APP=shop node ../../dist/apps/shop/db/stage-validation/cleanup.js",
+    "db:stage-validation:seed:prod": "NODE_ENV=production APP=shop node ../../dist/apps/shop/db/stage-validation/seed.js",
     "sql:run": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register ./src/db/scripts/run-sql-file.ts",
     "concurrency:test": "cross-env NODE_ENV=development ts-node -r tsconfig-paths/register ./src/db/scripts/concurrency-test.ts",
     "docker:build:dev": "docker compose -p rd_shop_backend_shop_dev -f compose.yml -f compose.dev.yml up --build",

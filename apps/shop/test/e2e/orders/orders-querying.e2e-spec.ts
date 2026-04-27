@@ -1,11 +1,19 @@
-import { addToCartAndCheckout, signupAndSignin, waitForReady } from '@test/e2e/helpers';
+import {
+  addToCartAndCheckout,
+  getScenarioUserEmail,
+  getScenarioUserPassword,
+  resolveE2EProductId,
+  signupAndSignin,
+  waitForReady,
+} from '@test/e2e/helpers';
+import { waitForStageValidationRequestInterval } from '@test/e2e/helpers/validation-config';
 import supertest from 'supertest';
 
 import { BASE_URL } from './constants';
-import { OrderBody, OrdersListBody, ProductBody } from './interfaces';
+import { OrderBody, OrdersListBody } from './interfaces';
 
-const E2E_USER_EMAIL = 'e2e-orders-query@example.com';
-const E2E_USER_PASSWORD = 'E2eQueryPass1!';
+const SCENARIO_USER_EMAIL = getScenarioUserEmail('orders-query', 'e2e-orders-query@example.com');
+const SCENARIO_USER_PASSWORD = getScenarioUserPassword('E2eQueryPass1!');
 
 describe('Order querying (e2e)', () => {
   let token: string;
@@ -13,17 +21,19 @@ describe('Order querying (e2e)', () => {
   let orderId1: string;
   let orderId2: string;
 
+  async function getOrdersList(path = '/api/v1/orders') {
+    await waitForStageValidationRequestInterval();
+
+    return supertest(BASE_URL).get(path).set('Authorization', `Bearer ${token}`).expect(200);
+  }
+
   beforeAll(async () => {
     await waitForReady(`${BASE_URL}/health`);
 
-    const ts = await signupAndSignin(E2E_USER_EMAIL, E2E_USER_PASSWORD);
+    const ts = await signupAndSignin(SCENARIO_USER_EMAIL, SCENARIO_USER_PASSWORD);
     token = ts.accessToken;
 
-    const res = await supertest(BASE_URL).get('/api/v1/products').expect(200);
-    const { data: products } = res.body as unknown as { data: ProductBody[] };
-    const available = products.find((p) => p.stock >= 2);
-    if (!available) throw new Error('No product with stock >= 2 found in seed data');
-    productId = available.id;
+    productId = await resolveE2EProductId(2);
 
     const checkout1 = await addToCartAndCheckout(token, productId);
     const checkout2 = await addToCartAndCheckout(token, productId);
@@ -38,10 +48,7 @@ describe('Order querying (e2e)', () => {
 
   describe('GET /api/v1/orders', () => {
     it('includes both created orders', async () => {
-      const res = await supertest(BASE_URL)
-        .get('/api/v1/orders')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      const res = await getOrdersList();
 
       const { data } = res.body as unknown as OrdersListBody;
       const ids = data.map((o) => o.id);
@@ -50,10 +57,7 @@ describe('Order querying (e2e)', () => {
     });
 
     it('respects the limit query param and returns nextCursor when more records exist', async () => {
-      const res = await supertest(BASE_URL)
-        .get('/api/v1/orders?limit=1')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      const res = await getOrdersList('/api/v1/orders?limit=1');
 
       const body = res.body as unknown as OrdersListBody;
       expect(body.data).toHaveLength(1);
@@ -63,18 +67,12 @@ describe('Order querying (e2e)', () => {
     });
 
     it('cursor pagination: second page returns a different order', async () => {
-      const firstPageRes = await supertest(BASE_URL)
-        .get('/api/v1/orders?limit=1')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      const firstPageRes = await getOrdersList('/api/v1/orders?limit=1');
 
       const { data: firstData, nextCursor } = firstPageRes.body as unknown as OrdersListBody;
       expect(nextCursor).toBeTruthy();
 
-      const secondPageRes = await supertest(BASE_URL)
-        .get(`/api/v1/orders?limit=1&cursor=${nextCursor!}`)
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
+      const secondPageRes = await getOrdersList(`/api/v1/orders?limit=1&cursor=${nextCursor!}`);
 
       const { data: secondData } = secondPageRes.body as unknown as OrdersListBody;
       expect(secondData).toHaveLength(1);

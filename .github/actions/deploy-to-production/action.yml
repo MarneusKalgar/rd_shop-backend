@@ -42,7 +42,7 @@ runs:
   using: composite
   steps:
     - name: Deploy via SSH
-      uses: appleboy/ssh-action@v1.2.5
+      uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
       env:
         ENV_FILE_SHOP: ${{ inputs.env-file-shop }}
         ENV_FILE_PAYMENTS: ${{ inputs.env-file-payments }}

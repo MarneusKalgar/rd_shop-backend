@@ -6,11 +6,14 @@ on:
   push:
     branches:
       - ci/stage-test/**
+      - ci/stage-validation-test/**
     paths:
       - '.github/workflows/deploy-stage.yml'
       - '.github/workflows/deploy-stage-test.yml'
       - '.github/workflows/build-and-push.yml'
       - '.github/workflows/build-and-push-test.yml'
+      - '.github/workflows/stage-validation.yml'
+      - '.github/workflows/stage-validation-test.yml'
       - '.github/actions/**'
       - 'infra/**'
       - 'Dockerfile'
@@ -42,7 +45,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6

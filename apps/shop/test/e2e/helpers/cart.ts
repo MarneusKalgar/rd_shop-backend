@@ -1,6 +1,7 @@
 import supertest from 'supertest';
 
-const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8092';
+import { BASE_URL } from './constants';
+import { buildCheckoutIdempotencyKey } from './validation-config';
 
 export interface CartCheckoutResult {
   orderId: string;
@@ -29,8 +30,10 @@ export async function addToCartAndCheckout(
     .expect(201);
 
   const checkoutBody: Record<string, unknown> = {};
-  if (idempotencyKey !== undefined) {
-    checkoutBody.idempotencyKey = idempotencyKey;
+  const resolvedIdempotencyKey = idempotencyKey ?? buildCheckoutIdempotencyKey();
+
+  if (resolvedIdempotencyKey !== undefined) {
+    checkoutBody.idempotencyKey = resolvedIdempotencyKey;
   }
 
   const res = await supertest(BASE_URL)

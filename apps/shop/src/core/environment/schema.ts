@@ -196,11 +196,31 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  STAGE_VALIDATION_NAMESPACE?: string;
+
+  @IsOptional()
+  @IsString()
+  STAGE_VALIDATION_PRODUCT_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  STAGE_VALIDATION_USER_PASSWORD?: string;
+
+  @IsNumber()
+  @IsOptional()
+  THROTTLE_SHORT_LIMIT?: number;
+
+  @IsOptional()
+  @IsString()
   THROTTLE_SKIP?: string;
 
   @IsString()
   @MinLength(32)
   TOKEN_HMAC_SECRET: string;
+
+  @IsOptional()
+  @IsString()
+  VALIDATION_PAYMENTS_DATABASE_URL?: string;
 
   @IsOptional()
   @IsString()
