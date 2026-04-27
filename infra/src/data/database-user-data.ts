@@ -92,11 +92,18 @@ PAYMENTS_DB_NAME=$(jq -r '.PAYMENTS_DB_NAME' /etc/rd-shop/postgres-bootstrap.jso
 PAYMENTS_DB_USER=$(jq -r '.PAYMENTS_DB_USER' /etc/rd-shop/postgres-bootstrap.json)
 PAYMENTS_DB_PASSWORD=$(jq -r '.PAYMENTS_DB_PASSWORD' /etc/rd-shop/postgres-bootstrap.json)
 
+sql_escape_literal() {
+  printf '%s' "$1" | sed "s/'/''/g"
+}
+
+SHOP_DB_PASSWORD_ESCAPED=$(sql_escape_literal "$SHOP_DB_PASSWORD")
+PAYMENTS_DB_PASSWORD_ESCAPED=$(sql_escape_literal "$PAYMENTS_DB_PASSWORD")
+
 cat <<EOF > /opt/rd-shop/postgres-init/10-create-service-dbs.sql
-CREATE USER "\${SHOP_DB_USER}" WITH PASSWORD '\${SHOP_DB_PASSWORD}';
+CREATE USER "\${SHOP_DB_USER}" WITH PASSWORD '\${SHOP_DB_PASSWORD_ESCAPED}';
 CREATE DATABASE "\${SHOP_DB_NAME}" OWNER "\${SHOP_DB_USER}";
 
-CREATE USER "\${PAYMENTS_DB_USER}" WITH PASSWORD '\${PAYMENTS_DB_PASSWORD}';
+CREATE USER "\${PAYMENTS_DB_USER}" WITH PASSWORD '\${PAYMENTS_DB_PASSWORD_ESCAPED}';
 CREATE DATABASE "\${PAYMENTS_DB_NAME}" OWNER "\${PAYMENTS_DB_USER}";
 EOF
 

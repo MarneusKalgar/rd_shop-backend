@@ -335,6 +335,7 @@ function createEc2FoundationDatabases({
           region,
         }),
       ),
+    userDataReplaceOnChange: true,
     vpcSecurityGroupIds: [securityGroupIds.rdsShop, securityGroupIds.rdsPayments],
   });
 
