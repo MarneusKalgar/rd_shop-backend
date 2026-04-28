@@ -1,6 +1,7 @@
 import * as aws from '@pulumi/aws';
+import * as pulumi from '@pulumi/pulumi';
 
-import { commonTags, isSharedInfraOwner, stackName } from '../bootstrap';
+import { accountId, commonTags, isSharedInfraOwner, stackName } from '../bootstrap';
 import { getFoundationSesConfig } from './ses-config';
 
 /**
@@ -34,17 +35,14 @@ export function createFoundationSes() {
     };
   }
 
-  const existingShopSesIdentity = aws.sesv2.getEmailIdentityOutput({
-    emailIdentity: sesConfig.fromAddress,
-    region: sesConfig.region,
-  });
+  const existingShopSesIdentityArn = pulumi.interpolate`arn:aws:ses:${sesConfig.region}:${accountId}:identity/${sesConfig.fromAddress}`;
 
   return {
     shopSesFromAddress: sesConfig.fromAddress,
-    shopSesIdentity: existingShopSesIdentity.emailIdentity,
-    shopSesIdentityArn: existingShopSesIdentity.arn,
-    shopSesIdentityType: existingShopSesIdentity.identityType,
-    shopSesVerificationStatus: existingShopSesIdentity.verificationStatus,
-    shopSesVerifiedForSendingStatus: existingShopSesIdentity.verifiedForSendingStatus,
+    shopSesIdentity: sesConfig.fromAddress,
+    shopSesIdentityArn: existingShopSesIdentityArn,
+    shopSesIdentityType: 'EMAIL_ADDRESS',
+    shopSesVerificationStatus: undefined,
+    shopSesVerifiedForSendingStatus: undefined,
   };
 }
