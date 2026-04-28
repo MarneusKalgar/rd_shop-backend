@@ -47,6 +47,7 @@ const computeEdge = createComputeEdge({
 
 // Step 1.3-1.4 / runtime config: publish service secrets and SSM parameters after data and broker endpoints exist.
 const foundationRuntimeConfig = createFoundationRuntimeConfig({
+  databaseBackend: foundationDatabases.databaseBackend,
   databases: {
     payments: {
       databaseHost: foundationDatabases.paymentsDatabaseAddress,
@@ -105,8 +106,10 @@ const computeServices = createComputeServices({
   runtimeConfig: {
     paymentsRuntimeParameterNames: foundationRuntimeConfig.paymentsRuntimeParameterNames,
     paymentsRuntimeSecretArn: foundationRuntimeConfig.paymentsRuntimeSecretArn,
+    paymentsRuntimeSecretVersionId: foundationRuntimeConfig.paymentsRuntimeSecretVersionId,
     shopRuntimeParameterNames: foundationRuntimeConfig.shopRuntimeParameterNames,
     shopRuntimeSecretArn: foundationRuntimeConfig.shopRuntimeSecretArn,
+    shopRuntimeSecretVersionId: foundationRuntimeConfig.shopRuntimeSecretVersionId,
   },
   ses: {
     shopSesIdentityArn: foundationSes.shopSesIdentityArn,
@@ -155,6 +158,9 @@ export const shopRepositoryName = foundation.ecr.shopRepositoryName;
 export const shopRepositoryUrl = foundation.ecr.shopRepositoryUrl;
 
 // Data layer: shared PostgreSQL resources.
+export const databaseBackend = foundationDatabases.databaseBackend;
+export const databaseBootstrapContainerName = foundationDatabases.databaseBootstrapContainerName;
+export const databaseBootstrapInstanceId = foundationDatabases.databaseBootstrapInstanceId;
 export const databaseParameterGroupName = foundationDatabases.databaseParameterGroupName;
 export const databaseSubnetGroupName = foundationDatabases.databaseSubnetGroupName;
 
@@ -188,11 +194,14 @@ export const filesBucketRegionalDomainName = foundationFileStorage.filesBucketRe
 export const paymentsRuntimeParameterNames = foundationRuntimeConfig.paymentsRuntimeParameterNames;
 export const paymentsRuntimeSecretArn = foundationRuntimeConfig.paymentsRuntimeSecretArn;
 export const paymentsRuntimeSecretName = foundationRuntimeConfig.paymentsRuntimeSecretName;
+export const paymentsRuntimeSecretVersionId =
+  foundationRuntimeConfig.paymentsRuntimeSecretVersionId;
 
 // Runtime config: shop service inputs.
 export const shopRuntimeParameterNames = foundationRuntimeConfig.shopRuntimeParameterNames;
 export const shopRuntimeSecretArn = foundationRuntimeConfig.shopRuntimeSecretArn;
 export const shopRuntimeSecretName = foundationRuntimeConfig.shopRuntimeSecretName;
+export const shopRuntimeSecretVersionId = foundationRuntimeConfig.shopRuntimeSecretVersionId;
 
 // Mail: SES identity.
 export const shopSesFromAddress = foundationSes.shopSesFromAddress;
@@ -228,6 +237,7 @@ export const privateDnsNamespaceId = computeServices.privateDnsNamespaceId;
 export const privateDnsNamespaceName = computeServices.privateDnsNamespaceName;
 
 // Compute services: payments workload.
+export const paymentsDesiredCount = computeServices.paymentsDesiredCount;
 export const paymentsImageUri = computeServices.paymentsImageUri;
 export const paymentsLogGroupName = computeServices.paymentsLogGroupName;
 export const paymentsServiceArn = computeServices.paymentsServiceArn;
@@ -238,6 +248,7 @@ export const paymentsTaskRoleArn = computeServices.paymentsTaskRoleArn;
 export const paymentsTaskRoleName = computeServices.paymentsTaskRoleName;
 
 // Compute services: shop workload.
+export const shopDesiredCount = computeServices.shopDesiredCount;
 export const shopImageUri = computeServices.shopImageUri;
 export const shopLogGroupName = computeServices.shopLogGroupName;
 export const shopServiceArn = computeServices.shopServiceArn;

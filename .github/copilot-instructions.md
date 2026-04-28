@@ -67,6 +67,8 @@ Search results can flood context. Use `ctx_execute(language: "shell", code: "gre
 | `ctx doctor`  | Call the `ctx_doctor` MCP tool, run the returned shell command, display as checklist  |
 | `ctx upgrade` | Call the `ctx_upgrade` MCP tool, run the returned shell command, display as checklist |
 
+Note: Do not try to run `aws` CLI or `pulumi` CLI commands directly in terminal. Only print the relevant summary information to context.
+
 # rd_shop — Project Instructions
 
 ## Structure

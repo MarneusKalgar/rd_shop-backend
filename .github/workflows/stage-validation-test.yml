@@ -1,27 +1,12 @@
 name: Stage Validation Test Wrapper
 
 on:
+  workflow_dispatch:
+  # Branch-local harness: run on the dedicated validation branches, then
+  # wait for the matching deploy-stage-test run for the same branch/SHA.
   push:
     branches:
       - ci/stage-validation-test/**
-    paths:
-      - '.github/workflows/stage-validation.yml'
-      - '.github/workflows/stage-validation-test.yml'
-      - '.github/workflows/deploy-stage.yml'
-      - '.github/workflows/deploy-stage-test.yml'
-      - '.github/workflows/build-and-push.yml'
-      - '.github/workflows/build-and-push-test.yml'
-      - '.github/actions/**'
-      - 'infra/**'
-      - 'Dockerfile'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'apps/**'
-      - 'libs/**'
-      - 'proto/**'
-      - 'nest-cli.json'
-      - 'tsconfig.json'
-      - 'tsconfig.build.json'
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
@@ -59,46 +44,72 @@ jobs:
       - name: Verify AWS identity
         run: aws sts get-caller-identity
 
-      - name: Wait for matching deploy wrapper run
-        id: deploy-run
+      - name: Wait for matching stage deploy wrapper run
+        if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
+          echo "::group::Deploy waiter context"
+          echo "Workflow file: deploy-stage-test.yml"
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Branch: ${GITHUB_REF_NAME}"
+          echo "Commit: ${GITHUB_SHA}"
+          echo "::endgroup::"
+
           for attempt in $(seq 1 40); do
             run_json="$(gh api \
-              "/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-stage-test.yml/runs?branch=${GITHUB_REF_NAME}&event=push&per_page=20")"
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-stage-test.yml/runs?per_page=100")"
 
-            matching_run="$(echo "${run_json}" | jq -c --arg sha "${GITHUB_SHA}" \
-              '.workflow_runs | map(select(.head_sha == $sha)) | first // empty')"
+            if [[ "${attempt}" == "1" || "${attempt}" == "10" || "${attempt}" == "20" || "${attempt}" == "30" || "${attempt}" == "40" ]]; then
+              echo "::group::Recent deploy wrapper runs (${attempt}/40)"
+              echo "${run_json}" | jq -r '
+                .workflow_runs[:10]
+                | if length == 0 then
+                    "No deploy wrapper runs returned"
+                  else
+                    .[] | "- id=\(.id) event=\(.event) status=\(.status) conclusion=\(.conclusion // "pending") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
+                  end
+              '
+              echo "::endgroup::"
+            fi
 
-            if [[ -n "${matching_run}" ]]; then
-              run_id="$(echo "${matching_run}" | jq -r '.id')"
-              run_status="$(echo "${matching_run}" | jq -r '.status')"
-              run_conclusion="$(echo "${matching_run}" | jq -r '.conclusion // ""')"
+            matching_run_json="$(echo "${run_json}" | jq -c --arg sha "${GITHUB_SHA}" --arg branch "${GITHUB_REF_NAME}" '
+              .workflow_runs
+              | map(select(.head_sha == $sha and .head_branch == $branch))
+              | sort_by(.created_at)
+              | last // empty
+            ')"
 
-              echo "Deploy wrapper run ${run_id}: status=${run_status} conclusion=${run_conclusion:-pending}"
+            if [[ -n "${matching_run_json}" ]]; then
+              run_id="$(echo "${matching_run_json}" | jq -r '.id')"
 
-              if [[ "${run_status}" == "completed" ]]; then
-                if [[ "${run_conclusion}" != "success" ]]; then
-                  echo "Matching deploy wrapper run failed" >&2
-                  exit 1
-                fi
+              echo "Found deploy wrapper run ${run_id} for ${GITHUB_SHA}"
+              echo "::group::Matched deploy wrapper run"
+              echo "${matching_run_json}" | jq '{id, status, conclusion, event, head_branch, head_sha, created_at, updated_at, html_url}'
+              echo "::endgroup::"
 
-                echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
-                exit 0
+              if ! gh run watch "${run_id}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --exit-status \
+                --interval 15; then
+                echo "::group::Deploy wrapper run failure details"
+                gh api \
+                  "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" | jq '{id, status, conclusion, event, head_branch, head_sha, created_at, updated_at, html_url}'
+                echo "::endgroup::"
+                exit 1
               fi
-            else
-              echo "Matching deploy wrapper run not found yet"
+
+              exit 0
             fi
 
             if [[ "${attempt}" == "40" ]]; then
-              echo "Timed out waiting for matching deploy wrapper run" >&2
+              echo "Timed out waiting for matching deploy wrapper run to appear" >&2
               exit 1
             fi
 
-            echo "Retrying in 15s (${attempt}/40)"
+            echo "Matching deploy wrapper run not visible yet (${attempt}/40)"
             sleep 15
           done
 
@@ -132,6 +143,9 @@ jobs:
           pulumi stack select "${{ env.PULUMI_STACK }}"
 
           echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "database_backend=$(pulumi stack output databaseBackend)" >> "$GITHUB_OUTPUT"
+          echo "database_bootstrap_container_name=$(pulumi stack output databaseBootstrapContainerName 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+          echo "database_bootstrap_instance_id=$(pulumi stack output databaseBootstrapInstanceId 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
           echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
 
@@ -142,6 +156,60 @@ jobs:
           fi
 
           echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for stage PostgreSQL host
+        if: ${{ steps.stack.outputs.database_backend == 'ec2-postgres' }}
+        env:
+          DATABASE_BOOTSTRAP_CONTAINER_NAME: ${{ steps.stack.outputs.database_bootstrap_container_name }}
+          DATABASE_BOOTSTRAP_INSTANCE_ID: ${{ steps.stack.outputs.database_bootstrap_instance_id }}
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 30); do
+            command_id="$(aws ssm send-command \
+              --instance-ids "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --document-name 'AWS-RunShellScript' \
+              --comment 'Wait for the stage PostgreSQL host to become ready' \
+              --parameters "{\"commands\":[\"sudo docker exec ${DATABASE_BOOTSTRAP_CONTAINER_NAME} pg_isready -h 127.0.0.1 -p 5432 -U postgres\"]}" \
+              --query 'Command.CommandId' \
+              --output text 2>/tmp/stage-db-wait.err || true)"
+
+            if [[ -z "${command_id}" || "${command_id}" == "None" ]]; then
+              if grep -Eq 'TargetNotConnected|InvalidInstanceId' /tmp/stage-db-wait.err; then
+                echo "Stage PostgreSQL host is not ready for SSM yet (${attempt}/30)"
+                sleep 10
+                continue
+              fi
+
+              cat /tmp/stage-db-wait.err >&2 || true
+              exit 1
+            fi
+
+            aws ssm wait command-executed \
+              --command-id "${command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" || true
+
+            command_status="$(aws ssm get-command-invocation \
+              --command-id "${command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --query 'Status' \
+              --output text)"
+
+            if [[ "${command_status}" == "Success" ]]; then
+              exit 0
+            fi
+
+            echo "Stage PostgreSQL host readiness status: ${command_status} (${attempt}/30)"
+            aws ssm get-command-invocation \
+              --command-id "${command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --query '{stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json || true
+            sleep 10
+          done
+
+          echo "Timed out waiting for the stage PostgreSQL host to become ready" >&2
+          exit 1
 
       - name: Seed stage validation dataset
         id: seed
@@ -169,18 +237,35 @@ jobs:
               '{containerOverrides:[{name:$name,command:$command,environment:$environment,memory:$memory}]}')
 
             local run_task_output
-            run_task_output=$(aws ecs run-task \
-              --cluster "${ECS_CLUSTER_NAME}" \
-              --launch-type EC2 \
-              --count 1 \
-              --task-definition "${task_definition_arn}" \
-              --started-by "gha-stage-validation-test-${{ github.run_id }}-${label}" \
-              --overrides "${overrides}" \
-              --output json)
+            for attempt in $(seq 1 6); do
+              run_task_output=$(aws ecs run-task \
+                --cluster "${ECS_CLUSTER_NAME}" \
+                --launch-type EC2 \
+                --count 1 \
+                --task-definition "${task_definition_arn}" \
+                --started-by "gha-stage-validation-test-${{ github.run_id }}-${label}" \
+                --overrides "${overrides}" \
+                --output json)
+
+              if [[ "$(echo "${run_task_output}" | jq '.failures | length')" == "0" ]]; then
+                break
+              fi
+
+              echo "Failed to start task ${label} (attempt ${attempt}/6)" >&2
+              echo "${run_task_output}" | jq . >&2
+
+              if echo "${run_task_output}" | jq -e '.failures | length > 0 and all(.[]; .reason == "AGENT")' >/dev/null; then
+                if [[ "${attempt}" != "6" ]]; then
+                  echo "ECS agent is not connected yet; retrying in 10s" >&2
+                  sleep 10
+                  continue
+                fi
+              fi
+
+              return 1
+            done
 
             if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
-              echo "Failed to start task ${label}" >&2
-              echo "${run_task_output}" | jq .
               return 1
             fi
 
@@ -273,18 +358,35 @@ jobs:
               '{containerOverrides:[{name:$name,command:$command,environment:$environment,memory:$memory}]}')
 
             local run_task_output
-            run_task_output=$(aws ecs run-task \
-              --cluster "${ECS_CLUSTER_NAME}" \
-              --launch-type EC2 \
-              --count 1 \
-              --task-definition "${task_definition_arn}" \
-              --started-by "gha-stage-validation-test-${{ github.run_id }}-${label}" \
-              --overrides "${overrides}" \
-              --output json)
+            for attempt in $(seq 1 6); do
+              run_task_output=$(aws ecs run-task \
+                --cluster "${ECS_CLUSTER_NAME}" \
+                --launch-type EC2 \
+                --count 1 \
+                --task-definition "${task_definition_arn}" \
+                --started-by "gha-stage-validation-test-${{ github.run_id }}-${label}" \
+                --overrides "${overrides}" \
+                --output json)
+
+              if [[ "$(echo "${run_task_output}" | jq '.failures | length')" == "0" ]]; then
+                break
+              fi
+
+              echo "Failed to start task ${label} (attempt ${attempt}/6)" >&2
+              echo "${run_task_output}" | jq . >&2
+
+              if echo "${run_task_output}" | jq -e '.failures | length > 0 and all(.[]; .reason == "AGENT")' >/dev/null; then
+                if [[ "${attempt}" != "6" ]]; then
+                  echo "ECS agent is not connected yet; retrying in 10s" >&2
+                  sleep 10
+                  continue
+                fi
+              fi
+
+              return 1
+            done
 
             if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
-              echo "Failed to start task ${label}" >&2
-              echo "${run_task_output}" | jq .
               return 1
             fi
 
