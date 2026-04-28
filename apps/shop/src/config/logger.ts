@@ -5,10 +5,18 @@ import { IncomingMessage } from 'node:http';
 import { REQUEST_ID_HEADER } from '@/common/constants';
 import { isProduction } from '@/utils/env';
 
+const PINO_LEVEL_ALIASES: Record<string, string> = {
+  log: 'info',
+  verbose: 'trace',
+};
+
+const toPinoLevel = (level: string): string =>
+  PINO_LEVEL_ALIASES[level.toLowerCase()] ?? level.toLowerCase();
+
 export const getPinoLoggerConfig = (): Params => {
   const isProd = isProduction();
 
-  let logLevel = process.env.APP_LOG_LEVEL ?? 'info';
+  let logLevel = toPinoLevel(process.env.APP_LOG_LEVEL ?? 'info');
   if (process.env.NODE_ENV === 'test' && process.env.VERBOSE_TEST_LOGS !== 'true') {
     logLevel = 'silent';
   }
