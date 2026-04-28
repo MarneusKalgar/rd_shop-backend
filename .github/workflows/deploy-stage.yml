@@ -193,21 +193,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "${PAYMENTS_DESIRED_COUNT:-}" || -z "${SHOP_DESIRED_COUNT:-}" ]]; then
-            payments_desired_count=$(aws ecs describe-services \
-              --cluster "${ECS_CLUSTER_NAME}" \
-              --services "${PAYMENTS_SERVICE_NAME}" \
-              --query 'services[0].desiredCount' \
-              --output text)
-            shop_desired_count=$(aws ecs describe-services \
-              --cluster "${ECS_CLUSTER_NAME}" \
-              --services "${SHOP_SERVICE_NAME}" \
-              --query 'services[0].desiredCount' \
-              --output text)
+          payments_desired_count=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}" \
+            --query 'services[0].desiredCount' \
+            --output text)
+          shop_desired_count=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}" \
+            --query 'services[0].desiredCount' \
+            --output text)
 
-            echo "PAYMENTS_DESIRED_COUNT=${payments_desired_count}" >> "$GITHUB_ENV"
-            echo "SHOP_DESIRED_COUNT=${shop_desired_count}" >> "$GITHUB_ENV"
-          fi
+          echo "PAYMENTS_DESIRED_COUNT=${payments_desired_count}" >> "$GITHUB_ENV"
+          echo "SHOP_DESIRED_COUNT=${shop_desired_count}" >> "$GITHUB_ENV"
 
           aws ecs update-service \
             --cluster "${ECS_CLUSTER_NAME}" \
@@ -387,18 +385,35 @@ jobs:
               '{containerOverrides:[{name:$name,command:$command,environment:$environment}]}')
 
             local run_task_output
-            run_task_output=$(aws ecs run-task \
-              --cluster "${ECS_CLUSTER_NAME}" \
-              --launch-type EC2 \
-              --count 1 \
-              --task-definition "${task_definition_arn}" \
-              --started-by "gha-stage-${{ github.run_id }}-${label}" \
-              --overrides "${overrides}" \
-              --output json)
+            for attempt in $(seq 1 6); do
+              run_task_output=$(aws ecs run-task \
+                --cluster "${ECS_CLUSTER_NAME}" \
+                --launch-type EC2 \
+                --count 1 \
+                --task-definition "${task_definition_arn}" \
+                --started-by "gha-stage-${{ github.run_id }}-${label}" \
+                --overrides "${overrides}" \
+                --output json)
+
+              if [[ "$(echo "${run_task_output}" | jq '.failures | length')" == "0" ]]; then
+                break
+              fi
+
+              echo "Failed to start task ${label} (attempt ${attempt}/6)"
+              echo "${run_task_output}" | jq -cr '[.failures[]? | {arn, reason, detail}]'
+
+              if echo "${run_task_output}" | jq -e '.failures | length > 0 and all(.[]; .reason == "AGENT")' >/dev/null; then
+                if [[ "${attempt}" != "6" ]]; then
+                  echo "ECS agent is not connected yet; retrying in 10s"
+                  sleep 10
+                  continue
+                fi
+              fi
+
+              return 1
+            done
 
             if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
-              echo "Failed to start task ${label}"
-              echo "${run_task_output}" | jq -cr '[.failures[]? | {arn, reason, detail}]'
               return 1
             fi
 
