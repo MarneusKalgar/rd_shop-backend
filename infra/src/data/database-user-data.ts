@@ -31,7 +31,9 @@ export function buildDatabaseHostUserData({
   const normalizedDataVolumeId = dataVolumeId.replace(/-/g, '');
 
   return `#!/bin/bash
-set -euxo pipefail
+set -euo pipefail
+
+# Keep xtrace off here because stage diagnostics may collect cloud-init output.
 
 dnf install -y awscli docker jq
 systemctl enable --now docker

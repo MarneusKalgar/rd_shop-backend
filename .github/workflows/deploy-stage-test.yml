@@ -357,9 +357,10 @@ jobs:
             diagnostic_commands=$(jq -nc --arg container_name "${DATABASE_BOOTSTRAP_CONTAINER_NAME}" '{
               commands: [
                 "sudo docker ps -a --no-trunc --filter name=" + $container_name,
-                "sudo docker logs " + $container_name + " --tail 200 || true",
-                "sudo tail -n 200 /var/log/cloud-init-output.log || true",
-                "sudo tail -n 200 /var/log/cloud-init.log || true"
+                "sudo docker inspect --format \"{{json .State}}\" " + $container_name + " || true",
+                "sudo test -f /var/lib/cloud/instance/boot-finished && echo cloud-init-finished=yes || echo cloud-init-finished=no",
+                "sudo lsblk -o PATH,SIZE,MODEL,SERIAL,FSTYPE,MOUNTPOINT || true",
+                "sudo df -h || true"
               ]
             }')
 
@@ -380,7 +381,7 @@ jobs:
               --command-id "${diagnostic_command_id}" \
               --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" || true
 
-            echo "Stage PostgreSQL host diagnostics:"
+            echo "Stage PostgreSQL host diagnostics (redacted):"
             aws ssm get-command-invocation \
               --command-id "${diagnostic_command_id}" \
               --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \

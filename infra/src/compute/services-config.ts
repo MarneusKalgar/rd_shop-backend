@@ -1,6 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
 
-import { config, projectPrefix } from '../bootstrap';
+import { config, projectPrefix, stack } from '../bootstrap';
 import { getFoundationComputeConfig } from './compute-config';
 
 const defaultCloudMapNamespaceName = `${projectPrefix}.local`;
@@ -156,6 +156,12 @@ function resolveImageSource({
   validateImageSource(service, imageTag, imageUri);
 
   if (!imageTag && !imageUri) {
+    if (stack === 'production') {
+      throw new Error(
+        `${service}ImageTag or ${service}ImageUri must be set explicitly for the production stack.`,
+      );
+    }
+
     void pulumi.log.warn(
       `${service}ImageTag or ${service}ImageUri is not set. Using the bootstrap placeholder image tag and forcing desired count to 0 until a real image is configured.`,
     );
