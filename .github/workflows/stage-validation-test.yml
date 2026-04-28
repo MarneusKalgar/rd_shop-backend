@@ -69,7 +69,7 @@ jobs:
                 | if length == 0 then
                     "No deploy wrapper runs returned"
                   else
-                    .[] | "- id=\(.id) event=\(.event) status=\(.status) conclusion=\(.conclusion // \"pending\") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
+                    .[] | "- id=\(.id) event=\(.event) status=\(.status) conclusion=\(.conclusion // "pending") branch=\(.head_branch) sha=\(.head_sha) created=\(.created_at)"
                   end
               '
               echo "::endgroup::"
