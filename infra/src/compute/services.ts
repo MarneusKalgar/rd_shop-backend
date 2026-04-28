@@ -344,6 +344,7 @@ export function createComputeServices({
   return {
     ecsTaskExecutionRoleArn: taskExecutionRole.arn,
     ecsTaskExecutionRoleName: taskExecutionRole.name,
+    paymentsDesiredCount: servicesConfig.paymentsDesiredCount,
     paymentsDiscoveryServiceArn: paymentsDiscoveryService.arn,
     paymentsDiscoveryServiceId: paymentsDiscoveryService.id,
     paymentsDiscoveryServiceName: paymentsDiscoveryService.name,
@@ -358,6 +359,7 @@ export function createComputeServices({
     privateDnsNamespaceArn: serviceDiscoveryNamespace.arn,
     privateDnsNamespaceId: serviceDiscoveryNamespace.id,
     privateDnsNamespaceName: serviceDiscoveryNamespace.name,
+    shopDesiredCount: servicesConfig.shopDesiredCount,
     shopImageUri,
     shopLogGroupName: shopLogGroup.name,
     shopServiceArn: shopService.arn,

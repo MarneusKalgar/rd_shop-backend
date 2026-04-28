@@ -179,9 +179,11 @@ jobs:
           pulumi stack select "${{ env.PULUMI_STACK }}"
 
           echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "payments_desired_count=$(pulumi stack output paymentsDesiredCount)" >> "$GITHUB_OUTPUT"
           echo "payments_log_group_name=$(pulumi stack output paymentsLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "payments_service_name=$(pulumi stack output paymentsServiceName)" >> "$GITHUB_OUTPUT"
           echo "payments_task_definition_arn=$(pulumi stack output paymentsTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+          echo "shop_desired_count=$(pulumi stack output shopDesiredCount)" >> "$GITHUB_OUTPUT"
           echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "shop_service_name=$(pulumi stack output shopServiceName)" >> "$GITHUB_OUTPUT"
           echo "shop_target_group_arn=$(pulumi stack output shopTargetGroupArn)" >> "$GITHUB_OUTPUT"
@@ -198,24 +200,34 @@ jobs:
         id: post_apply_quiesce_services
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          CONFIGURED_PAYMENTS_DESIRED_COUNT: ${{ steps.stack.outputs.payments_desired_count }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          CONFIGURED_SHOP_DESIRED_COUNT: ${{ steps.stack.outputs.shop_desired_count }}
           SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
         run: |
           set -euo pipefail
 
-          payments_desired_count=$(aws ecs describe-services \
+          if [[ -z "${CONFIGURED_PAYMENTS_DESIRED_COUNT:-}" || -z "${CONFIGURED_SHOP_DESIRED_COUNT:-}" || "${CONFIGURED_PAYMENTS_DESIRED_COUNT}" == "null" || "${CONFIGURED_SHOP_DESIRED_COUNT}" == "null" ]]; then
+            echo "Configured desired counts are unavailable after apply" >&2
+            exit 1
+          fi
+
+          live_payments_desired_count=$(aws ecs describe-services \
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${PAYMENTS_SERVICE_NAME}" \
             --query 'services[0].desiredCount' \
             --output text)
-          shop_desired_count=$(aws ecs describe-services \
+          live_shop_desired_count=$(aws ecs describe-services \
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${SHOP_SERVICE_NAME}" \
             --query 'services[0].desiredCount' \
             --output text)
 
-          echo "PAYMENTS_DESIRED_COUNT=${payments_desired_count}" >> "$GITHUB_ENV"
-          echo "SHOP_DESIRED_COUNT=${shop_desired_count}" >> "$GITHUB_ENV"
+          echo "Configured desired counts after apply: payments=${CONFIGURED_PAYMENTS_DESIRED_COUNT}, shop=${CONFIGURED_SHOP_DESIRED_COUNT}"
+          echo "Live ECS desired counts before DB init quiesce: payments=${live_payments_desired_count}, shop=${live_shop_desired_count}"
+
+          echo "PAYMENTS_DESIRED_COUNT=${CONFIGURED_PAYMENTS_DESIRED_COUNT}" >> "$GITHUB_ENV"
+          echo "SHOP_DESIRED_COUNT=${CONFIGURED_SHOP_DESIRED_COUNT}" >> "$GITHUB_ENV"
 
           aws ecs update-service \
             --cluster "${ECS_CLUSTER_NAME}" \

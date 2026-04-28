@@ -237,6 +237,7 @@ export const privateDnsNamespaceId = computeServices.privateDnsNamespaceId;
 export const privateDnsNamespaceName = computeServices.privateDnsNamespaceName;
 
 // Compute services: payments workload.
+export const paymentsDesiredCount = computeServices.paymentsDesiredCount;
 export const paymentsImageUri = computeServices.paymentsImageUri;
 export const paymentsLogGroupName = computeServices.paymentsLogGroupName;
 export const paymentsServiceArn = computeServices.paymentsServiceArn;
@@ -247,6 +248,7 @@ export const paymentsTaskRoleArn = computeServices.paymentsTaskRoleArn;
 export const paymentsTaskRoleName = computeServices.paymentsTaskRoleName;
 
 // Compute services: shop workload.
+export const shopDesiredCount = computeServices.shopDesiredCount;
 export const shopImageUri = computeServices.shopImageUri;
 export const shopLogGroupName = computeServices.shopLogGroupName;
 export const shopServiceArn = computeServices.shopServiceArn;
