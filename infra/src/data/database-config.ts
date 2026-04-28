@@ -1,10 +1,14 @@
 import { config, stack } from '../bootstrap';
 
 const defaultAllocatedStorageGiB = 20;
+const defaultDatabaseBackend = stack === 'stage' ? 'ec2-postgres' : 'rds';
 const defaultNonProductionBackupRetentionDays = 1;
 const defaultProductionBackupRetentionDays = 7;
 const defaultDatabaseEngine = 'postgres';
 const defaultDatabaseEngineMajorVersion = '16';
+const defaultDatabaseHostDataVolumeDeviceName = '/dev/xvdf';
+const defaultDatabaseHostDataVolumeMountPath = '/var/lib/rd-shop-postgres';
+const defaultDatabaseHostInstanceType = 't3.micro';
 const defaultDatabaseMultiAz = false;
 const defaultDatabasePort = 5432;
 const defaultDatabaseStorageType = 'gp3';
@@ -16,13 +20,25 @@ const defaultShopDatabaseName = 'rd_shop';
 const defaultShopDatabaseUsername = 'shop';
 const minimumAllocatedStorageGiB = 20;
 
+export interface DatabaseHostConfig {
+  bootstrapSecretRecoveryWindowInDays: number;
+  dataVolumeDeviceName: string;
+  dataVolumeMountPath: string;
+  image: string;
+  instanceType: string;
+}
+
+export type FoundationDatabaseBackend = 'ec2-postgres' | 'rds';
+
 export interface FoundationDatabaseConfig {
   allocatedStorageGiB: number;
   applyImmediately: boolean;
+  backend: FoundationDatabaseBackend;
   backupRetentionDays: number;
   deletionProtection: boolean;
   engine: string;
   engineMajorVersion: string;
+  host: DatabaseHostConfig;
   parameterGroupFamily: string;
   payments: ServiceDatabaseConfig;
   port: number;
@@ -45,6 +61,9 @@ export interface ServiceDatabaseConfig {
  */
 export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
   const isProduction = stack === 'production';
+  const backend =
+    (config.get('databaseBackend') as FoundationDatabaseBackend | undefined) ??
+    defaultDatabaseBackend;
   const engineMajorVersion =
     config.get('databaseEngineMajorVersion') ?? defaultDatabaseEngineMajorVersion;
   const allocatedStorageGiB =
@@ -53,7 +72,11 @@ export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
     config.getNumber('databaseBackupRetentionDays') ??
     (isProduction ? defaultProductionBackupRetentionDays : defaultNonProductionBackupRetentionDays);
   const databaseMultiAz = config.getBoolean('databaseMultiAz') ?? defaultDatabaseMultiAz;
+  const databaseHostImage =
+    config.get('databaseHostImage') ??
+    `public.ecr.aws/docker/library/postgres:${engineMajorVersion}-alpine`;
 
+  validateBackend(backend);
   validateEngineMajorVersion(engineMajorVersion);
   validateAllocatedStorage(allocatedStorageGiB);
   validateBackupRetention(backupRetentionDays);
@@ -61,10 +84,20 @@ export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
   return {
     allocatedStorageGiB,
     applyImmediately: !isProduction,
+    backend,
     backupRetentionDays,
     deletionProtection: isProduction,
     engine: defaultDatabaseEngine,
     engineMajorVersion,
+    host: {
+      bootstrapSecretRecoveryWindowInDays: isProduction ? 30 : 0,
+      dataVolumeDeviceName:
+        config.get('databaseHostDataVolumeDeviceName') ?? defaultDatabaseHostDataVolumeDeviceName,
+      dataVolumeMountPath:
+        config.get('databaseHostDataVolumeMountPath') ?? defaultDatabaseHostDataVolumeMountPath,
+      image: databaseHostImage,
+      instanceType: config.get('databaseHostInstanceType') ?? defaultDatabaseHostInstanceType,
+    },
     parameterGroupFamily: `postgres${engineMajorVersion}`,
     payments: {
       dbName: config.get('paymentsDatabaseName') ?? defaultPaymentsDatabaseName,
@@ -98,6 +131,17 @@ function validateAllocatedStorage(allocatedStorageGiB: number) {
     throw new Error(
       `databaseAllocatedStorageGiB must be at least ${minimumAllocatedStorageGiB} GiB.`,
     );
+  }
+}
+
+/**
+ * Step 1.1 validation helper.
+ * Accepts the configured database backend.
+ * Throws when the backend is not supported by this stack.
+ */
+function validateBackend(backend: FoundationDatabaseBackend) {
+  if (backend !== 'ec2-postgres' && backend !== 'rds') {
+    throw new Error('databaseBackend must be either "rds" or "ec2-postgres".');
   }
 }
 

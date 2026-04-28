@@ -11,7 +11,8 @@ export const caller = aws.getCallerIdentityOutput({});
 
 export const accountId = caller.accountId;
 export const isSharedInfraOwner = stack === sharedInfraOwnerStack;
-export const resourcePrefix = `${projectPrefix}-${stack}`;
+export const resourceStackName = stack === 'production' ? 'prod' : stack;
+export const resourcePrefix = `${projectPrefix}-${resourceStackName}`;
 
 export const commonTags = {
   ManagedBy: 'Pulumi',

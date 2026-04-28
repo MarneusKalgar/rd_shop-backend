@@ -34,12 +34,12 @@ jobs:
       # Must come first: checkout wipes the workspace, so the artifact download
       # must happen after it. Also required to resolve local actions under .github/actions/
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
         with:
           aws-region: ${{ vars.AWS_REGION || 'eu-central-1' }}
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -50,7 +50,7 @@ jobs:
 
       # ── 2. Download the release manifest produced by build-and-push ──────────
       - name: Download release manifest
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-manifest-${{ github.event.workflow_run.head_sha }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -62,7 +62,7 @@ jobs:
         uses: ./.github/actions/parse-release-manifest
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '24'
           cache: npm
@@ -72,7 +72,7 @@ jobs:
         run: npm ci --prefix infra
 
       - name: Install Pulumi CLI
-        uses: pulumi/actions@v6
+        uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58 # v6.6.1
         with:
           pulumi-version: '^3'
 
@@ -86,44 +86,36 @@ jobs:
           pulumi config set --stack "${{ env.PULUMI_STACK }}" rd-shop-infra:shopImageUri "${{ steps.manifest.outputs.shop-image }}"
           pulumi config set --stack "${{ env.PULUMI_STACK }}" rd-shop-infra:paymentsImageUri "${{ steps.manifest.outputs.payments-image }}"
 
-      - name: Apply stage stack
+      - name: Capture current stage service outputs
+        id: current_stack
         working-directory: infra
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
-          pulumi stack select "${{ env.PULUMI_STACK }}"
-          pulumi up --stack "${{ env.PULUMI_STACK }}" --yes --non-interactive
+          set -euo pipefail
 
-      - name: Capture stage outputs
-        id: stack
-        working-directory: infra
-        env:
-          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-        run: |
           pulumi stack select "${{ env.PULUMI_STACK }}"
 
-          echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
-          echo "payments_log_group_name=$(pulumi stack output paymentsLogGroupName)" >> "$GITHUB_OUTPUT"
-          echo "payments_service_name=$(pulumi stack output paymentsServiceName)" >> "$GITHUB_OUTPUT"
-          echo "payments_task_definition_arn=$(pulumi stack output paymentsTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
-          echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
-          echo "shop_service_name=$(pulumi stack output shopServiceName)" >> "$GITHUB_OUTPUT"
-          echo "shop_target_group_arn=$(pulumi stack output shopTargetGroupArn)" >> "$GITHUB_OUTPUT"
-          echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+          ecs_cluster_name="$(pulumi stack output ecsClusterName 2>/dev/null || true)"
+          payments_service_name="$(pulumi stack output paymentsServiceName 2>/dev/null || true)"
+          shop_service_name="$(pulumi stack output shopServiceName 2>/dev/null || true)"
 
-          public_endpoint_url="$(pulumi stack output publicEndpointUrl 2>/dev/null || true)"
-          if [[ -z "${public_endpoint_url}" || "${public_endpoint_url}" == "null" ]]; then
-            echo "Stage public endpoint URL is not available" >&2
-            exit 1
+          if [[ -n "${ecs_cluster_name}" && -n "${payments_service_name}" && -n "${shop_service_name}" && "${ecs_cluster_name}" != "null" && "${payments_service_name}" != "null" && "${shop_service_name}" != "null" ]]; then
+            echo "services_present=true" >> "$GITHUB_OUTPUT"
+            echo "ecs_cluster_name=${ecs_cluster_name}" >> "$GITHUB_OUTPUT"
+            echo "payments_service_name=${payments_service_name}" >> "$GITHUB_OUTPUT"
+            echo "shop_service_name=${shop_service_name}" >> "$GITHUB_OUTPUT"
+          else
+            echo "services_present=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
 
-      - name: Quiesce ECS services before DB init
-        id: quiesce_services
+      - name: Quiesce existing ECS services before apply
+        id: pre_quiesce_services
+        if: ${{ steps.current_stack.outputs.services_present == 'true' }}
         env:
-          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
-          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
-          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+          ECS_CLUSTER_NAME: ${{ steps.current_stack.outputs.ecs_cluster_name }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.current_stack.outputs.payments_service_name }}
+          SHOP_SERVICE_NAME: ${{ steps.current_stack.outputs.shop_service_name }}
         run: |
           set -euo pipefail
 
@@ -157,6 +149,228 @@ jobs:
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${SHOP_SERVICE_NAME}"
 
+      - name: Apply stage stack
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+          pulumi up --stack "${{ env.PULUMI_STACK }}" --yes --non-interactive
+
+      - name: Capture stage outputs
+        id: stack
+        working-directory: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select "${{ env.PULUMI_STACK }}"
+
+          echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "database_backend=$(pulumi stack output databaseBackend)" >> "$GITHUB_OUTPUT"
+          echo "database_bootstrap_container_name=$(pulumi stack output databaseBootstrapContainerName 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+          echo "database_bootstrap_instance_id=$(pulumi stack output databaseBootstrapInstanceId 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+          echo "payments_log_group_name=$(pulumi stack output paymentsLogGroupName)" >> "$GITHUB_OUTPUT"
+          echo "payments_desired_count=$(pulumi stack output paymentsDesiredCount)" >> "$GITHUB_OUTPUT"
+          echo "payments_service_name=$(pulumi stack output paymentsServiceName)" >> "$GITHUB_OUTPUT"
+          echo "payments_task_definition_arn=$(pulumi stack output paymentsTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+          echo "shop_log_group_name=$(pulumi stack output shopLogGroupName)" >> "$GITHUB_OUTPUT"
+          echo "shop_desired_count=$(pulumi stack output shopDesiredCount)" >> "$GITHUB_OUTPUT"
+          echo "shop_service_name=$(pulumi stack output shopServiceName)" >> "$GITHUB_OUTPUT"
+          echo "shop_target_group_arn=$(pulumi stack output shopTargetGroupArn)" >> "$GITHUB_OUTPUT"
+          echo "shop_task_definition_arn=$(pulumi stack output shopTaskDefinitionArn)" >> "$GITHUB_OUTPUT"
+
+          public_endpoint_url="$(pulumi stack output publicEndpointUrl 2>/dev/null || true)"
+          if [[ -z "${public_endpoint_url}" || "${public_endpoint_url}" == "null" ]]; then
+            echo "Stage public endpoint URL is not available" >&2
+            exit 1
+          fi
+          echo "public_endpoint_url=${public_endpoint_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Quiesce ECS services before DB init
+        id: post_apply_quiesce_services
+        env:
+          ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
+          CONFIGURED_PAYMENTS_DESIRED_COUNT: ${{ steps.stack.outputs.payments_desired_count }}
+          PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
+          CONFIGURED_SHOP_DESIRED_COUNT: ${{ steps.stack.outputs.shop_desired_count }}
+          SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CONFIGURED_PAYMENTS_DESIRED_COUNT:-}" || -z "${CONFIGURED_SHOP_DESIRED_COUNT:-}" || "${CONFIGURED_PAYMENTS_DESIRED_COUNT}" == "null" || "${CONFIGURED_SHOP_DESIRED_COUNT}" == "null" ]]; then
+            echo "Configured desired counts are unavailable after apply" >&2
+            exit 1
+          fi
+
+          live_payments_desired_count=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}" \
+            --query 'services[0].desiredCount' \
+            --output text)
+          live_shop_desired_count=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}" \
+            --query 'services[0].desiredCount' \
+            --output text)
+
+          echo "Configured desired counts after apply: payments=${CONFIGURED_PAYMENTS_DESIRED_COUNT}, shop=${CONFIGURED_SHOP_DESIRED_COUNT}"
+          echo "Live ECS desired counts before DB init quiesce: payments=${live_payments_desired_count}, shop=${live_shop_desired_count}"
+
+          echo "PAYMENTS_DESIRED_COUNT=${CONFIGURED_PAYMENTS_DESIRED_COUNT}" >> "$GITHUB_ENV"
+          echo "SHOP_DESIRED_COUNT=${CONFIGURED_SHOP_DESIRED_COUNT}" >> "$GITHUB_ENV"
+
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${PAYMENTS_SERVICE_NAME}" \
+            --desired-count 0 >/dev/null
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --service "${SHOP_SERVICE_NAME}" \
+            --desired-count 0 >/dev/null
+
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${PAYMENTS_SERVICE_NAME}"
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER_NAME}" \
+            --services "${SHOP_SERVICE_NAME}"
+
+      - name: Wait for stage PostgreSQL host
+        if: ${{ steps.stack.outputs.database_backend == 'ec2-postgres' }}
+        env:
+          DATABASE_BOOTSTRAP_CONTAINER_NAME: ${{ steps.stack.outputs.database_bootstrap_container_name }}
+          DATABASE_BOOTSTRAP_INSTANCE_ID: ${{ steps.stack.outputs.database_bootstrap_instance_id }}
+        run: |
+          set -euo pipefail
+
+          dump_stage_postgres_host_diagnostics() {
+            local diagnostic_commands
+            local diagnostic_command_id
+
+            diagnostic_commands=$(jq -nc --arg container_name "${DATABASE_BOOTSTRAP_CONTAINER_NAME}" '{
+              commands: [
+                "sudo docker ps -a --no-trunc --filter name=" + $container_name,
+                "sudo docker inspect --format \"{{json .State}}\" " + $container_name + " || true",
+                "sudo test -f /var/lib/cloud/instance/boot-finished && echo cloud-init-finished=yes || echo cloud-init-finished=no",
+                "sudo lsblk -o PATH,SIZE,MODEL,SERIAL,FSTYPE,MOUNTPOINT || true",
+                "sudo df -h || true"
+              ]
+            }')
+
+            diagnostic_command_id="$(aws ssm send-command \
+              --instance-ids "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --document-name 'AWS-RunShellScript' \
+              --comment 'Dump stage PostgreSQL host diagnostics' \
+              --parameters "${diagnostic_commands}" \
+              --query 'Command.CommandId' \
+              --output text 2>/tmp/stage-db-diagnostics.err || true)"
+
+            if [[ -z "${diagnostic_command_id}" || "${diagnostic_command_id}" == "None" ]]; then
+              cat /tmp/stage-db-diagnostics.err >&2 || true
+              return
+            fi
+
+            aws ssm wait command-executed \
+              --command-id "${diagnostic_command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" || true
+
+            echo "Stage PostgreSQL host diagnostics (redacted):"
+            aws ssm get-command-invocation \
+              --command-id "${diagnostic_command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --query '{stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json || true
+          }
+
+          diagnostics_dumped=false
+          readiness_commands=$(jq -nc --arg container_name "${DATABASE_BOOTSTRAP_CONTAINER_NAME}" '{
+            commands: [
+              "set -euo pipefail",
+              "if [[ ! -f /var/lib/cloud/instance/boot-finished ]]; then echo stage-postgres-wait=cloud-init-not-finished; exit 10; fi",
+              "if ! sudo docker container inspect " + $container_name + " >/dev/null 2>&1; then echo stage-postgres-wait=container-not-created; exit 11; fi",
+              "if ! sudo docker ps --filter name=" + $container_name + " --filter status=running --quiet | grep -q .; then echo stage-postgres-wait=container-not-running; exit 12; fi",
+              "sudo docker exec " + $container_name + " pg_isready -h 127.0.0.1 -p 5432 -U postgres"
+            ]
+          }')
+
+          for attempt in $(seq 1 30); do
+            command_id="$(aws ssm send-command \
+              --instance-ids "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --document-name 'AWS-RunShellScript' \
+              --comment 'Wait for the stage PostgreSQL host to become ready' \
+              --parameters "${readiness_commands}" \
+              --query 'Command.CommandId' \
+              --output text 2>/tmp/stage-db-wait.err || true)"
+
+            if [[ -z "${command_id}" || "${command_id}" == "None" ]]; then
+              if grep -Eq 'TargetNotConnected|InvalidInstanceId' /tmp/stage-db-wait.err; then
+                echo "Stage PostgreSQL host is not ready for SSM yet (${attempt}/30)"
+                sleep 10
+                continue
+              fi
+
+              cat /tmp/stage-db-wait.err >&2 || true
+              exit 1
+            fi
+
+            aws ssm wait command-executed \
+              --command-id "${command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" || true
+
+            invocation_json="$(aws ssm get-command-invocation \
+              --command-id "${command_id}" \
+              --instance-id "${DATABASE_BOOTSTRAP_INSTANCE_ID}" \
+              --output json || true)"
+
+            command_status="$(echo "${invocation_json}" | jq -r '.Status // "Unknown"')"
+            command_stdout="$(echo "${invocation_json}" | jq -r '.StandardOutputContent // ""')"
+            command_stderr="$(echo "${invocation_json}" | jq -r '.StandardErrorContent // ""')"
+
+            if [[ "${command_status}" == "Success" ]]; then
+              exit 0
+            fi
+
+            if grep -q 'stage-postgres-wait=cloud-init-not-finished' <<<"${command_stdout}${command_stderr}"; then
+              echo "Stage PostgreSQL host is still bootstrapping via cloud-init (${attempt}/30)"
+              sleep 10
+              continue
+            fi
+
+            if grep -q 'stage-postgres-wait=container-not-created' <<<"${command_stdout}${command_stderr}"; then
+              echo "Stage PostgreSQL bootstrap finished without creating the container (${attempt}/30)"
+              echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
+              if [[ "${diagnostics_dumped}" != "true" ]]; then
+                diagnostics_dumped=true
+                dump_stage_postgres_host_diagnostics
+              fi
+              exit 1
+            fi
+
+            if grep -q 'stage-postgres-wait=container-not-running' <<<"${command_stdout}${command_stderr}"; then
+              echo "Stage PostgreSQL container exists but is not running yet (${attempt}/30)"
+              echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
+              if [[ "${attempt}" -ge 3 && "${diagnostics_dumped}" != "true" ]]; then
+                diagnostics_dumped=true
+                dump_stage_postgres_host_diagnostics
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+
+            echo "Stage PostgreSQL host readiness status: ${command_status} (${attempt}/30)"
+            echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
+
+            sleep 10
+          done
+
+          if [[ "${diagnostics_dumped}" != "true" ]]; then
+            dump_stage_postgres_host_diagnostics
+          fi
+
+          echo "Timed out waiting for the stage PostgreSQL host to become ready" >&2
+          exit 1
+
       - name: Run stage database init tasks
         id: db_init
         env:
@@ -184,18 +398,35 @@ jobs:
               '{containerOverrides:[{name:$name,command:$command,environment:$environment}]}')
 
             local run_task_output
-            run_task_output=$(aws ecs run-task \
-              --cluster "${ECS_CLUSTER_NAME}" \
-              --launch-type EC2 \
-              --count 1 \
-              --task-definition "${task_definition_arn}" \
-              --started-by "gha-stage-${{ github.run_id }}-${label}" \
-              --overrides "${overrides}" \
-              --output json)
+            for attempt in $(seq 1 6); do
+              run_task_output=$(aws ecs run-task \
+                --cluster "${ECS_CLUSTER_NAME}" \
+                --launch-type EC2 \
+                --count 1 \
+                --task-definition "${task_definition_arn}" \
+                --started-by "gha-stage-${{ github.run_id }}-${label}" \
+                --overrides "${overrides}" \
+                --output json)
+
+              if [[ "$(echo "${run_task_output}" | jq '.failures | length')" == "0" ]]; then
+                break
+              fi
+
+              echo "Failed to start task ${label} (attempt ${attempt}/6)"
+              echo "${run_task_output}" | jq -cr '[.failures[]? | {arn, reason, detail}]'
+
+              if echo "${run_task_output}" | jq -e '.failures | length > 0 and all(.[]; .reason == "AGENT")' >/dev/null; then
+                if [[ "${attempt}" != "6" ]]; then
+                  echo "ECS agent is not connected yet; retrying in 10s"
+                  sleep 10
+                  continue
+                fi
+              fi
+
+              return 1
+            done
 
             if [[ "$(echo "${run_task_output}" | jq '.failures | length')" != "0" ]]; then
-              echo "Failed to start task ${label}"
-              echo "${run_task_output}" | jq .
               return 1
             fi
 
@@ -253,7 +484,18 @@ jobs:
                 echo "CloudWatch log stream not found for task ${task_id} in ${log_group_name}"
               fi
 
-              echo "${task_description}" | jq .
+              echo "${task_description}" | jq -cr '{
+                taskArn: .tasks[0].taskArn,
+                lastStatus: .tasks[0].lastStatus,
+                stopCode: .tasks[0].stopCode,
+                stoppedReason: .tasks[0].stoppedReason,
+                containers: [.tasks[0].containers[]? | {
+                  name,
+                  lastStatus,
+                  exitCode,
+                  reason
+                }]
+              }'
               return 1
             fi
 
@@ -302,13 +544,18 @@ jobs:
           fi
 
       - name: Restore ECS services and trigger rollout
-        if: ${{ always() && steps.quiesce_services.outcome == 'success' }}
+        if: ${{ always() && (steps.pre_quiesce_services.outcome == 'success' || steps.post_apply_quiesce_services.outcome == 'success') }}
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
           SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
         run: |
           set -euo pipefail
+
+          if [[ -z "${PAYMENTS_DESIRED_COUNT:-}" || -z "${SHOP_DESIRED_COUNT:-}" ]]; then
+            echo "Saved desired counts are unavailable; skipping ECS restore"
+            exit 0
+          fi
 
           aws ecs update-service \
             --cluster "${ECS_CLUSTER_NAME}" \
@@ -322,12 +569,17 @@ jobs:
             --force-new-deployment >/dev/null
 
       - name: Wait for ECS services to stabilize
-        if: ${{ always() && steps.quiesce_services.outcome == 'success' }}
+        if: ${{ always() && (steps.pre_quiesce_services.outcome == 'success' || steps.post_apply_quiesce_services.outcome == 'success') }}
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}
           SHOP_SERVICE_NAME: ${{ steps.stack.outputs.shop_service_name }}
         run: |
+          if [[ -z "${PAYMENTS_DESIRED_COUNT:-}" || -z "${SHOP_DESIRED_COUNT:-}" ]]; then
+            echo "Saved desired counts are unavailable; skipping ECS stabilization wait"
+            exit 0
+          fi
+
           aws ecs wait services-stable \
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${PAYMENTS_SERVICE_NAME}"
@@ -336,7 +588,7 @@ jobs:
             --services "${SHOP_SERVICE_NAME}"
 
       - name: Dump ECS stabilization diagnostics
-        if: ${{ failure() && steps.quiesce_services.outcome == 'success' }}
+        if: ${{ failure() && (steps.pre_quiesce_services.outcome == 'success' || steps.post_apply_quiesce_services.outcome == 'success') }}
         env:
           ECS_CLUSTER_NAME: ${{ steps.stack.outputs.ecs_cluster_name }}
           PAYMENTS_SERVICE_NAME: ${{ steps.stack.outputs.payments_service_name }}

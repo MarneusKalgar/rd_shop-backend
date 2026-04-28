@@ -1,33 +1,44 @@
 config:
   aws:region: eu-central-1
   rd-shop-infra:databaseAllocatedStorageGiB: '20'
-  # Intentionally pinned to 1 day for the current budget/cost tradeoff even though production code defaults to 7 days.
-  # Revisit when the migration exits the free-tier-oriented posture.
+  # Intentionally pinned to 1 day for the current budget/free-tier posture.
+  # Code default stays higher for production; this explicit override documents the temporary tradeoff.
   rd-shop-infra:databaseBackupRetentionDays: '1'
+  rd-shop-infra:databaseBackend: rds
   rd-shop-infra:databaseEngineMajorVersion: '16'
-  rd-shop-infra:databaseMultiAz: 'true'
+  rd-shop-infra:databaseMultiAz: 'false'
   rd-shop-infra:filesBucketCorsAllowedHeaders:
     - '*'
   rd-shop-infra:filesBucketCorsAllowedOrigins:
     - '*'
   rd-shop-infra:natInstanceType: t3.micro
-  rd-shop-infra:paymentsDatabaseInstanceClass: db.t4g.small
+  rd-shop-infra:paymentsDatabaseInstanceClass: db.t4g.micro
   rd-shop-infra:paymentsDatabaseName: rd_shop_payments
   rd-shop-infra:paymentsDatabaseUsername: payments
   rd-shop-infra:privateSubnetCidrs:
-    - 10.52.10.0/24
-    - 10.52.11.0/24
+    - 10.42.10.0/24
+    - 10.42.11.0/24
+  # Stage uses CloudFront default-domain HTTPS for viewers, but CloudFront -> ALB stays HTTP in this mode.
+  # End-to-end TLS requires custom-domain mode with an ACM-backed HTTPS listener.
+  rd-shop-infra:publicEdgeMode: cloudfront
   rd-shop-infra:projectPrefix: rd-shop
   rd-shop-infra:publicSubnetCidrs:
-    - 10.52.0.0/24
-    - 10.52.1.0/24
+    - 10.42.0.0/24
+    - 10.42.1.0/24
   rd-shop-infra:sharedInfraOwnerStack: stage
-  # Required before `pulumi up`.
-  # Production keeps the explicit immutable image requirement and does not use the non-production bootstrap placeholder.
+  # Optional for initial non-production bootstrap.
+  # If omitted, ECS uses a fixed placeholder image tag and desired count 0 until real images are configured.
   # rd-shop-infra:shopImageTag: sha-<full-commit-sha>
   # rd-shop-infra:paymentsImageTag: sha-<full-commit-sha>
-  rd-shop-infra:shopDatabaseInstanceClass: db.t4g.small
+  rd-shop-infra:shopDatabaseInstanceClass: db.t4g.micro
   rd-shop-infra:shopDatabaseName: rd_shop
   rd-shop-infra:shopDatabaseUsername: shop
-  rd-shop-infra:vpcCidr: 10.52.0.0/16
-  rd-shop-infra:publicRootDomainName: rdshop.production.io
+  rd-shop-infra:vpcCidr: 10.42.0.0/16
+  rd-shop-infra:shopJwtAccessSecret:
+    secure: AAABAIkNhUg8AtJO9BEWtc6kDMhJIHNpqiOb3WCLzobBvkGHw39CLMiS/Avd3tWFTMIEbRCxCTowVuDOjYL1D9hOG8aCbEcExKqrF2UVdjWBFYW/zmwG2ZKorvq2TTwC
+  rd-shop-infra:shopTokenHmacSecret:
+    secure: AAABAOdMB8MH0wGcddGmtAKLWO5vk1vSC1J082ZpvKuQEUFSoTMhhvm9yExEg1jUILZJ7/zB4WC48ymD3QFQvV4pLkiW0nGTPk3N7ZTk5GsqecKq2jXp3hSFdtsRnh4t
+  rd-shop-infra:shopRabbitmqUser:
+    secure: AAABABR55SQQoSq941wfZc9edeKU+ZLrQTyD8ud63l+jPEZv9fmi88chSMo=
+  rd-shop-infra:shopRabbitmqPassword:
+    secure: AAABAHCHPCUZQgmk/4rxk8o6cCA4gKWLODusH1O/WlzpeWZKWtbAYqmUGH0U9j2mrWrX9bRy3bXz3UHIM7z2QuJP8pxmS7/TfiSPjPUombOrip3noLzrj89KN90Wpulj

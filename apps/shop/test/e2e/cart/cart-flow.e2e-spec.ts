@@ -1,7 +1,16 @@
-import { addToCartAndCheckout, BASE_URL, signupAndSignin, waitForReady } from '@test/e2e/helpers';
+import {
+  addToCartAndCheckout,
+  BASE_URL,
+  getScenarioUserEmail,
+  getScenarioUserPassword,
+  resolveE2EProductId,
+  signupAndSignin,
+  waitForReady,
+} from '@test/e2e/helpers';
 import supertest from 'supertest';
-const E2E_USER_EMAIL = 'e2e-cart-test@example.com';
-const E2E_USER_PASSWORD = 'E2eCartPass1!';
+
+const SCENARIO_USER_EMAIL = getScenarioUserEmail('cart', 'e2e-cart-test@example.com');
+const SCENARIO_USER_PASSWORD = getScenarioUserPassword('E2eCartPass1!');
 
 interface CartBody {
   id: string;
@@ -24,17 +33,10 @@ describe('Cart flow (e2e)', () => {
   beforeAll(async () => {
     await waitForReady(`${BASE_URL}/health`);
 
-    const ts = await signupAndSignin(E2E_USER_EMAIL, E2E_USER_PASSWORD);
+    const ts = await signupAndSignin(SCENARIO_USER_EMAIL, SCENARIO_USER_PASSWORD);
     token = ts.accessToken;
 
-    const res = await supertest(BASE_URL).get('/api/v1/products').expect(200);
-    const { data: products } = res.body as unknown as {
-      data: { id: string; stock: number }[];
-    };
-    // Require stock >= 5 to accommodate multiple flows without running out
-    const available = products.find((p) => p.stock >= 5);
-    if (!available) throw new Error('No product with stock >= 5 found in seed data');
-    productId = available.id;
+    productId = await resolveE2EProductId(5);
   }, 130_000);
 
   afterEach(async () => {

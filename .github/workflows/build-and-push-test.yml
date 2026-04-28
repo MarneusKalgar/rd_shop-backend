@@ -3,26 +3,14 @@ name: Build and Push — Test Wrapper
 on:
   # Branch-local harness for validating the real build lane
   # without touching the development branch workflow.
+  # Run on every push to these dedicated CI branches to avoid
+  # path-filter mismatches between wrapper workflows.
   push:
     branches:
       - ci/build-test/**
       - ci/stage-test/**
-    paths:
-      - '.github/workflows/build-and-push.yml'
-      - '.github/workflows/build-and-push-test.yml'
-      - '.github/workflows/deploy-stage.yml'
-      - '.github/workflows/deploy-stage-test.yml'
-      - '.github/actions/**'
-      - 'infra/**'
-      - 'Dockerfile'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'apps/**'
-      - 'libs/**'
-      - 'proto/**'
-      - 'nest-cli.json'
-      - 'tsconfig.json'
-      - 'tsconfig.build.json'
+      - ci/stage-validation-test/**
+  workflow_dispatch:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
@@ -46,7 +34,7 @@ jobs:
         app: [shop, payments]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6

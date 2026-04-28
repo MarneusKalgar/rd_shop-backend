@@ -22,14 +22,26 @@ runs:
 
         echo "Waiting for app to start (liveness) ..."
         liveness_ok=false
-        for i in $(seq 1 24); do
+        liveness_deadline=$((SECONDS + 120))
+        attempt=1
+
+        while (( SECONDS < liveness_deadline )); do
           if curl -sf --max-time 5 "${BASE_URL}/health"; then
             echo ""
             echo "Liveness OK"
             liveness_ok=true
             break
           fi
-          echo "  attempt ${i}/24 - retrying in 5s"
+
+          remaining_seconds=$((liveness_deadline - SECONDS))
+          if (( remaining_seconds <= 0 )); then
+            break
+          fi
+
+          sleep_seconds=$(( remaining_seconds < 5 ? remaining_seconds : 5 ))
+          echo "  attempt ${attempt} - retrying in ${sleep_seconds}s"
+          sleep "${sleep_seconds}"
+          attempt=$((attempt + 1))
         done
 
         if [[ "${liveness_ok}" != "true" ]]; then

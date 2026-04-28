@@ -320,7 +320,7 @@ Retries `GET /api/v1/orders/:id` every 500 ms until `status === targetStatus` or
 
 #### Step 11 — `apps/shop/test/e2e/order-lifecycle.e2e-spec.ts`
 
-`beforeAll`: call `waitForReady`, sign in once to get token, capture `BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8092'`.
+`beforeAll`: call `waitForReady`, sign in once to get token, capture `BASE_URL = process.env.STAGE_VALIDATION_BASE_URL ?? 'http://localhost:8092'`.
 
 Three `describe` blocks matching Flows 1–3. Each flow creates its own isolated user + product (via API or direct `supertest` POST) to avoid inter-flow pollution under `--runInBand`.
 

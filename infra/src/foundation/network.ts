@@ -6,7 +6,7 @@ import {
   endpointServiceSuffixes,
   getFoundationAvailabilityZones,
   getFoundationNetworkConfig,
-  getNatInstanceAmi,
+  resolveNatInstanceAmiId,
 } from './network-config';
 import { buildNatInstanceUserData } from './network-nat-user-data';
 import {
@@ -27,7 +27,7 @@ export function createFoundationNetwork() {
   const availabilityZones = getFoundationAvailabilityZones(
     networkConfig.requiredAvailabilityZoneCount,
   );
-  const amazonLinuxAmi = getNatInstanceAmi();
+  const natInstanceAmiId = resolveNatInstanceAmiId(networkConfig);
 
   // Base network with DNS support enabled so later ECS/Cloud Map phases can resolve private names.
   const vpc = new aws.ec2.Vpc(stackName('vpc'), {
@@ -94,7 +94,7 @@ export function createFoundationNetwork() {
   });
 
   const natInstance = new aws.ec2.Instance(stackName('nat-instance'), {
-    ami: amazonLinuxAmi.id,
+    ami: natInstanceAmiId,
     associatePublicIpAddress: true,
     instanceType: networkConfig.natInstanceType,
     metadataOptions: {

@@ -42,6 +42,7 @@ interface BuildServiceContainerDefinitionArgs {
   logGroupName: pulumi.Input<string>;
   runtimeParameterNames: RuntimeParameterNames;
   runtimeSecretArn: pulumi.Input<string>;
+  runtimeSecretVersionId: pulumi.Input<string>;
 }
 
 export const paymentsServiceDefaults = {
@@ -64,10 +65,12 @@ export function buildPaymentsContainerDefinitions({
   logGroupName,
   runtimeParameterNames,
   runtimeSecretArn,
+  runtimeSecretVersionId,
 }: BuildServiceContainerDefinitionArgs) {
   return pulumi.jsonStringify([
     {
       cpu: paymentsContainerCpu,
+      environment: buildRuntimeVersionEnvironment(runtimeSecretVersionId),
       essential: true,
       healthCheck: buildNodeHealthCheck(paymentsHealthCheckCommand),
       image: imageUri,
@@ -102,10 +105,12 @@ export function buildShopContainerDefinitions({
   logGroupName,
   runtimeParameterNames,
   runtimeSecretArn,
+  runtimeSecretVersionId,
 }: BuildServiceContainerDefinitionArgs) {
   return pulumi.jsonStringify([
     {
       cpu: shopContainerCpu,
+      environment: buildRuntimeVersionEnvironment(runtimeSecretVersionId),
       essential: true,
       healthCheck: buildNodeHealthCheck(shopHealthCheckCommand),
       image: imageUri,
@@ -186,4 +191,18 @@ function buildNodeHealthCheck(command: string) {
     startPeriod: healthCheckStartPeriodSeconds,
     timeout: healthCheckTimeoutSeconds,
   };
+}
+
+/**
+ * Step 2.3 container helper.
+ * Accepts the current runtime secret version id.
+ * Returns a harmless environment marker so task definitions roll whenever the backing runtime secret version changes.
+ */
+function buildRuntimeVersionEnvironment(runtimeSecretVersionId: pulumi.Input<string>) {
+  return [
+    {
+      name: 'RUNTIME_SECRET_VERSION',
+      value: runtimeSecretVersionId,
+    },
+  ];
 }
