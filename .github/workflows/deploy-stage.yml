@@ -22,7 +22,7 @@ jobs:
       PULUMI_STACK: stage
 
     permissions:
-      actions: read # Required to download artifacts from workflow_run
+      actions: write # Required to download artifacts and dispatch stage validation
       contents: read # Standard read access
       id-token: write # required for AWS OIDC federation
 
@@ -680,6 +680,17 @@ jobs:
         uses: ./.github/actions/smoke-test-shop-http
         with:
           base-url: ${{ steps.stack.outputs.public_endpoint_url }}
+
+      - name: Dispatch stage validation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          gh workflow run stage-validation.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${{ github.event.workflow_run.head_branch }}" \
+            -f sha="${{ github.event.workflow_run.head_sha }}"
 
       # ── 6. Write step summary ─────────────────────────────────────────────────
       - name: Write deploy summary

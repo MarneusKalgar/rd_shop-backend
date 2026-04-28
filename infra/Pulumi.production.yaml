@@ -26,8 +26,9 @@ config:
     - 10.42.0.0/24
     - 10.42.1.0/24
   rd-shop-infra:sharedInfraOwnerStack: stage
-  # Optional for initial non-production bootstrap.
-  # If omitted, ECS uses a fixed placeholder image tag and desired count 0 until real images are configured.
+  # Image selection belongs to deploy workflows or explicit one-off bootstrap commands.
+  # Keep committed stack config free of per-release image URIs.
+  # Production apply fails if no explicit image source is set before pulumi up.
   # rd-shop-infra:shopImageTag: sha-<full-commit-sha>
   # rd-shop-infra:paymentsImageTag: sha-<full-commit-sha>
   rd-shop-infra:shopDatabaseInstanceClass: db.t4g.micro
