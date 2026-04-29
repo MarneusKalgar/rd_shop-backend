@@ -11,14 +11,20 @@ interface RecordHttpRequestArgs {
   trafficSource?: string;
 }
 
+/**
+ * Emits REST request metrics for the shop service.
+ *
+ * The middleware resolves normalized route keys and status codes, while this
+ * service translates them into low-cardinality EMF events.
+ */
 @Injectable()
 export class HttpMetricsService {
   private readonly environment: string;
   private readonly serviceName: string;
 
   constructor(
-    @Inject(METRICS_SINK) private readonly metricsSink: MetricsSink,
-    private readonly configService: ConfigService,
+    @Inject(METRICS_SINK) protected readonly metricsSink: MetricsSink,
+    protected readonly configService: ConfigService,
   ) {
     this.environment =
       this.configService.get<string>('DEPLOYMENT_ENVIRONMENT') ??
@@ -27,6 +33,9 @@ export class HttpMetricsService {
     this.serviceName = this.configService.get<string>('APP') ?? 'shop';
   }
 
+  /**
+   * Emits request count and duration metrics for a single REST response.
+   */
   recordRequest({
     durationMs,
     method,

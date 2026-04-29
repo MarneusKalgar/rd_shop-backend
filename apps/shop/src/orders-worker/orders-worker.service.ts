@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Channel, ConsumeMessage } from 'amqplib';
 
+import { WorkerMetricsService } from '@/observability';
 import { OrderProcessMessageDto } from '@/orders/dto';
 import { OrderProcessingService } from '@/orders/services';
 import {
@@ -35,6 +36,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
   constructor(
     private readonly rabbitmqService: RabbitMQService,
     private readonly orderProcessingService: OrderProcessingService,
+    private readonly workerMetricsService: WorkerMetricsService,
   ) {}
 
   /** Cancels the active consumer when the module is torn down. */
@@ -63,6 +65,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
    * @param channel - AMQP channel used for acking
    */
   private async handleMessage(msg: ConsumeMessage, channel: Channel): Promise<void> {
+    const startNs = process.hrtime.bigint();
     let payload: OrderProcessMessageDto;
 
     try {
@@ -73,6 +76,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
       );
       this.publishToDlq({ attempt: 0, raw: msg.content.toString('base64') });
       channel.ack(msg);
+      this.recordOutcome('dlq', startNs);
       return;
     }
 
@@ -82,6 +86,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
       );
       this.publishToDlq({ ...payload, attempt: 0 });
       channel.ack(msg);
+      this.recordOutcome('dlq', startNs, payload.trafficSource);
       return;
     }
 
@@ -100,6 +105,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     try {
       await this.orderProcessingService.processOrderMessage(payload);
       channel.ack(msg);
+      this.recordOutcome('success', startNs, payload.trafficSource);
       this.logger.log(
         `[result: success] Acked message [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}] processed successfully`,
       );
@@ -114,6 +120,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     if (payload.attempt < MAX_RETRY_ATTEMPTS) {
       await this.retryMessage(payload);
       channel.ack(msg);
+      this.recordOutcome('retry', startNs, payload.trafficSource);
       this.logger.warn(
         `[result: retry] Scheduled retry [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}, nextAttempt: ${payload.attempt + 1}]`,
       );
@@ -122,6 +129,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
 
     this.publishToDlq(payload);
     channel.ack(msg);
+    this.recordOutcome('dlq', startNs, payload.trafficSource);
     this.logger.error(
       `[result: dlq] [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}] reason: max retries (${MAX_RETRY_ATTEMPTS}) reached`,
     );
@@ -137,6 +145,25 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     this.rabbitmqService.publish(ORDER_DLQ, payload, {
       messageId: payload.messageId,
     });
+    this.workerMetricsService.recordRabbitMqPublish({
+      queue: ORDER_DLQ,
+      trafficSource: payload.trafficSource,
+    });
+  }
+
+  private recordOutcome(
+    result: 'dlq' | 'retry' | 'success',
+    startNs: bigint,
+    trafficSource?: string,
+  ): void {
+    const durationMs = Number(process.hrtime.bigint() - startNs) / 1_000_000;
+
+    this.workerMetricsService.recordWorkerMessage({
+      queue: ORDER_PROCESS_QUEUE,
+      result,
+      trafficSource,
+    });
+    this.workerMetricsService.recordOrderProcessingDuration({ durationMs, result, trafficSource });
   }
 
   /**
@@ -155,6 +182,10 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
 
     this.rabbitmqService.publish(ORDER_PROCESS_QUEUE, retryPayload, {
       messageId: retryPayload.messageId,
+    });
+    this.workerMetricsService.recordRabbitMqPublish({
+      queue: ORDER_PROCESS_QUEUE,
+      trafficSource: retryPayload.trafficSource,
     });
   }
 

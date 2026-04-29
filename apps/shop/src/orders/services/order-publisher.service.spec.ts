@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 
+import { WorkerMetricsService } from '@/observability';
 import { ORDER_PROCESS_QUEUE } from '@/rabbitmq/constants';
 import { RabbitMQService } from '@/rabbitmq/rabbitmq.service';
 
@@ -16,16 +17,19 @@ describe('OrderPublisherService', () => {
 
   let configGet: jest.Mock;
   let publish: jest.Mock;
+  let recordRabbitMqPublish: jest.Mock;
 
   beforeEach(async () => {
     configGet = jest.fn().mockReturnValue(undefined);
     publish = jest.fn();
+    recordRabbitMqPublish = jest.fn();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrderPublisherService,
         { provide: ConfigService, useValue: { get: configGet } },
         { provide: RabbitMQService, useValue: { publish } },
+        { provide: WorkerMetricsService, useValue: { recordRabbitMqPublish } },
       ],
     }).compile();
 
@@ -39,6 +43,9 @@ describe('OrderPublisherService', () => {
       service.publishOrderProcessing(order);
 
       expect(publish).toHaveBeenCalledTimes(1);
+      expect(recordRabbitMqPublish).toHaveBeenCalledWith(
+        expect.objectContaining({ queue: ORDER_PROCESS_QUEUE }),
+      );
       const [queue, message] = publish.mock.calls[0] as [string, OrderProcessMessageDto];
       expect(queue).toBe(ORDER_PROCESS_QUEUE);
       expect(message.orderId).toBe(order.id);

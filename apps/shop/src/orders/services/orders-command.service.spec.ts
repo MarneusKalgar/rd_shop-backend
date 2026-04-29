@@ -6,6 +6,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuthUser } from '@/auth/types';
+import { OrdersMetricsService } from '@/observability';
 import { User } from '@/users/user.entity';
 
 import { MAX_ORDER_QUANTITY } from '../constants';
@@ -95,6 +96,8 @@ describe('OrdersCommandService', () => {
   let lockValidateAndDecrement: jest.Mock;
   let publishOrderProcessing: jest.Mock;
   let handleCreationError: jest.Mock;
+  let recordOrderCompleted: jest.Mock;
+  let recordOrderCreated: jest.Mock;
 
   beforeEach(async () => {
     userFindOne = jest.fn().mockResolvedValue(makeUser());
@@ -112,6 +115,8 @@ describe('OrdersCommandService', () => {
       .mockResolvedValue(new Map([['prod-1', { id: 'prod-1', price: 100 }]]));
     publishOrderProcessing = jest.fn();
     handleCreationError = jest.fn();
+    recordOrderCompleted = jest.fn();
+    recordOrderCreated = jest.fn();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -135,6 +140,7 @@ describe('OrdersCommandService', () => {
         },
         { provide: OrderPublisherService, useValue: { publishOrderProcessing } },
         { provide: PgErrorMapperService, useValue: { handleCreationError } },
+        { provide: OrdersMetricsService, useValue: { recordOrderCompleted, recordOrderCreated } },
       ],
     }).compile();
 
@@ -200,6 +206,9 @@ describe('OrdersCommandService', () => {
 
       expect(result).toBeDefined();
       expect(publishOrderProcessing).toHaveBeenCalledTimes(1);
+      expect(recordOrderCreated).toHaveBeenCalledWith(
+        expect.objectContaining({ initialStatus: createdOrder.status }),
+      );
       expect(eventEmit).toHaveBeenCalledWith(ORDER_CREATED_EVENT, expect.anything());
       expect(auditLog).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -312,6 +321,9 @@ describe('OrdersCommandService', () => {
 
       expect(result).toBeDefined();
       expect(lockAndRestore).toHaveBeenCalledTimes(1);
+      expect(recordOrderCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({ finalStatus: cancelledOrder.status }),
+      );
       expect(eventEmit).toHaveBeenCalledWith(ORDER_CANCELLED_EVENT, expect.anything());
       expect(auditLog).toHaveBeenCalledWith(
         expect.objectContaining({

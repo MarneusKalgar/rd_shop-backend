@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
 
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
+import { OrdersMetricsService } from '@/observability';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { simulateExternalService } from '@/utils';
@@ -43,6 +44,7 @@ export class OrderProcessingService {
     private readonly paymentsGrpcService: PaymentsGrpcService,
     private readonly auditLogService: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly ordersMetricsService: OrdersMetricsService,
   ) {}
 
   /**
@@ -55,7 +57,7 @@ export class OrderProcessingService {
    * @throws {NotFoundException} If the order cannot be reloaded from the DB
    * @throws {Error} Re-throws any gRPC or DB error so the worker can nack and retry
    */
-  async authorizePayment(order: Order): Promise<void> {
+  async authorizePayment(order: Order, trafficSource?: string): Promise<void> {
     const orderWithItems = await this.ordersRepository.findByIdWithRelations(order.id);
 
     if (!orderWithItems) {
@@ -76,6 +78,10 @@ export class OrderProcessingService {
         await this.ordersRepository
           .getRepository()
           .update({ id: order.id }, { paymentId: response.paymentId, status: OrderStatus.PAID });
+        this.ordersMetricsService.recordOrderCompleted({
+          finalStatus: OrderStatus.PAID,
+          trafficSource,
+        });
 
         this.logger.log(
           `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,
@@ -197,7 +203,7 @@ export class OrderProcessingService {
     }
 
     if (processedOrder && !processedOrder.paymentId) {
-      await this.authorizePayment(processedOrder);
+      await this.authorizePayment(processedOrder, payload.trafficSource);
     }
   }
 }
