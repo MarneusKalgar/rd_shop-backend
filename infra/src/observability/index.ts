@@ -12,6 +12,30 @@ const lbTargetLatencyAlarmThresholdSeconds = 2;
 const rdsConnectionsAlarmThreshold = 40;
 const statusCheckFailedAlarmThreshold = 1;
 
+interface BaseMetricAlarmArgs {
+  alarmTopicArn: pulumi.Input<string>;
+  comparisonOperator?: pulumi.Input<string>;
+  datapointsToAlarm?: number;
+  dimensions: Record<string, pulumi.Input<string>>;
+  evaluationPeriods?: number;
+  logicalName: string;
+  metricName: string;
+  statistic: pulumi.Input<string>;
+  threshold: number;
+  treatMissingData?: string;
+}
+
+interface CreateEc2StatusAlarmArgs {
+  alarmTopicArn: pulumi.Input<string>;
+  instanceId: pulumi.Input<string>;
+  logicalName: string;
+}
+
+interface CreateMetricAlarmArgs extends BaseMetricAlarmArgs {
+  namespace: string;
+  period?: number;
+}
+
 interface CreateObservabilityArgs {
   compute: {
     ecsClusterName: pulumi.Input<string>;
@@ -476,18 +500,7 @@ function createApplicationLoadBalancerAlarm({
   statistic,
   threshold,
   treatMissingData = 'notBreaching',
-}: {
-  alarmTopicArn: pulumi.Input<string>;
-  comparisonOperator?: pulumi.Input<string>;
-  datapointsToAlarm?: number;
-  dimensions: Record<string, pulumi.Input<string>>;
-  evaluationPeriods?: number;
-  logicalName: string;
-  metricName: string;
-  statistic: pulumi.Input<string>;
-  threshold: number;
-  treatMissingData?: string;
-}) {
+}: BaseMetricAlarmArgs) {
   return createMetricAlarm({
     alarmTopicArn,
     comparisonOperator,
@@ -507,11 +520,7 @@ function createEc2StatusAlarm({
   alarmTopicArn,
   instanceId,
   logicalName,
-}: {
-  alarmTopicArn: pulumi.Input<string>;
-  instanceId: pulumi.Input<string>;
-  logicalName: string;
-}) {
+}: CreateEc2StatusAlarmArgs) {
   return createMetricAlarm({
     alarmTopicArn,
     comparisonOperator: 'GreaterThanOrEqualToThreshold',
@@ -540,20 +549,7 @@ function createMetricAlarm({
   statistic,
   threshold,
   treatMissingData = 'notBreaching',
-}: {
-  alarmTopicArn: pulumi.Input<string>;
-  comparisonOperator?: pulumi.Input<string>;
-  datapointsToAlarm?: number;
-  dimensions: Record<string, pulumi.Input<string>>;
-  evaluationPeriods?: number;
-  logicalName: string;
-  metricName: string;
-  namespace: string;
-  period?: number;
-  statistic: pulumi.Input<string>;
-  threshold: number;
-  treatMissingData?: string;
-}) {
+}: CreateMetricAlarmArgs) {
   return new aws.cloudwatch.MetricAlarm(stackName(logicalName), {
     actionsEnabled: true,
     alarmActions: [alarmTopicArn],

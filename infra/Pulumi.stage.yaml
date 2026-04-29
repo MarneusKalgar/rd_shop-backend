@@ -50,6 +50,4 @@ config:
   rd-shop-infra:paymentsDatabasePassword:
     secure: AAABABTDJOVDwJtExEevCD1lR69xF3DC/SrhG47KscLeBj6GbGr9lryougqrhnsaDNugTnIeTocurYAWNvh/ujlT8G5uS5kA4r3TWXyNqY8=
   rd-shop-infra:natInstanceAmiId: ami-0e6ea107664115459
-  rd-shop-infra:alarmEmailEndpoints:
-    - chernobai.ihor.fr@gmail.com
   rd-shop-infra:ecsOptimizedAmiSsmParameterName: /rd-shop/stage/ecs/ami-id
