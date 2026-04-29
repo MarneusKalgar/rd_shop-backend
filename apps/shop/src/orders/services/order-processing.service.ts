@@ -68,11 +68,14 @@ export class OrderProcessingService {
     const amount = getTotalSumInCents(orderWithItems);
 
     try {
-      const response = await this.paymentsGrpcService.authorize({
-        amount,
-        currency: 'USD',
-        orderId: order.id,
-      });
+      const response = await this.paymentsGrpcService.authorize(
+        {
+          amount,
+          currency: 'USD',
+          orderId: order.id,
+        },
+        trafficSource,
+      );
 
       if (response.paymentId) {
         await this.ordersRepository
