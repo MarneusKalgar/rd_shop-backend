@@ -188,8 +188,6 @@ export function createComputeServices({
         routingPolicy: 'MULTIVALUE',
       },
       forceDestroy: stack !== 'production',
-      // AWS fixes custom health-check threshold to 1 now, so keep the block empty.
-      healthCheckCustomConfig: {},
       name: paymentsDiscoveryServiceName,
       tags: {
         ...commonTags,
