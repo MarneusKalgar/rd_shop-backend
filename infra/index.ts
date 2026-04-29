@@ -16,6 +16,7 @@ import {
 } from './src/data';
 import { createFoundation } from './src/foundation';
 import { createMessageBroker } from './src/messaging';
+import { createObservability } from './src/observability';
 
 // Step 0.2-0.4 / foundation: create shared registries plus the base network and security topology.
 const foundation = createFoundation();
@@ -113,6 +114,35 @@ const computeServices = createComputeServices({
   },
   ses: {
     shopSesIdentityArn: foundationSes.shopSesIdentityArn,
+  },
+});
+
+const observability = createObservability({
+  compute: {
+    ecsClusterName: foundationCompute.ecsClusterName,
+    paymentsLogGroupName: computeServices.paymentsLogGroupName,
+    paymentsServiceName: computeServices.paymentsServiceName,
+    shopLogGroupName: computeServices.shopLogGroupName,
+    shopServiceName: computeServices.shopServiceName,
+  },
+  database: {
+    databaseBackend: foundationDatabases.databaseBackend,
+    databaseBootstrapInstanceId: foundationDatabases.databaseBootstrapInstanceId,
+    paymentsDatabaseIdentifier: foundationDatabases.paymentsDatabaseIdentifier,
+    shopDatabaseIdentifier: foundationDatabases.shopDatabaseIdentifier,
+  },
+  edge: computeEdge
+    ? {
+        publicAlbArnSuffix: computeEdge.publicAlbArnSuffix,
+        publicEndpointUrl: computeEdge.publicEndpointUrl,
+        shopTargetGroupArnSuffix: computeEdge.shopTargetGroupArnSuffix,
+      }
+    : undefined,
+  messaging: {
+    mqBrokerId: messageQueue.mqBrokerId,
+  },
+  network: {
+    natInstanceId: foundation.network.natInstanceId,
   },
 });
 
@@ -261,6 +291,7 @@ export const shopTaskRoleName = computeServices.shopTaskRoleName;
 export const albAccessLogsBucketArn = computeEdge?.albAccessLogsBucketArn ?? null;
 export const albAccessLogsBucketName = computeEdge?.albAccessLogsBucketName ?? null;
 export const publicAlbArn = computeEdge?.publicAlbArn ?? null;
+export const publicAlbArnSuffix = computeEdge?.publicAlbArnSuffix ?? null;
 export const publicAlbDnsName = computeEdge?.publicAlbDnsName ?? null;
 export const publicAlbHttpListenerArn = computeEdge?.publicAlbHttpListenerArn ?? null;
 export const publicAlbHttpsListenerArn = computeEdge?.publicAlbHttpsListenerArn ?? null;
@@ -285,6 +316,7 @@ export const publicHostedZoneId = computeEdge?.publicHostedZoneId ?? null;
 export const publicHostedZoneName = computeEdge?.publicHostedZoneName ?? null;
 export const publicHostedZoneNameServers = computeEdge?.publicHostedZoneNameServers ?? null;
 export const shopTargetGroupArn = computeEdge?.shopTargetGroupArn ?? null;
+export const shopTargetGroupArnSuffix = computeEdge?.shopTargetGroupArnSuffix ?? null;
 export const shopTargetGroupName = computeEdge?.shopTargetGroupName ?? null;
 
 // Messaging: dedicated RabbitMQ broker.
@@ -297,5 +329,11 @@ export const mqBrokerHost = messageQueue.mqBrokerHost;
 export const mqBrokerId = messageQueue.mqBrokerId;
 export const mqBrokerName = messageQueue.mqBrokerName;
 export const mqBrokerPort = messageQueue.mqBrokerPort;
+
+// Observability: CloudWatch dashboard and alarm topic.
+export const alarmEmailEndpointCount = observability.alarmEmailEndpointCount;
+export const alarmTopicArn = observability.alarmTopicArn;
+export const alarmTopicName = observability.alarmTopicName;
+export const observabilityDashboardName = observability.observabilityDashboardName;
 
 export { accountId, region };

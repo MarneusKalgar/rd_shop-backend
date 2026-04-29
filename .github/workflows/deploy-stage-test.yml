@@ -184,14 +184,29 @@ jobs:
           pulumi login
           pulumi whoami
 
-      - name: Configure stage stack image inputs
+      - name: Configure stage stack deploy inputs
         working-directory: infra
         env:
+          ALARM_EMAIL_ENDPOINTS: ${{ vars.ALARM_EMAIL_ENDPOINTS }}
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
           pulumi stack select "${{ env.PULUMI_STACK }}"
           pulumi config set --stack "${{ env.PULUMI_STACK }}" rd-shop-infra:shopImageUri "${{ steps.manifest.outputs.shop-image }}"
           pulumi config set --stack "${{ env.PULUMI_STACK }}" rd-shop-infra:paymentsImageUri "${{ steps.manifest.outputs.payments-image }}"
+
+          if [[ -n "${ALARM_EMAIL_ENDPOINTS:-}" ]]; then
+            IFS=',' read -ra alarm_email_endpoints <<< "${ALARM_EMAIL_ENDPOINTS}"
+
+            for index in "${!alarm_email_endpoints[@]}"; do
+              endpoint="$(echo "${alarm_email_endpoints[$index]}" | xargs)"
+
+              if [[ -z "${endpoint}" ]]; then
+                continue
+              fi
+
+              pulumi config set --stack "${{ env.PULUMI_STACK }}" --path "rd-shop-infra:alarmEmailEndpoints[$index]" "${endpoint}"
+            done
+          fi
 
       - name: Capture current stage service outputs
         id: current_stack
