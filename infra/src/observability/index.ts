@@ -394,6 +394,29 @@ function buildDashboardWidgets({
     width: cloudWatchDashboardWidth,
   });
 
+  metricWidgets.push({
+    height: cloudWatchDashboardHeight,
+    properties: {
+      metrics: [
+        [
+          'AWS/ECS',
+          'ContainerInstanceCount',
+          'ClusterName',
+          compute.ecsClusterName,
+          { label: 'Container instances', stat: 'Average' },
+        ],
+        ['.', 'TaskCount', '.', '.', { label: 'Tasks', stat: 'Average' }],
+        ['.', 'ServiceCount', '.', '.', { label: 'Services', stat: 'Average' }],
+      ],
+      region,
+      stacked: false,
+      title: 'ECS cluster capacity',
+      view: 'timeSeries',
+    },
+    type: 'metric',
+    width: cloudWatchDashboardWidth,
+  });
+
   if (database.databaseBackend !== 'ec2-postgres') {
     metricWidgets.push({
       height: cloudWatchDashboardHeight,
@@ -434,6 +457,42 @@ function buildDashboardWidgets({
     });
   }
 
+  const ec2CpuMetrics: (pulumi.Input<string> | { label: string; stat: string })[][] = [
+    [
+      'AWS/EC2',
+      'CPUUtilization',
+      'InstanceId',
+      messaging.mqBrokerId,
+      { label: 'RabbitMQ CPU', stat: 'Average' },
+    ],
+    [
+      'AWS/EC2',
+      'CPUUtilization',
+      'InstanceId',
+      network.natInstanceId,
+      { label: 'NAT CPU', stat: 'Average' },
+    ],
+  ];
+
+  const ec2NetworkMetrics: (pulumi.Input<string> | { label: string; stat: string })[][] = [
+    [
+      'AWS/EC2',
+      'NetworkIn',
+      'InstanceId',
+      messaging.mqBrokerId,
+      { label: 'RabbitMQ net in', stat: 'Average' },
+    ],
+    ['.', 'NetworkOut', '.', '.', { label: 'RabbitMQ net out', stat: 'Average' }],
+    [
+      'AWS/EC2',
+      'NetworkIn',
+      'InstanceId',
+      network.natInstanceId,
+      { label: 'NAT net in', stat: 'Average' },
+    ],
+    ['.', 'NetworkOut', '.', '.', { label: 'NAT net out', stat: 'Average' }],
+  ];
+
   const ec2StatusMetrics: (pulumi.Input<string> | { label: string; stat: string })[][] = [
     [
       'AWS/EC2',
@@ -452,6 +511,29 @@ function buildDashboardWidgets({
   ];
 
   if (database.databaseBackend === 'ec2-postgres') {
+    ec2CpuMetrics.push([
+      'AWS/EC2',
+      'CPUUtilization',
+      'InstanceId',
+      database.databaseBootstrapInstanceId as pulumi.Input<string>,
+      { label: 'Stage PostgreSQL CPU', stat: 'Average' },
+    ]);
+
+    ec2NetworkMetrics.push([
+      'AWS/EC2',
+      'NetworkIn',
+      'InstanceId',
+      database.databaseBootstrapInstanceId as pulumi.Input<string>,
+      { label: 'Stage PostgreSQL net in', stat: 'Average' },
+    ]);
+    ec2NetworkMetrics.push([
+      '.',
+      'NetworkOut',
+      '.',
+      '.',
+      { label: 'Stage PostgreSQL net out', stat: 'Average' },
+    ]);
+
     ec2StatusMetrics.push([
       'AWS/EC2',
       'StatusCheckFailed',
@@ -460,6 +542,32 @@ function buildDashboardWidgets({
       { label: 'Stage PostgreSQL host status', stat: 'Maximum' },
     ]);
   }
+
+  metricWidgets.push({
+    height: cloudWatchDashboardHeight,
+    properties: {
+      metrics: ec2CpuMetrics,
+      region,
+      stacked: false,
+      title: 'Stateful EC2 CPU',
+      view: 'timeSeries',
+    },
+    type: 'metric',
+    width: cloudWatchDashboardWidth,
+  });
+
+  metricWidgets.push({
+    height: cloudWatchDashboardHeight,
+    properties: {
+      metrics: ec2NetworkMetrics,
+      region,
+      stacked: false,
+      title: 'Stateful EC2 network',
+      view: 'timeSeries',
+    },
+    type: 'metric',
+    width: cloudWatchDashboardWidth,
+  });
 
   metricWidgets.push({
     height: cloudWatchDashboardHeight,
