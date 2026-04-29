@@ -1,0 +1,63 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+import { METRICS_SINK, MetricsSink } from '../metrics-sink';
+
+interface RecordHttpRequestArgs {
+  durationMs: number;
+  method: string;
+  route: string;
+  statusCode: number;
+  trafficSource?: string;
+}
+
+@Injectable()
+export class HttpMetricsService {
+  private readonly environment: string;
+  private readonly serviceName: string;
+
+  constructor(
+    @Inject(METRICS_SINK) private readonly metricsSink: MetricsSink,
+    private readonly configService: ConfigService,
+  ) {
+    this.environment =
+      this.configService.get<string>('DEPLOYMENT_ENVIRONMENT') ??
+      this.configService.get<string>('NODE_ENV') ??
+      'unknown';
+    this.serviceName = this.configService.get<string>('APP') ?? 'shop';
+  }
+
+  recordRequest({
+    durationMs,
+    method,
+    route,
+    statusCode,
+    trafficSource,
+  }: RecordHttpRequestArgs): void {
+    if (trafficSource) {
+      return;
+    }
+
+    const baseDimensions = {
+      Environment: this.environment,
+      Method: method.toUpperCase(),
+      Route: route,
+      Service: this.serviceName,
+    };
+
+    this.metricsSink.emit({
+      dimensions: {
+        ...baseDimensions,
+        StatusClass: `${Math.floor(statusCode / 100)}xx`,
+      },
+      metrics: [{ name: 'HttpRequestCount', unit: 'Count', value: 1 }],
+      properties: { statusCode },
+    });
+
+    this.metricsSink.emit({
+      dimensions: baseDimensions,
+      metrics: [{ name: 'HttpRequestDurationMs', unit: 'Milliseconds', value: durationMs }],
+      properties: { statusCode },
+    });
+  }
+}

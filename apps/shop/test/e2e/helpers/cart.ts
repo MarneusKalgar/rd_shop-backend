@@ -1,6 +1,4 @@
-import supertest from 'supertest';
-
-import { BASE_URL } from './constants';
+import { e2eRequest } from './request';
 import { buildCheckoutIdempotencyKey } from './validation-config';
 
 export interface CartCheckoutResult {
@@ -18,13 +16,9 @@ export async function addToCartAndCheckout(
   quantity = 1,
   idempotencyKey?: string,
 ): Promise<CartCheckoutResult> {
-  await supertest(BASE_URL)
-    .delete('/api/v1/cart')
-    .set('Authorization', `Bearer ${token}`)
-    .expect(204);
+  await e2eRequest('delete', '/api/v1/cart').set('Authorization', `Bearer ${token}`).expect(204);
 
-  await supertest(BASE_URL)
-    .post('/api/v1/cart/items')
+  await e2eRequest('post', '/api/v1/cart/items')
     .set('Authorization', `Bearer ${token}`)
     .send({ productId, quantity })
     .expect(201);
@@ -36,8 +30,7 @@ export async function addToCartAndCheckout(
     checkoutBody.idempotencyKey = resolvedIdempotencyKey;
   }
 
-  const res = await supertest(BASE_URL)
-    .post('/api/v1/cart/checkout')
+  const res = await e2eRequest('post', '/api/v1/cart/checkout')
     .set('Authorization', `Bearer ${token}`)
     .send(checkoutBody)
     .expect(201);

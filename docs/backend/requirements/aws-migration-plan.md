@@ -111,7 +111,7 @@ ECS on EC2 is the only option that runs both services on one free-tier-eligible 
 | OS + buffer   | —             | ~274MB  | Kernel + headroom                                           |
 | **Total**     | 512 / 1024    | ~1024MB | Fits, but no room for concurrent deploy (stop-before-start) |
 
-**Deploy strategy:** `minimumHealthyPercent: 0`, `maximumPercent: 100` — ECS stops the old task before starting the new one (brief downtime during deploys, acceptable for staging). For production (post-free-tier): switch to `minimumHealthyPercent: 100`, `maximumPercent: 200` on larger instances.
+**Deploy strategy:** `minimumHealthyPercent: 0`, `maximumPercent: 100` — ECS stops the old task before starting the new one. This means brief downtime during deployments in both stage and production today. That trade-off is intentional: current AWS free-tier budget keeps the platform on a single t3.micro with no spare capacity for overlapping old/new tasks, and the goal is to keep the setup simple and cheap rather than optimize for zero-downtime rollouts yet. Zero-downtime deployment is deferred until budget allows larger or multiple ECS hosts, at which point production should switch to `minimumHealthyPercent: 100`, `maximumPercent: 200` and run old/new tasks side by side.
 
 ---
 
@@ -1577,7 +1577,7 @@ The e2e suite is wire-compatible with AWS — it speaks HTTP/JSON against the pu
 | Stage (AWS) | `https://api-stage.yourdomain.com`        | Pulumi stack output         |
 | Production  | not run against production                | N/A                         |
 
-No test code changes required when switching from local compose to ECS. The stage-validation subset now reads a single `STAGE_VALIDATION_*` contract: `STAGE_VALIDATION_BASE_URL` for target selection, `STAGE_VALIDATION_NAMESPACE` for fixture ownership, and `STAGE_VALIDATION_PRODUCT_ID` / `STAGE_VALIDATION_USER_PASSWORD` for seeded-stage reuse.
+No protocol-level scenario changes are required when switching from local compose to ECS. The stage-validation subset now reads a single `STAGE_VALIDATION_*` contract: `STAGE_VALIDATION_BASE_URL` for target selection, `STAGE_VALIDATION_NAMESPACE` for fixture ownership, and `STAGE_VALIDATION_PRODUCT_ID` / `STAGE_VALIDATION_USER_PASSWORD` for seeded-stage reuse. Once live-stage custom app metrics are enabled in Phase 6.1, stage-validation requests should also send a dedicated header such as `X-RdShop-Traffic-Source: stage-validation-e2e` so the app can mark logs and suppress only custom EMF metrics for that traffic. This does not suppress built-in ALB / ECS / RDS / EC2 metrics.
 
 ### Data preconditions
 
@@ -1626,6 +1626,8 @@ npm run e2e:down      # docker compose down -v --remove-orphans
 Add to GitHub `stage` Environment: `STAGE_VALIDATION_NAMESPACE` variable, `STAGE_VALIDATION_PRODUCT_ID` variable, and `STAGE_VALIDATION_USER_PASSWORD` secret.
 
 Before enabling the gate, ensure stage init flow creates the minimum product catalog the suite expects.
+
+Before relying on custom-metric suppression for live stage validation, normalize stage-validation HTTP requests through a shared helper or shared `supertest` agent that attaches `X-RdShop-Traffic-Source: stage-validation-e2e` to every request. Keep the header value as test-code convention; no extra GitHub Environment variable is required for it.
 
 #### Step 3 — Phase 4 (CI/CD update): wire into OIDC deploy flow
 

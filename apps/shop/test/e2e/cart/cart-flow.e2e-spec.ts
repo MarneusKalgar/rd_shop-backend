@@ -1,13 +1,13 @@
 import {
   addToCartAndCheckout,
   BASE_URL,
+  e2eRequest,
   getScenarioUserEmail,
   getScenarioUserPassword,
   resolveE2EProductId,
   signupAndSignin,
   waitForReady,
 } from '@test/e2e/helpers';
-import supertest from 'supertest';
 
 const SCENARIO_USER_EMAIL = getScenarioUserEmail('cart', 'e2e-cart-test@example.com');
 const SCENARIO_USER_PASSWORD = getScenarioUserPassword('E2eCartPass1!');
@@ -40,10 +40,7 @@ describe('Cart flow (e2e)', () => {
   }, 130_000);
 
   afterEach(async () => {
-    await supertest(BASE_URL)
-      .delete('/api/v1/cart')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(204);
+    await e2eRequest('delete', '/api/v1/cart').set('Authorization', `Bearer ${token}`).expect(204);
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -52,8 +49,7 @@ describe('Cart flow (e2e)', () => {
 
   describe('Flow 1: cart item management', () => {
     it('adds an item to cart and returns cart with that item', async () => {
-      const res = await supertest(BASE_URL)
-        .post('/api/v1/cart/items')
+      const res = await e2eRequest('post', '/api/v1/cart/items')
         .set('Authorization', `Bearer ${token}`)
         .send({ productId, quantity: 1 })
         .expect(201);
@@ -65,14 +61,12 @@ describe('Cart flow (e2e)', () => {
     });
 
     it('adding same product again increments quantity (upsert)', async () => {
-      await supertest(BASE_URL)
-        .post('/api/v1/cart/items')
+      await e2eRequest('post', '/api/v1/cart/items')
         .set('Authorization', `Bearer ${token}`)
         .send({ productId, quantity: 1 })
         .expect(201);
 
-      const res = await supertest(BASE_URL)
-        .post('/api/v1/cart/items')
+      const res = await e2eRequest('post', '/api/v1/cart/items')
         .set('Authorization', `Bearer ${token}`)
         .send({ productId, quantity: 2 })
         .expect(201);
@@ -83,14 +77,12 @@ describe('Cart flow (e2e)', () => {
     });
 
     it('GET /cart returns the current cart', async () => {
-      await supertest(BASE_URL)
-        .post('/api/v1/cart/items')
+      await e2eRequest('post', '/api/v1/cart/items')
         .set('Authorization', `Bearer ${token}`)
         .send({ productId, quantity: 1 })
         .expect(201);
 
-      const res = await supertest(BASE_URL)
-        .get('/api/v1/cart')
+      const res = await e2eRequest('get', '/api/v1/cart')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -100,8 +92,7 @@ describe('Cart flow (e2e)', () => {
     });
 
     it('updates item quantity via PATCH /cart/items/:itemId', async () => {
-      const addRes = await supertest(BASE_URL)
-        .post('/api/v1/cart/items')
+      const addRes = await e2eRequest('post', '/api/v1/cart/items')
         .set('Authorization', `Bearer ${token}`)
         .send({ productId, quantity: 1 })
         .expect(201);
@@ -109,8 +100,7 @@ describe('Cart flow (e2e)', () => {
       const { data: cartAfterAdd } = addRes.body as unknown as { data: CartBody };
       const itemId = cartAfterAdd.items[0].id;
 
-      const res = await supertest(BASE_URL)
-        .patch(`/api/v1/cart/items/${itemId}`)
+      const res = await e2eRequest('patch', `/api/v1/cart/items/${itemId}`)
         .set('Authorization', `Bearer ${token}`)
         .send({ quantity: 2 })
         .expect(200);
@@ -120,8 +110,7 @@ describe('Cart flow (e2e)', () => {
     });
 
     it('removes a specific item via DELETE /cart/items/:itemId', async () => {
-      const addRes = await supertest(BASE_URL)
-        .post('/api/v1/cart/items')
+      const addRes = await e2eRequest('post', '/api/v1/cart/items')
         .set('Authorization', `Bearer ${token}`)
         .send({ productId, quantity: 1 })
         .expect(201);
@@ -129,8 +118,7 @@ describe('Cart flow (e2e)', () => {
       const { data: cartAfterAdd } = addRes.body as unknown as { data: CartBody };
       const itemId = cartAfterAdd.items[0].id;
 
-      const res = await supertest(BASE_URL)
-        .delete(`/api/v1/cart/items/${itemId}`)
+      const res = await e2eRequest('delete', `/api/v1/cart/items/${itemId}`)
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -151,8 +139,7 @@ describe('Cart flow (e2e)', () => {
       flow2OrderIds.push(orderId);
       expect(status).toBe('PENDING');
 
-      const orderRes = await supertest(BASE_URL)
-        .get(`/api/v1/orders/${orderId}`)
+      const orderRes = await e2eRequest('get', `/api/v1/orders/${orderId}`)
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -170,8 +157,7 @@ describe('Cart flow (e2e)', () => {
       const { orderId } = await addToCartAndCheckout(token, productId, 1);
       flow2OrderIds.push(orderId);
 
-      const res = await supertest(BASE_URL)
-        .get('/api/v1/cart')
+      const res = await e2eRequest('get', '/api/v1/cart')
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -181,8 +167,7 @@ describe('Cart flow (e2e)', () => {
 
     afterAll(async () => {
       for (const id of flow2OrderIds) {
-        await supertest(BASE_URL)
-          .post(`/api/v1/orders/${id}/cancellation`)
+        await e2eRequest('post', `/api/v1/orders/${id}/cancellation`)
           .set('Authorization', `Bearer ${token}`)
           .catch(() => undefined);
       }
@@ -195,8 +180,7 @@ describe('Cart flow (e2e)', () => {
 
   describe('Flow 3: error cases', () => {
     it('POST /cart/checkout with an empty cart returns 400', async () => {
-      await supertest(BASE_URL)
-        .post('/api/v1/cart/checkout')
+      await e2eRequest('post', '/api/v1/cart/checkout')
         .set('Authorization', `Bearer ${token}`)
         .send({})
         .expect(400);
