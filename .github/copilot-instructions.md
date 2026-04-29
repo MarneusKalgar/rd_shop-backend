@@ -156,3 +156,4 @@ Stop at any time: "stop caveman" or "normal mode".
 - Never throw from controllers; throw from the service layer instead.
 - Each new env var should be added to `apps/shop/.env.example`/`apps/shop/.env.development` or `apps/payments/.env.example`/`apps/payments/.env.development` with a default value and register in the `apps/shop/src/core/environment/schema.ts` or `apps/payments/src/core/environment/schema.ts` depending on the service.
 - If you need to create constants - create `constants/index.ts` file in the relevant domain and export them from there. Do not create multiple constants files unless there is a very good reason to do so.
+- Never run `tsc` or `tsx` directly.

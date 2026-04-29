@@ -387,6 +387,7 @@ function buildRuntimeParameterPathArn() {
 function createLogGroup(logicalName: string, logGroupName: string, service: 'payments' | 'shop') {
   return new aws.cloudwatch.LogGroup(stackName(logicalName), {
     name: logGroupName,
+    retentionInDays: stack === 'production' ? 90 : 30,
     tags: {
       ...commonTags,
       Component: 'compute',
