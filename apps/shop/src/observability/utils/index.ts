@@ -4,7 +4,5 @@ export const shouldEnableObservabilityMetrics = (configService: ConfigService): 
   const deploymentEnvironment = configService.get<string>('DEPLOYMENT_ENVIRONMENT')?.toLowerCase();
   const metricsEnabled = configService.get<string>('OBSERVABILITY_METRICS_ENABLED') === 'true';
 
-  return (
-    metricsEnabled && (deploymentEnvironment === 'stage' || deploymentEnvironment === 'production')
-  );
+  return metricsEnabled && deploymentEnvironment === 'production';
 };

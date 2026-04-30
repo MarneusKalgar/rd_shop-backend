@@ -1,15 +1,29 @@
 import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 
-import { commonTags, config, region, stackName } from '../bootstrap';
+import { commonTags, config, region, stack, stackName } from '../bootstrap';
 
+const applicationMetricsNamespace = 'RdShop/Application';
+const applicationMetricsPeriodSeconds = 300;
+const applicationMetricsTenMinutePeriodSeconds = 600;
+const applicationServiceName = 'shop';
+const dlqAlarmThreshold = 1;
 const cloudWatchDashboardHeight = 6;
 const cloudWatchDashboardWidth = 12;
 const dashboardHeaderHeight = 3;
 const ecsUtilizationAlarmThresholdPercent = 80;
+const grpcClientErrorRateAlarmMinimumRequestCount = 20;
+const grpcClientErrorRateAlarmThresholdPercent = 5;
+const grpcClientLatencyAlarmThresholdMilliseconds = 500;
+const grpcPeerServiceName = 'payments';
 const healthyHostCountAlarmThreshold = 1;
+const http5xxRateAlarmMinimumRequestCount = 50;
+const http5xxRateAlarmThresholdPercent = 5;
+const httpLatencyAlarmThresholdMilliseconds = 1500;
 const lbTargetLatencyAlarmThresholdSeconds = 2;
+const orderDlqQueueName = 'orders.dlq';
 const rdsConnectionsAlarmThreshold = 40;
+const orderProcessQueueName = 'order.process';
 const statusCheckFailedAlarmThreshold = 1;
 
 interface BaseMetricAlarmArgs {
@@ -25,6 +39,14 @@ interface BaseMetricAlarmArgs {
   treatMissingData?: string;
 }
 
+interface BuildMetricSearchExpressionArgs {
+  dimensions: Record<string, string>;
+  metricName: string;
+  period?: number;
+  schemaDimensions: string[];
+  stat: string;
+}
+
 interface CreateEc2StatusAlarmArgs {
   alarmTopicArn: pulumi.Input<string>;
   instanceId: pulumi.Input<string>;
@@ -32,8 +54,20 @@ interface CreateEc2StatusAlarmArgs {
 }
 
 interface CreateMetricAlarmArgs extends BaseMetricAlarmArgs {
+  extendedStatistic?: pulumi.Input<string>;
   namespace: string;
   period?: number;
+}
+
+interface CreateMetricMathAlarmArgs {
+  alarmTopicArn: pulumi.Input<string>;
+  comparisonOperator?: pulumi.Input<string>;
+  datapointsToAlarm?: number;
+  evaluationPeriods: number;
+  logicalName: string;
+  metricQueries: pulumi.Input<pulumi.Input<aws.types.input.cloudwatch.MetricAlarmMetricQuery>[]>;
+  threshold: number;
+  treatMissingData?: string;
 }
 
 interface CreateObservabilityArgs {
@@ -80,6 +114,7 @@ export function createObservability({
   network,
 }: CreateObservabilityArgs) {
   const alarmEmailEndpoints = config.getObject<string[]>('alarmEmailEndpoints') ?? [];
+  const shouldCreateApplicationObservability = stack === 'production';
 
   const alarmTopic = new aws.sns.Topic(stackName('alarms'), {
     displayName: stackName('alarms'),
@@ -256,10 +291,187 @@ export function createObservability({
     });
   }
 
+  if (shouldCreateApplicationObservability) {
+    createMetricMathAlarm({
+      alarmTopicArn: alarmTopic.arn,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 1,
+      logicalName: 'app-http-5xx-rate-alarm',
+      metricQueries: [
+        {
+          expression: buildMetricSearchExpression({
+            dimensions: {
+              Environment: stack,
+              Service: applicationServiceName,
+            },
+            metricName: 'HttpRequestCount',
+            period: applicationMetricsPeriodSeconds,
+            schemaDimensions: ['Environment', 'Method', 'Route', 'Service', 'StatusClass'],
+            stat: 'Sum',
+          }),
+          id: 'totalRequests',
+          label: 'HTTP total requests',
+          returnData: false,
+        },
+        {
+          expression: buildMetricSearchExpression({
+            dimensions: {
+              Environment: stack,
+              Service: applicationServiceName,
+              StatusClass: '5xx',
+            },
+            metricName: 'HttpRequestCount',
+            period: applicationMetricsPeriodSeconds,
+            schemaDimensions: ['Environment', 'Method', 'Route', 'Service', 'StatusClass'],
+            stat: 'Sum',
+          }),
+          id: 'errorRequests',
+          label: 'HTTP 5xx requests',
+          returnData: false,
+        },
+        {
+          expression: `IF(totalRequests >= ${http5xxRateAlarmMinimumRequestCount}, (errorRequests / totalRequests) * 100, 0)`,
+          id: 'http5xxRate',
+          label: 'HTTP 5xx rate',
+          returnData: true,
+        },
+      ],
+      threshold: http5xxRateAlarmThresholdPercent,
+    });
+
+    createMetricMathAlarm({
+      alarmTopicArn: alarmTopic.arn,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 3,
+      logicalName: 'app-http-latency-p95-alarm',
+      metricQueries: [
+        {
+          expression: `MAX(${buildMetricSearchQuery({
+            dimensions: {
+              Environment: stack,
+              Service: applicationServiceName,
+            },
+            metricName: 'HttpRequestDurationMs',
+            period: applicationMetricsPeriodSeconds,
+            schemaDimensions: ['Environment', 'Method', 'Route', 'Service'],
+            stat: 'p95',
+          })})`,
+          id: 'httpLatencyP95',
+          label: 'HTTP latency p95',
+          returnData: true,
+        },
+      ],
+      threshold: httpLatencyAlarmThresholdMilliseconds,
+    });
+
+    createMetricMathAlarm({
+      alarmTopicArn: alarmTopic.arn,
+      comparisonOperator: 'GreaterThanOrEqualToThreshold',
+      evaluationPeriods: 1,
+      logicalName: 'app-worker-dlq-alarm',
+      metricQueries: [
+        {
+          expression: buildMetricSearchExpression({
+            dimensions: {
+              Environment: stack,
+              Result: 'dlq',
+              Service: applicationServiceName,
+            },
+            metricName: 'OrderWorkerMessageCount',
+            period: applicationMetricsTenMinutePeriodSeconds,
+            schemaDimensions: ['Environment', 'Queue', 'Result', 'Service'],
+            stat: 'Sum',
+          }),
+          id: 'dlqMessages',
+          label: 'Worker DLQ messages',
+          returnData: true,
+        },
+      ],
+      threshold: dlqAlarmThreshold,
+    });
+
+    createMetricMathAlarm({
+      alarmTopicArn: alarmTopic.arn,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 1,
+      logicalName: 'app-grpc-client-error-rate-alarm',
+      metricQueries: [
+        {
+          expression: buildMetricSearchExpression({
+            dimensions: {
+              Environment: stack,
+              PeerService: grpcPeerServiceName,
+              Service: applicationServiceName,
+            },
+            metricName: 'GrpcClientRequestCount',
+            period: applicationMetricsPeriodSeconds,
+            schemaDimensions: ['Environment', 'Method', 'Outcome', 'PeerService', 'Service'],
+            stat: 'Sum',
+          }),
+          id: 'grpcTotalRequests',
+          label: 'gRPC total requests',
+          returnData: false,
+        },
+        {
+          expression: buildMetricSearchExpression({
+            dimensions: {
+              Environment: stack,
+              Outcome: 'error',
+              PeerService: grpcPeerServiceName,
+              Service: applicationServiceName,
+            },
+            metricName: 'GrpcClientRequestCount',
+            period: applicationMetricsPeriodSeconds,
+            schemaDimensions: ['Environment', 'Method', 'Outcome', 'PeerService', 'Service'],
+            stat: 'Sum',
+          }),
+          id: 'grpcErrorRequests',
+          label: 'gRPC error requests',
+          returnData: false,
+        },
+        {
+          expression: `IF(grpcTotalRequests >= ${grpcClientErrorRateAlarmMinimumRequestCount}, (grpcErrorRequests / grpcTotalRequests) * 100, 0)`,
+          id: 'grpcErrorRate',
+          label: 'gRPC client error rate',
+          returnData: true,
+        },
+      ],
+      threshold: grpcClientErrorRateAlarmThresholdPercent,
+    });
+
+    createMetricMathAlarm({
+      alarmTopicArn: alarmTopic.arn,
+      comparisonOperator: 'GreaterThanThreshold',
+      evaluationPeriods: 2,
+      logicalName: 'app-grpc-client-authorize-latency-alarm',
+      metricQueries: [
+        {
+          expression: `MAX(${buildMetricSearchQuery({
+            dimensions: {
+              Environment: stack,
+              Method: 'authorize',
+              PeerService: grpcPeerServiceName,
+              Service: applicationServiceName,
+            },
+            metricName: 'GrpcClientDurationMs',
+            period: applicationMetricsPeriodSeconds,
+            schemaDimensions: ['Environment', 'Method', 'PeerService', 'Service'],
+            stat: 'p95',
+          })})`,
+          id: 'grpcAuthorizeLatencyP95',
+          label: 'gRPC authorize latency p95',
+          returnData: true,
+        },
+      ],
+      threshold: grpcClientLatencyAlarmThresholdMilliseconds,
+    });
+  }
+
   return {
     alarmEmailEndpointCount: alarmEmailEndpoints.length,
     alarmTopicArn: alarmTopic.arn,
     alarmTopicName: alarmTopic.name,
+    applicationMetricsNamespace,
     observabilityDashboardName: dashboard.dashboardName,
   };
 }
@@ -272,6 +484,7 @@ function buildDashboardWidgets({
   network,
 }: CreateObservabilityArgs) {
   const metricWidgets: DashboardWidget[] = [];
+  const shouldCreateApplicationObservability = stack === 'production';
 
   metricWidgets.push({
     height: dashboardHeaderHeight,
@@ -399,13 +612,30 @@ function buildDashboardWidgets({
     properties: {
       metrics: [
         [
-          'AWS/ECS',
+          'ECS/ContainerInsights',
           'ContainerInstanceCount',
           'ClusterName',
           compute.ecsClusterName,
           { label: 'Container instances', stat: 'Average' },
         ],
-        ['.', 'TaskCount', '.', '.', { label: 'Tasks', stat: 'Average' }],
+        [
+          '.',
+          'RunningTaskCount',
+          '.',
+          '.',
+          'ServiceName',
+          compute.shopServiceName,
+          { label: 'Shop running tasks', stat: 'Average' },
+        ],
+        [
+          '.',
+          'RunningTaskCount',
+          '.',
+          '.',
+          'ServiceName',
+          compute.paymentsServiceName,
+          { label: 'Payments running tasks', stat: 'Average' },
+        ],
         ['.', 'ServiceCount', '.', '.', { label: 'Services', stat: 'Average' }],
       ],
       region,
@@ -582,6 +812,411 @@ function buildDashboardWidgets({
     width: cloudWatchDashboardWidth,
   });
 
+  if (shouldCreateApplicationObservability) {
+    metricWidgets.push({
+      height: cloudWatchDashboardHeight,
+      properties: {
+        metrics: [
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Service: applicationServiceName,
+                },
+                metricName: 'HttpRequestCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Method', 'Route', 'Service', 'StatusClass'],
+                stat: 'Sum',
+              }),
+              id: 'httpTotalRequests',
+              label: 'HTTP total requests',
+              region,
+            },
+          ],
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Service: applicationServiceName,
+                  StatusClass: '4xx',
+                },
+                metricName: 'HttpRequestCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Method', 'Route', 'Service', 'StatusClass'],
+                stat: 'Sum',
+              }),
+              id: 'http4xxRequests',
+              label: 'HTTP 4xx',
+              region,
+            },
+          ],
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Service: applicationServiceName,
+                  StatusClass: '5xx',
+                },
+                metricName: 'HttpRequestCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Method', 'Route', 'Service', 'StatusClass'],
+                stat: 'Sum',
+              }),
+              id: 'http5xxRequests',
+              label: 'HTTP 5xx',
+              region,
+            },
+          ],
+        ],
+        region,
+        stacked: false,
+        title: 'App HTTP volume',
+        view: 'timeSeries',
+      },
+      type: 'metric',
+      width: cloudWatchDashboardWidth,
+    });
+
+    metricWidgets.push({
+      height: cloudWatchDashboardHeight,
+      properties: {
+        metrics: [
+          [
+            {
+              expression: buildMetricSearchQuery({
+                dimensions: {
+                  Environment: stack,
+                  Service: applicationServiceName,
+                },
+                metricName: 'HttpRequestDurationMs',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Method', 'Route', 'Service'],
+                stat: 'p95',
+              }),
+              id: 'httpRouteLatency',
+              label: 'HTTP p95 by route',
+              region,
+            },
+          ],
+        ],
+        region,
+        stacked: false,
+        title: 'App HTTP latency by route',
+        view: 'timeSeries',
+      },
+      type: 'metric',
+      width: cloudWatchDashboardWidth,
+    });
+
+    metricWidgets.push({
+      height: cloudWatchDashboardHeight,
+      properties: {
+        metrics: [
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Service: applicationServiceName,
+                },
+                metricName: 'OrderCreatedCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'InitialStatus', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'orderCreatedCount',
+              label: 'Orders created',
+              region,
+            },
+          ],
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  FinalStatus: 'PAID',
+                  Service: applicationServiceName,
+                },
+                metricName: 'OrderCompletionCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'FinalStatus', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'orderPaidCount',
+              label: 'Orders paid',
+              region,
+            },
+          ],
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  FinalStatus: 'CANCELLED',
+                  Service: applicationServiceName,
+                },
+                metricName: 'OrderCompletionCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'FinalStatus', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'orderCancelledCount',
+              label: 'Orders cancelled',
+              region,
+            },
+          ],
+        ],
+        region,
+        stacked: false,
+        title: 'Order lifecycle',
+        view: 'timeSeries',
+      },
+      type: 'metric',
+      width: cloudWatchDashboardWidth,
+    });
+
+    metricWidgets.push({
+      height: cloudWatchDashboardHeight,
+      properties: {
+        metrics: [
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Queue: orderProcessQueueName,
+                  Result: 'success',
+                  Service: applicationServiceName,
+                },
+                metricName: 'OrderWorkerMessageCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Queue', 'Result', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'workerSuccessCount',
+              label: 'Worker success',
+              region,
+            },
+          ],
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Queue: orderProcessQueueName,
+                  Result: 'retry',
+                  Service: applicationServiceName,
+                },
+                metricName: 'OrderWorkerMessageCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Queue', 'Result', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'workerRetryCount',
+              label: 'Worker retry',
+              region,
+            },
+          ],
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Result: 'dlq',
+                  Service: applicationServiceName,
+                },
+                metricName: 'OrderWorkerMessageCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Queue', 'Result', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'workerDlqCount',
+              label: 'Worker DLQ',
+              region,
+            },
+          ],
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Queue: orderProcessQueueName,
+                  Service: applicationServiceName,
+                },
+                metricName: 'RabbitMqPublishCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Queue', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'orderQueuePublishCount',
+              label: 'order.process publishes',
+              region,
+            },
+          ],
+          [
+            {
+              expression: buildMetricSearchExpression({
+                dimensions: {
+                  Environment: stack,
+                  Queue: orderDlqQueueName,
+                  Service: applicationServiceName,
+                },
+                metricName: 'RabbitMqPublishCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Queue', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'dlqPublishCount',
+              label: 'orders.dlq publishes',
+              region,
+            },
+          ],
+        ],
+        region,
+        stacked: false,
+        title: 'Worker throughput and queue volume',
+        view: 'timeSeries',
+      },
+      type: 'metric',
+      width: cloudWatchDashboardWidth,
+    });
+
+    metricWidgets.push({
+      height: cloudWatchDashboardHeight,
+      properties: {
+        metrics: [
+          [
+            {
+              expression: buildMetricSearchQuery({
+                dimensions: {
+                  Environment: stack,
+                  PeerService: grpcPeerServiceName,
+                  Service: applicationServiceName,
+                },
+                metricName: 'GrpcClientRequestCount',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Method', 'Outcome', 'PeerService', 'Service'],
+                stat: 'Sum',
+              }),
+              id: 'grpcClientCounts',
+              label: 'gRPC requests by method/outcome',
+              region,
+            },
+          ],
+        ],
+        region,
+        stacked: false,
+        title: 'gRPC client outcomes',
+        view: 'timeSeries',
+      },
+      type: 'metric',
+      width: cloudWatchDashboardWidth,
+    });
+
+    metricWidgets.push({
+      height: cloudWatchDashboardHeight,
+      properties: {
+        metrics: [
+          [
+            {
+              expression: `MAX(${buildMetricSearchQuery({
+                dimensions: {
+                  Environment: stack,
+                  Method: 'authorize',
+                  PeerService: grpcPeerServiceName,
+                  Service: applicationServiceName,
+                },
+                metricName: 'GrpcClientDurationMs',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Method', 'PeerService', 'Service'],
+                stat: 'p95',
+              })})`,
+              id: 'grpcAuthorizeP95',
+              label: 'authorize p95',
+              region,
+            },
+          ],
+          [
+            {
+              expression: `MAX(${buildMetricSearchQuery({
+                dimensions: {
+                  Environment: stack,
+                  Method: 'getPaymentStatus',
+                  PeerService: grpcPeerServiceName,
+                  Service: applicationServiceName,
+                },
+                metricName: 'GrpcClientDurationMs',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Method', 'PeerService', 'Service'],
+                stat: 'p95',
+              })})`,
+              id: 'grpcStatusP95',
+              label: 'getPaymentStatus p95',
+              region,
+            },
+          ],
+        ],
+        region,
+        stacked: false,
+        title: 'gRPC client latency',
+        view: 'timeSeries',
+      },
+      type: 'metric',
+      width: cloudWatchDashboardWidth,
+    });
+
+    metricWidgets.push({
+      height: cloudWatchDashboardHeight,
+      properties: {
+        metrics: [
+          [
+            {
+              expression: `MAX(${buildMetricSearchQuery({
+                dimensions: {
+                  Environment: stack,
+                  Service: applicationServiceName,
+                },
+                metricName: 'DbQueriesPerRequest',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Route', 'Service'],
+                stat: 'p95',
+              })})`,
+              id: 'dbQueriesPerRequestP95',
+              label: 'DB queries/request p95',
+              region,
+            },
+          ],
+          [
+            {
+              expression: `MAX(${buildMetricSearchQuery({
+                dimensions: {
+                  Environment: stack,
+                  Service: applicationServiceName,
+                },
+                metricName: 'OrderProcessingDurationMs',
+                period: applicationMetricsPeriodSeconds,
+                schemaDimensions: ['Environment', 'Result', 'Service'],
+                stat: 'p95',
+              })})`,
+              id: 'orderProcessingDurationP95',
+              label: 'Order processing p95',
+              region,
+            },
+          ],
+        ],
+        region,
+        stacked: false,
+        title: 'DB and async latency',
+        view: 'timeSeries',
+      },
+      type: 'metric',
+      width: cloudWatchDashboardWidth,
+    });
+  }
+
   return metricWidgets.map((widget, index) => {
     if (index === 0) {
       return widget;
@@ -595,6 +1230,31 @@ function buildDashboardWidgets({
       y: dashboardHeaderHeight + Math.floor(gridIndex / 2) * cloudWatchDashboardHeight,
     };
   });
+}
+
+function buildMetricSearchExpression({
+  dimensions,
+  metricName,
+  period = applicationMetricsPeriodSeconds,
+  schemaDimensions,
+  stat,
+}: BuildMetricSearchExpressionArgs): string {
+  return `SUM(${buildMetricSearchQuery({ dimensions, metricName, period, schemaDimensions, stat })})`;
+}
+
+function buildMetricSearchQuery({
+  dimensions,
+  metricName,
+  period = applicationMetricsPeriodSeconds,
+  schemaDimensions,
+  stat,
+}: BuildMetricSearchExpressionArgs): string {
+  const dimensionFilters = Object.entries(dimensions)
+    .map(([key, value]) => `${key}="${value}"`)
+    .join(' ');
+  const schema = [applicationMetricsNamespace, ...schemaDimensions].join(',');
+
+  return `SEARCH('{${schema}} MetricName="${metricName}" ${dimensionFilters}', '${stat}', ${period})`;
 }
 
 function createApplicationLoadBalancerAlarm({
@@ -650,6 +1310,7 @@ function createMetricAlarm({
   datapointsToAlarm,
   dimensions,
   evaluationPeriods = 1,
+  extendedStatistic,
   logicalName,
   metricName,
   namespace,
@@ -666,11 +1327,42 @@ function createMetricAlarm({
     datapointsToAlarm,
     dimensions,
     evaluationPeriods,
+    extendedStatistic,
     metricName,
     name: stackName(logicalName),
     namespace,
     period,
     statistic,
+    tags: {
+      ...commonTags,
+      Component: 'observability',
+      Name: stackName(logicalName),
+      Scope: 'private',
+    },
+    threshold,
+    treatMissingData,
+  });
+}
+
+function createMetricMathAlarm({
+  alarmTopicArn,
+  comparisonOperator = 'GreaterThanThreshold',
+  datapointsToAlarm,
+  evaluationPeriods,
+  logicalName,
+  metricQueries,
+  threshold,
+  treatMissingData = 'notBreaching',
+}: CreateMetricMathAlarmArgs) {
+  return new aws.cloudwatch.MetricAlarm(stackName(logicalName), {
+    actionsEnabled: true,
+    alarmActions: [alarmTopicArn],
+    alarmDescription: `${stackName(logicalName)} threshold crossed.`,
+    comparisonOperator,
+    datapointsToAlarm,
+    evaluationPeriods,
+    metricQueries,
+    name: stackName(logicalName),
     tags: {
       ...commonTags,
       Component: 'observability',

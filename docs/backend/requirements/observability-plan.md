@@ -236,16 +236,16 @@ After `pulumi up --stack stage`:
 
 - Encapsulate CloudWatch / EMF formatting behind a dedicated sink service. Domain emitters should call semantic metric methods rather than write raw `_aws` payloads directly.
 - First Phase 2 implementation targets `shop` only. Defer `payments` Pino alignment and inbound `payments` metrics until the `shop` slice is stable.
+- Current rollout keeps Phase 2 custom metrics, custom dashboard widgets, and app-level custom alarms in `production` only. `stage` keeps the Phase 1 infra-only dashboard/alarm set.
 - Add `OBSERVABILITY_METRICS_ENABLED` to the app runtime contract. Bind the real CloudWatch sink only when:
   - `OBSERVABILITY_METRICS_ENABLED=true`
-  - `DEPLOYMENT_ENVIRONMENT` is `stage` or `production`
-- Bind a no-op sink in local development, unit tests, integration tests, local e2e, and any other non-live environment.
+  - `DEPLOYMENT_ENVIRONMENT` is `production`
+- Bind a no-op sink in `stage`, local development, unit tests, integration tests, local e2e, and any other non-production environment.
 
-### Live stage-validation traffic
+### Tagged validation traffic
 
-- `OBSERVABILITY_METRICS_ENABLED` cannot selectively disable metrics for stage-validation requests on the deployed `stage` app, because normal traffic and validation traffic hit the same long-running process.
-- Built-in AWS metrics (ALB, ECS, RDS, EC2) will always include stage-validation traffic and should be accepted as low-volume stage noise.
-- Custom Phase 2 app metrics should use request tagging instead:
+- Built-in AWS metrics (ALB, ECS, RDS, EC2) will still include validation traffic in every environment and should be accepted as low-volume noise.
+- Custom Phase 2 app metrics should still use request tagging when validation or synthetic traffic hits `production`:
   - stage-validation requests send `X-RdShop-Traffic-Source: stage-validation-e2e`
   - `shop` logs include `trafficSource=stage-validation-e2e`
   - custom EMF metric emission is skipped for tagged requests
