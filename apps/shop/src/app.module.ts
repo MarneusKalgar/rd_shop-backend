@@ -15,6 +15,7 @@ import { getEnvFile, validate } from './core/environment';
 import { FilesModule } from './files/files.module';
 import { GraphqlModule } from './graphql/graphql.module';
 import { HealthModule } from './health/health.module';
+import { HttpMetricsMiddleware, ObservabilityModule } from './observability';
 import { OrderWorkerModule } from './orders-worker/orders-worker.module';
 import { OrdersModule } from './orders/orders.module';
 import { ProductsModule } from './products/products.module';
@@ -42,6 +43,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     UsersModule,
     CartModule,
+    ObservabilityModule,
     OrdersModule,
     ProductsModule,
     FilesModule,
@@ -59,6 +61,6 @@ import { UsersModule } from './users/users.module';
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(QueryLoggerMiddleware).forRoutes('*');
+    consumer.apply(QueryLoggerMiddleware, HttpMetricsMiddleware).forRoutes('*');
   }
 }

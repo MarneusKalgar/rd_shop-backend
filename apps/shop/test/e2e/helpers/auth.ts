@@ -1,6 +1,4 @@
-import supertest from 'supertest';
-
-import { BASE_URL } from './constants';
+import { e2eRequest } from './request';
 import { useStageValidationUsers } from './validation-config';
 
 export interface TokenSet {
@@ -14,13 +12,13 @@ export interface TokenSet {
  * in test requests.
  */
 export async function signupAndSignin(email: string, password: string): Promise<TokenSet> {
-  const agent = supertest(BASE_URL);
-
   if (!useStageValidationUsers()) {
     // Attempt signup — tolerate 409 (user already exists from a previous run)
-    const signupRes = await agent
-      .post('/api/v1/auth/signup')
-      .send({ confirmedPassword: password, email, password });
+    const signupRes = await e2eRequest('post', '/api/v1/auth/signup').send({
+      confirmedPassword: password,
+      email,
+      password,
+    });
 
     if (signupRes.status !== 201 && signupRes.status !== 409) {
       throw new Error(
@@ -29,7 +27,7 @@ export async function signupAndSignin(email: string, password: string): Promise<
     }
   }
 
-  const res = await agent.post('/api/v1/auth/signin').send({ email, password }).expect(200);
+  const res = await e2eRequest('post', '/api/v1/auth/signin').send({ email, password }).expect(200);
 
   const body = res.body as unknown as { accessToken: string; user: { id: string } };
   return {

@@ -112,7 +112,8 @@ describe('OrderWorkerService consumer — happy path', () => {
       expect(order.payment_id).toBe(FAKE_PAYMENT_ID);
 
       expect(ctx.paymentsGrpcMock.authorize).toHaveBeenCalledTimes(1);
-      expect(ctx.paymentsGrpcMock.authorize).toHaveBeenCalledWith(
+      const authorizeCall = ctx.paymentsGrpcMock.authorize.mock.calls[0] as [unknown, ...unknown[]];
+      expect(authorizeCall[0]).toEqual(
         expect.objectContaining({ currency: 'USD', orderId: MOCK.pendingOrderId }),
       );
     });

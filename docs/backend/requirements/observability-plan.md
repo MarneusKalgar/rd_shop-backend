@@ -232,6 +232,23 @@ After `pulumi up --stack stage`:
 - Optionally align `payments` with Pino for consistent JSON logs across both services
 - Extend dashboards and alarms with business-flow metrics
 
+### Runtime rules (shop-first)
+
+- Encapsulate CloudWatch / EMF formatting behind a dedicated sink service. Domain emitters should call semantic metric methods rather than write raw `_aws` payloads directly.
+- First Phase 2 implementation targets `shop` only. Defer `payments` Pino alignment and inbound `payments` metrics until the `shop` slice is stable.
+- Current rollout keeps Phase 2 custom metrics, custom dashboard widgets, and app-level custom alarms in `production` only. `stage` keeps the Phase 1 infra-only dashboard/alarm set.
+- Add `OBSERVABILITY_METRICS_ENABLED` to the app runtime contract. Bind the real CloudWatch sink only when:
+  - `OBSERVABILITY_METRICS_ENABLED=true`
+  - `DEPLOYMENT_ENVIRONMENT` is `production`
+- Bind a no-op sink in `stage`, local development, unit tests, integration tests, local e2e, and any other non-production environment.
+
+### Validation traffic
+
+- Built-in AWS metrics (ALB, ECS, RDS, EC2) will still include validation traffic in every environment and should be accepted as low-volume noise.
+- Stage validation does not need special request tagging because Phase 2 custom app metrics are disabled outside `production`.
+- No client-controlled header or request-scoped suppression path should exist for custom metric emission.
+- If synthetic traffic ever needs to hit `production`, handle that as an explicit future design with a trusted server-side signal rather than a public request header.
+
 ### Common-code boundary
 
 Put only reusable primitives in `libs/`:
@@ -246,14 +263,17 @@ Keep app-specific adapters in each app:
 - `payments` gRPC logger bootstrap stays in `apps/payments`
 - service-specific metric emitters stay near the owning modules
 
-### Recommended implementation order
+### Minimal-blast implementation order
 
-1. Optional but recommended: migrate `payments` to Pino so both services emit consistent structured JSON.
-2. Add HTTP request count / latency metrics in `shop`.
-3. Add order lifecycle and worker metrics in `shop`.
-4. Add gRPC client metrics in `shop` and gRPC server metrics in `payments`.
-5. Add DB latency / query-count metrics where the existing request-context hooks already support them.
-6. Extend the CloudWatch dashboards and alarms to include the new app-level metrics.
+1. Add runtime gate + no-op sink + `shop` observability module scaffolding.
+2. Add request tagging for live stage-validation traffic and log marking in `shop`.
+3. Add `HttpMetricsService` for REST-only request count / duration. Exclude health endpoints and GraphQL.
+4. Add `DbMetricsService` for `DbQueriesPerRequest` using the existing AsyncLocalStorage + TypeORM query-count hooks.
+5. Add `OrdersMetricsService` for `OrderCreatedCount`, `OrderCompletionCount{PAID}`, and `OrderCompletionCount{CANCELLED}`.
+6. Add `WorkerMetricsService` for `RabbitMqPublishCount`, `OrderWorkerMessageCount`, and `OrderProcessingDurationMs`.
+7. Add `PaymentsClientMetricsService` in `shop` for outbound gRPC client request count / duration / outcome.
+8. Extend Pulumi dashboards and alarms only after stage metrics are visible and metric names are stable.
+9. Add a separate observability module under `apps/payments/` only when `payments` app metrics are started. Extract shared sink helpers to `libs/common/` later only if duplication becomes real.
 
 ### Why EMF over sidecars
 
@@ -298,7 +318,7 @@ Keep dimensions intentionally low-cardinality. Never emit request ids, user ids,
 | `HttpRequestCount`          | Count        | `Environment`, `Service`, `Route`, `Method`, `StatusClass`   | request volume                   |
 | `HttpRequestDurationMs`     | Milliseconds | `Environment`, `Service`, `Route`, `Method`                  | HTTP latency                     |
 | `OrderCreatedCount`         | Count        | `Environment`, `Service`, `InitialStatus`                    | order creation volume            |
-| `OrderCompletionCount`      | Count        | `Environment`, `Service`, `FinalStatus`                      | paid / cancelled / failed volume |
+| `OrderCompletionCount`      | Count        | `Environment`, `Service`, `FinalStatus`                      | paid / cancelled volume          |
 | `OrderWorkerMessageCount`   | Count        | `Environment`, `Service`, `Queue`, `Result`                  | worker throughput / retry / DLQ  |
 | `OrderProcessingDurationMs` | Milliseconds | `Environment`, `Service`, `Result`                           | end-to-end async processing time |
 | `RabbitMqPublishCount`      | Count        | `Environment`, `Service`, `Queue`                            | queue publish volume             |
@@ -323,6 +343,11 @@ Keep dimensions intentionally low-cardinality. Never emit request ids, user ids,
 - `Entity`: repository / aggregate name such as `Order`, `Product`, `User`, `Payment`
 
 If a route cannot be normalized safely, do not emit route-level metrics for it until a stable key exists.
+
+Current first-cut scoping rules:
+
+- Skip GraphQL metrics in the initial `shop` rollout. Add only REST request metrics first.
+- Do not emit `OrderCompletionCount{FinalStatus=failed}` because the current orders domain has no terminal failed order state.
 
 ### Instrumentation points
 
@@ -364,13 +389,14 @@ These should be graphed first and promoted to alarms only after real stage basel
 
 #### Code-work sequence after the metric contract is frozen
 
-1. Add shared metric-schema helpers in `libs/` only for constants / builders.
-2. Add `payments` Pino alignment if chosen.
-3. Emit `HttpRequestCount` and `HttpRequestDurationMs` from `shop`.
-4. Emit worker and RabbitMQ metrics in `shop`.
-5. Emit gRPC client metrics in `shop` and gRPC server metrics in `payments`.
-6. Emit DB timing / query-count metrics last.
+1. Add `shop` sink scaffolding and runtime gate.
+2. Add request tagging support for live stage-validation traffic.
+3. Emit `HttpRequestCount` and `HttpRequestDurationMs` from `shop` REST only.
+4. Emit `DbQueriesPerRequest` from `shop`.
+5. Emit orders, worker, and RabbitMQ metrics in `shop`.
+6. Emit outbound gRPC client metrics in `shop`.
 7. Extend Pulumi dashboards and alarms only after stage metrics are visible in CloudWatch.
+8. Revisit `payments` Pino alignment and inbound metrics only after the `shop` slice is proven stable.
 
 ### Dependencies
 

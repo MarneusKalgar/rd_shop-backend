@@ -1,5 +1,6 @@
 import {
   addToCartAndCheckout,
+  e2eRequest,
   getScenarioUserEmail,
   getScenarioUserPassword,
   resolveE2EProductId,
@@ -7,7 +8,6 @@ import {
   waitForReady,
 } from '@test/e2e/helpers';
 import { waitForStageValidationRequestInterval } from '@test/e2e/helpers/validation-config';
-import supertest from 'supertest';
 
 import { BASE_URL } from './constants';
 import { OrderBody, OrdersListBody } from './interfaces';
@@ -24,7 +24,7 @@ describe('Order querying (e2e)', () => {
   async function getOrdersList(path = '/api/v1/orders') {
     await waitForStageValidationRequestInterval();
 
-    return supertest(BASE_URL).get(path).set('Authorization', `Bearer ${token}`).expect(200);
+    return e2eRequest('get', path).set('Authorization', `Bearer ${token}`).expect(200);
   }
 
   beforeAll(async () => {
@@ -86,8 +86,7 @@ describe('Order querying (e2e)', () => {
 
   describe('GET /api/v1/orders/:orderId', () => {
     it('returns the correct order with items', async () => {
-      const res = await supertest(BASE_URL)
-        .get(`/api/v1/orders/${orderId1}`)
+      const res = await e2eRequest('get', `/api/v1/orders/${orderId1}`)
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -97,21 +96,19 @@ describe('Order querying (e2e)', () => {
     });
 
     it('returns 404 for a non-existent order ID', async () => {
-      await supertest(BASE_URL)
-        .get('/api/v1/orders/00000000-0000-4000-8000-000000000001')
+      await e2eRequest('get', '/api/v1/orders/00000000-0000-4000-8000-000000000001')
         .set('Authorization', `Bearer ${token}`)
         .expect(404);
     });
 
     it('returns 401 without an auth token', async () => {
-      await supertest(BASE_URL).get(`/api/v1/orders/${orderId1}`).expect(401);
+      await e2eRequest('get', `/api/v1/orders/${orderId1}`).expect(401);
     });
   });
 
   afterAll(async () => {
     for (const id of [orderId1, orderId2]) {
-      await supertest(BASE_URL)
-        .post(`/api/v1/orders/${id}/cancellation`)
+      await e2eRequest('post', `/api/v1/orders/${id}/cancellation`)
         .set('Authorization', `Bearer ${token}`)
         .catch(() => undefined);
     }

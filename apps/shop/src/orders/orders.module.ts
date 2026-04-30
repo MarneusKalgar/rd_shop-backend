@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditLogModule } from '@/audit-log';
 import { MailModule } from '@/mail/mail.module';
+import { ObservabilityModule } from '@/observability';
 import { PaymentsGrpcModule } from '@/payments/payments-grpc.module';
 import { ProductsRepository } from '@/products/product.repository';
 import { RabbitMQModule } from '@/rabbitmq/rabbitmq.module';
@@ -33,6 +34,7 @@ import { OrdersController as OrdersControllerV1 } from './v1/orders.controller';
     AuditLogModule,
     EventEmitterModule.forRoot(),
     MailModule,
+    ObservabilityModule,
     RabbitMQModule,
     PaymentsGrpcModule,
   ],

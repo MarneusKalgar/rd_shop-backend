@@ -51,6 +51,7 @@ apps/shop/test/performance/results/*/*
 # temp directory
 .temp
 .tmp
+demo
 
 # Runtime data
 pids

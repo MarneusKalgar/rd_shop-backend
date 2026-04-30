@@ -123,6 +123,10 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  OBSERVABILITY_METRICS_ENABLED?: string;
+
+  @IsOptional()
+  @IsString()
   PASSWORD_RESET_EXPIRES_IN?: string;
 
   @IsString()

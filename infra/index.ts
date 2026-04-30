@@ -332,6 +332,7 @@ export const mqBrokerPort = messageQueue.mqBrokerPort;
 
 // Observability: CloudWatch dashboard and alarm topic.
 export const alarmEmailEndpointCount = observability.alarmEmailEndpointCount;
+export const applicationMetricsNamespace = observability.applicationMetricsNamespace;
 export const alarmTopicArn = observability.alarmTopicArn;
 export const alarmTopicName = observability.alarmTopicName;
 export const observabilityDashboardName = observability.observabilityDashboardName;
