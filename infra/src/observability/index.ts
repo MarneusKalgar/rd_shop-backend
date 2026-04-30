@@ -23,7 +23,7 @@ const httpLatencyAlarmThresholdMilliseconds = 1500;
 const lbTargetLatencyAlarmThresholdSeconds = 2;
 const orderDlqQueueName = 'orders.dlq';
 const rdsConnectionsAlarmThreshold = 40;
-const orderProcessQueueName = 'order.process';
+const orderProcessQueueName = 'orders.process';
 const statusCheckFailedAlarmThreshold = 1;
 
 interface BaseMetricAlarmArgs {

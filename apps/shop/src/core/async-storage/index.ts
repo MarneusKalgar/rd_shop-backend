@@ -2,7 +2,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface RequestContext {
   queryCount: number;
-  trafficSource?: string;
 }
 
 export const requestContext = new AsyncLocalStorage<RequestContext>();
@@ -16,7 +15,6 @@ export const incrementQueryCount = () => {
   }
 };
 
-export const getNewStore = (trafficSource?: string): RequestContext => ({
+export const getNewStore = (): RequestContext => ({
   queryCount: 0,
-  trafficSource,
 });

@@ -242,14 +242,12 @@ After `pulumi up --stack stage`:
   - `DEPLOYMENT_ENVIRONMENT` is `production`
 - Bind a no-op sink in `stage`, local development, unit tests, integration tests, local e2e, and any other non-production environment.
 
-### Tagged validation traffic
+### Validation traffic
 
 - Built-in AWS metrics (ALB, ECS, RDS, EC2) will still include validation traffic in every environment and should be accepted as low-volume noise.
-- Custom Phase 2 app metrics should still use request tagging when validation or synthetic traffic hits `production`:
-  - stage-validation requests send `X-RdShop-Traffic-Source: stage-validation-e2e`
-  - `shop` logs include `trafficSource=stage-validation-e2e`
-  - custom EMF metric emission is skipped for tagged requests
-- When async worker and outbound gRPC client metrics are added, propagate the same traffic-source marker through the order-processing message so worker/client metrics can honor the same suppression rule.
+- Stage validation does not need special request tagging because Phase 2 custom app metrics are disabled outside `production`.
+- No client-controlled header or request-scoped suppression path should exist for custom metric emission.
+- If synthetic traffic ever needs to hit `production`, handle that as an explicit future design with a trusted server-side signal rather than a public request header.
 
 ### Common-code boundary
 

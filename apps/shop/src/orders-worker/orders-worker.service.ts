@@ -86,7 +86,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
       );
       this.publishToDlq({ ...payload, attempt: 0 });
       channel.ack(msg);
-      this.recordOutcome('dlq', startNs, payload.trafficSource);
+      this.recordOutcome('dlq', startNs);
       return;
     }
 
@@ -105,7 +105,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     try {
       await this.orderProcessingService.processOrderMessage(payload);
       channel.ack(msg);
-      this.recordOutcome('success', startNs, payload.trafficSource);
+      this.recordOutcome('success', startNs);
       this.logger.log(
         `[result: success] Acked message [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}] processed successfully`,
       );
@@ -120,7 +120,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     if (payload.attempt < MAX_RETRY_ATTEMPTS) {
       await this.retryMessage(payload);
       channel.ack(msg);
-      this.recordOutcome('retry', startNs, payload.trafficSource);
+      this.recordOutcome('retry', startNs);
       this.logger.warn(
         `[result: retry] Scheduled retry [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}, nextAttempt: ${payload.attempt + 1}]`,
       );
@@ -129,7 +129,7 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
 
     this.publishToDlq(payload);
     channel.ack(msg);
-    this.recordOutcome('dlq', startNs, payload.trafficSource);
+    this.recordOutcome('dlq', startNs);
     this.logger.error(
       `[result: dlq] [messageId: ${messageId}, orderId: ${orderId}, attempt: ${payload.attempt}] reason: max retries (${MAX_RETRY_ATTEMPTS}) reached`,
     );
@@ -147,23 +147,17 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     });
     this.workerMetricsService.recordRabbitMqPublish({
       queue: ORDER_DLQ,
-      trafficSource: payload.trafficSource,
     });
   }
 
-  private recordOutcome(
-    result: 'dlq' | 'retry' | 'success',
-    startNs: bigint,
-    trafficSource?: string,
-  ): void {
+  private recordOutcome(result: 'dlq' | 'retry' | 'success', startNs: bigint): void {
     const durationMs = Number(process.hrtime.bigint() - startNs) / 1_000_000;
 
     this.workerMetricsService.recordWorkerMessage({
       queue: ORDER_PROCESS_QUEUE,
       result,
-      trafficSource,
     });
-    this.workerMetricsService.recordOrderProcessingDuration({ durationMs, result, trafficSource });
+    this.workerMetricsService.recordOrderProcessingDuration({ durationMs, result });
   }
 
   /**
@@ -185,7 +179,6 @@ export class OrderWorkerService implements OnModuleDestroy, OnModuleInit {
     });
     this.workerMetricsService.recordRabbitMqPublish({
       queue: ORDER_PROCESS_QUEUE,
-      trafficSource: retryPayload.trafficSource,
     });
   }
 

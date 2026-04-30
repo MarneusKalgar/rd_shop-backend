@@ -9,18 +9,15 @@ export type WorkerMetricResult = 'dlq' | 'retry' | 'success';
 interface RecordOrderProcessingDurationArgs {
   durationMs: number;
   result: WorkerMetricResult;
-  trafficSource?: string;
 }
 
 interface RecordRabbitMqPublishArgs {
   queue: string;
-  trafficSource?: string;
 }
 
 interface RecordWorkerMessageArgs {
   queue: string;
   result: WorkerMetricResult;
-  trafficSource?: string;
 }
 
 /**
@@ -40,15 +37,7 @@ export class WorkerMetricsService extends BaseMetricsService {
   /**
    * Emits `OrderProcessingDurationMs` for a processed worker message.
    */
-  recordOrderProcessingDuration({
-    durationMs,
-    result,
-    trafficSource,
-  }: RecordOrderProcessingDurationArgs): void {
-    if (this.shouldSkip(trafficSource)) {
-      return;
-    }
-
+  recordOrderProcessingDuration({ durationMs, result }: RecordOrderProcessingDurationArgs): void {
     this.metricsSink.emit({
       dimensions: {
         Environment: this.environment,
@@ -62,11 +51,7 @@ export class WorkerMetricsService extends BaseMetricsService {
   /**
    * Emits `RabbitMqPublishCount` for a logical queue publish.
    */
-  recordRabbitMqPublish({ queue, trafficSource }: RecordRabbitMqPublishArgs): void {
-    if (this.shouldSkip(trafficSource)) {
-      return;
-    }
-
+  recordRabbitMqPublish({ queue }: RecordRabbitMqPublishArgs): void {
     this.metricsSink.emit({
       dimensions: {
         Environment: this.environment,
@@ -80,11 +65,7 @@ export class WorkerMetricsService extends BaseMetricsService {
   /**
    * Emits `OrderWorkerMessageCount` for the final worker outcome.
    */
-  recordWorkerMessage({ queue, result, trafficSource }: RecordWorkerMessageArgs): void {
-    if (this.shouldSkip(trafficSource)) {
-      return;
-    }
-
+  recordWorkerMessage({ queue, result }: RecordWorkerMessageArgs): void {
     this.metricsSink.emit({
       dimensions: {
         Environment: this.environment,

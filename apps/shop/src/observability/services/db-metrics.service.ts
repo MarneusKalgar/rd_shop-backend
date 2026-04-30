@@ -9,7 +9,6 @@ export const DB_METRICS_SERVICE = Symbol('DB_METRICS_SERVICE');
 interface RecordRequestQueryCountArgs {
   queryCount: number;
   route: string;
-  trafficSource?: string;
 }
 
 /**
@@ -30,8 +29,8 @@ export class DbMetricsService extends BaseMetricsService {
   /**
    * Emits `DbQueriesPerRequest` for a resolved REST route.
    */
-  recordRequestQueryCount({ queryCount, route, trafficSource }: RecordRequestQueryCountArgs): void {
-    if (this.shouldSkip(trafficSource) || route === 'unmatched') {
+  recordRequestQueryCount({ queryCount, route }: RecordRequestQueryCountArgs): void {
+    if (route === 'unmatched') {
       return;
     }
 

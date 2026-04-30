@@ -6,12 +6,10 @@ import { BaseMetricsService } from './base-metrics.service';
 
 interface RecordOrderCompletionArgs {
   finalStatus: string;
-  trafficSource?: string;
 }
 
 interface RecordOrderCreatedArgs {
   initialStatus: string;
-  trafficSource?: string;
 }
 
 /**
@@ -32,11 +30,7 @@ export class OrdersMetricsService extends BaseMetricsService {
   /**
    * Emits `OrderCompletionCount` for a terminal order state.
    */
-  recordOrderCompleted({ finalStatus, trafficSource }: RecordOrderCompletionArgs): void {
-    if (this.shouldSkip(trafficSource)) {
-      return;
-    }
-
+  recordOrderCompleted({ finalStatus }: RecordOrderCompletionArgs): void {
     this.metricsSink.emit({
       dimensions: {
         Environment: this.environment,
@@ -50,11 +44,7 @@ export class OrdersMetricsService extends BaseMetricsService {
   /**
    * Emits `OrderCreatedCount` after a new order is committed.
    */
-  recordOrderCreated({ initialStatus, trafficSource }: RecordOrderCreatedArgs): void {
-    if (this.shouldSkip(trafficSource)) {
-      return;
-    }
-
+  recordOrderCreated({ initialStatus }: RecordOrderCreatedArgs): void {
     this.metricsSink.emit({
       dimensions: {
         Environment: this.environment,

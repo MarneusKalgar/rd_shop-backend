@@ -45,7 +45,7 @@ export class PaymentsGrpcService implements OnModuleInit {
     private readonly grpcClientMetricsService: GrpcClientMetricsService,
   ) {}
 
-  async authorize(request: AuthorizeRequest, trafficSource?: string): Promise<AuthorizeResponse> {
+  async authorize(request: AuthorizeRequest): Promise<AuthorizeResponse> {
     const startNs = process.hrtime.bigint();
 
     try {
@@ -55,7 +55,6 @@ export class PaymentsGrpcService implements OnModuleInit {
         durationMs: this.getDurationMs(startNs),
         method: 'authorize',
         outcome: 'success',
-        trafficSource,
       });
 
       return response;
@@ -65,7 +64,6 @@ export class PaymentsGrpcService implements OnModuleInit {
           durationMs: this.getDurationMs(startNs),
           method: 'authorize',
           outcome: 'timeout',
-          trafficSource,
         });
         this.logger.error(`Payment authorization timed out for order=${request.orderId}`);
         throw new GatewayTimeoutException('Payment authorization timed out');
@@ -75,7 +73,6 @@ export class PaymentsGrpcService implements OnModuleInit {
         durationMs: this.getDurationMs(startNs),
         method: 'authorize',
         outcome: 'error',
-        trafficSource,
       });
 
       if ((err as { code?: string }).code === 'EOPENBREAKER') {
@@ -87,10 +84,7 @@ export class PaymentsGrpcService implements OnModuleInit {
     }
   }
 
-  async getPaymentStatus(
-    paymentId: string,
-    trafficSource?: string,
-  ): Promise<GetPaymentStatusResponse> {
+  async getPaymentStatus(paymentId: string): Promise<GetPaymentStatusResponse> {
     if (!paymentId) {
       this.logger.error('getPaymentStatus called without paymentId');
       throw new BadRequestException('paymentId is required');
@@ -105,7 +99,6 @@ export class PaymentsGrpcService implements OnModuleInit {
         durationMs: this.getDurationMs(startNs),
         method: 'getPaymentStatus',
         outcome: 'success',
-        trafficSource,
       });
 
       return response;
@@ -115,7 +108,6 @@ export class PaymentsGrpcService implements OnModuleInit {
           durationMs: this.getDurationMs(startNs),
           method: 'getPaymentStatus',
           outcome: 'timeout',
-          trafficSource,
         });
         this.logger.error(`Get payment status timed out for paymentId=${paymentId}`);
         throw new GatewayTimeoutException('Get payment status timed out');
@@ -125,7 +117,6 @@ export class PaymentsGrpcService implements OnModuleInit {
         durationMs: this.getDurationMs(startNs),
         method: 'getPaymentStatus',
         outcome: 'error',
-        trafficSource,
       });
 
       if ((err as { code?: string }).code === 'EOPENBREAKER') {
@@ -184,19 +175,16 @@ export class PaymentsGrpcService implements OnModuleInit {
     durationMs: number;
     method: string;
     outcome: 'error' | 'success' | 'timeout';
-    trafficSource?: string;
   }): void {
     this.grpcClientMetricsService.recordRequest({
       method: args.method,
       outcome: args.outcome,
       peerService: PaymentsGrpcService.PEER_SERVICE,
-      trafficSource: args.trafficSource,
     });
     this.grpcClientMetricsService.recordDuration({
       durationMs: args.durationMs,
       method: args.method,
       peerService: PaymentsGrpcService.PEER_SERVICE,
-      trafficSource: args.trafficSource,
     });
   }
 }

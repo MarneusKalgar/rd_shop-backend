@@ -8,7 +8,6 @@ interface RecordHttpRequestArgs {
   method: string;
   route: string;
   statusCode: number;
-  trafficSource?: string;
 }
 
 /**
@@ -36,17 +35,7 @@ export class HttpMetricsService {
   /**
    * Emits request count and duration metrics for a single REST response.
    */
-  recordRequest({
-    durationMs,
-    method,
-    route,
-    statusCode,
-    trafficSource,
-  }: RecordHttpRequestArgs): void {
-    if (trafficSource) {
-      return;
-    }
-
+  recordRequest({ durationMs, method, route, statusCode }: RecordHttpRequestArgs): void {
     const baseDimensions = {
       Environment: this.environment,
       Method: method.toUpperCase(),

@@ -4,7 +4,6 @@ import { NextFunction, Request, Response } from 'express';
 import { getRequestContext } from '@/core/async-storage';
 import { HEALTH_PATHS_TO_BYPASS } from '@/health/constants';
 
-import { OBSERVABILITY_TRAFFIC_SOURCE_HEADER } from '../constants';
 import { DB_METRICS_SERVICE } from '../services/db-metrics.service';
 import { HttpMetricsService } from '../services/http-metrics.service';
 
@@ -12,11 +11,7 @@ import { HttpMetricsService } from '../services/http-metrics.service';
  * Narrow DI contract for the DB metrics emitter used by the HTTP middleware.
  */
 interface DbMetricsRecorder {
-  recordRequestQueryCount(args: {
-    queryCount: number;
-    route: string;
-    trafficSource?: string;
-  }): void;
+  recordRequestQueryCount(args: { queryCount: number; route: string }): void;
 }
 
 @Injectable()
@@ -36,26 +31,19 @@ export class HttpMetricsMiddleware implements NestMiddleware {
         return;
       }
 
-      const trafficSourceHeader = req.headers[OBSERVABILITY_TRAFFIC_SOURCE_HEADER];
-      const rawTrafficSource = Array.isArray(trafficSourceHeader)
-        ? trafficSourceHeader[0]
-        : trafficSourceHeader;
       const durationMs = Number(process.hrtime.bigint() - startNs) / 1_000_000;
       const route = this.resolveRoute(req);
-      const trafficSource = requestContext?.trafficSource ?? rawTrafficSource?.trim() ?? undefined;
 
       this.httpMetricsService.recordRequest({
         durationMs,
         method: req.method,
         route,
         statusCode: res.statusCode,
-        trafficSource,
       });
 
       this.dbMetricsService.recordRequestQueryCount({
         queryCount: requestContext?.queryCount ?? 0,
         route,
-        trafficSource,
       });
     });
 

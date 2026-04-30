@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
 
-import { getRequestContext } from '@/core/async-storage';
-
 import { OBSERVABILITY_METRICS_NAMESPACE } from '../constants';
 import { MetricEvent, MetricsSink } from '../metrics-sink';
 
@@ -11,8 +9,6 @@ export class CloudWatchEmfMetricsSink implements MetricsSink {
     const metricValues = Object.fromEntries(
       event.metrics.map((metric) => [metric.name, metric.value]),
     );
-
-    const requestContext = getRequestContext();
 
     const payload = {
       _aws: {
@@ -28,7 +24,6 @@ export class CloudWatchEmfMetricsSink implements MetricsSink {
       ...event.dimensions,
       ...metricValues,
       ...event.properties,
-      ...(requestContext?.trafficSource ? { trafficSource: requestContext.trafficSource } : {}),
     };
 
     process.stdout.write(`${JSON.stringify(payload)}\n`);

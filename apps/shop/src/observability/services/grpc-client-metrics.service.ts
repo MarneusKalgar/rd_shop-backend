@@ -10,14 +10,12 @@ interface RecordGrpcClientDurationArgs {
   durationMs: number;
   method: string;
   peerService: string;
-  trafficSource?: string;
 }
 
 interface RecordGrpcClientRequestArgs {
   method: string;
   outcome: GrpcClientOutcome;
   peerService: string;
-  trafficSource?: string;
 }
 
 /**
@@ -38,16 +36,7 @@ export class GrpcClientMetricsService extends BaseMetricsService {
   /**
    * Emits `GrpcClientDurationMs` for one outbound client request.
    */
-  recordDuration({
-    durationMs,
-    method,
-    peerService,
-    trafficSource,
-  }: RecordGrpcClientDurationArgs): void {
-    if (this.shouldSkip(trafficSource)) {
-      return;
-    }
-
+  recordDuration({ durationMs, method, peerService }: RecordGrpcClientDurationArgs): void {
     this.metricsSink.emit({
       dimensions: {
         Environment: this.environment,
@@ -62,16 +51,7 @@ export class GrpcClientMetricsService extends BaseMetricsService {
   /**
    * Emits `GrpcClientRequestCount` for one outbound client outcome.
    */
-  recordRequest({
-    method,
-    outcome,
-    peerService,
-    trafficSource,
-  }: RecordGrpcClientRequestArgs): void {
-    if (this.shouldSkip(trafficSource)) {
-      return;
-    }
-
+  recordRequest({ method, outcome, peerService }: RecordGrpcClientRequestArgs): void {
     this.metricsSink.emit({
       dimensions: {
         Environment: this.environment,

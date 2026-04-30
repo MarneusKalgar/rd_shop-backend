@@ -57,7 +57,7 @@ export class OrderProcessingService {
    * @throws {NotFoundException} If the order cannot be reloaded from the DB
    * @throws {Error} Re-throws any gRPC or DB error so the worker can nack and retry
    */
-  async authorizePayment(order: Order, trafficSource?: string): Promise<void> {
+  async authorizePayment(order: Order): Promise<void> {
     const orderWithItems = await this.ordersRepository.findByIdWithRelations(order.id);
 
     if (!orderWithItems) {
@@ -68,23 +68,17 @@ export class OrderProcessingService {
     const amount = getTotalSumInCents(orderWithItems);
 
     try {
-      const response = await this.paymentsGrpcService.authorize(
-        {
-          amount,
-          currency: 'USD',
-          orderId: order.id,
-        },
-        trafficSource,
-      );
+      const response = await this.paymentsGrpcService.authorize({
+        amount,
+        currency: 'USD',
+        orderId: order.id,
+      });
 
       if (response.paymentId) {
         await this.ordersRepository
           .getRepository()
           .update({ id: order.id }, { paymentId: response.paymentId, status: OrderStatus.PAID });
-        this.ordersMetricsService.recordOrderCompleted({
-          finalStatus: OrderStatus.PAID,
-          trafficSource,
-        });
+        this.ordersMetricsService.recordOrderCompleted({ finalStatus: OrderStatus.PAID });
 
         this.logger.log(
           `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,
@@ -206,7 +200,7 @@ export class OrderProcessingService {
     }
 
     if (processedOrder && !processedOrder.paymentId) {
-      await this.authorizePayment(processedOrder, payload.trafficSource);
+      await this.authorizePayment(processedOrder);
     }
   }
 }

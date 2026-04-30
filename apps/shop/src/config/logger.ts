@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { IncomingMessage } from 'node:http';
 
 import { REQUEST_ID_HEADER } from '@/common/constants';
-import { OBSERVABILITY_TRAFFIC_SOURCE_HEADER } from '@/observability/constants';
 import { isProduction } from '@/utils/env';
 
 const PINO_LEVEL_ALIASES: Record<string, string> = {
@@ -31,15 +30,6 @@ export const getPinoLoggerConfig = (): Params => {
       autoLogging: {
         ignore: (req: IncomingMessage & { url?: string }) =>
           req.url?.startsWith('/health') ?? false,
-      },
-
-      customProps: (req: IncomingMessage) => {
-        const trafficSourceHeader = req.headers[OBSERVABILITY_TRAFFIC_SOURCE_HEADER];
-        const trafficSource = Array.isArray(trafficSourceHeader)
-          ? trafficSourceHeader[0]
-          : trafficSourceHeader;
-
-        return trafficSource ? { trafficSource } : {};
       },
 
       genReqId: (req: IncomingMessage) => {
