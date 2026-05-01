@@ -39,6 +39,16 @@ interface BaseMetricAlarmArgs {
   treatMissingData?: string;
 }
 
+interface BuildMetricAlarmMetricQueryArgs {
+  dimensions: Record<string, pulumi.Input<string>>;
+  id: string;
+  label: string;
+  metricName: string;
+  period?: number;
+  returnData: boolean;
+  stat: string;
+}
+
 interface BuildMetricSearchExpressionArgs {
   dimensions: Record<string, string>;
   metricName: string;
@@ -299,37 +309,31 @@ export function createObservability({
       evaluationPeriods: 1,
       logicalName: 'app-http-5xx-rate-alarm',
       metricQueries: [
-        {
-          expression: buildMetricSearchExpression({
-            dimensions: {
-              Environment: stack,
-              Service: applicationServiceName,
-            },
-            metricName: 'HttpRequestCount',
-            period: applicationMetricsPeriodSeconds,
-            schemaDimensions: ['Environment', 'Method', 'Route', 'Service', 'StatusClass'],
-            stat: 'Sum',
-          }),
+        buildMetricAlarmMetricQuery({
+          dimensions: {
+            Environment: stack,
+            Service: applicationServiceName,
+          },
           id: 'totalRequests',
           label: 'HTTP total requests',
+          metricName: 'HttpRequestCount',
+          period: applicationMetricsPeriodSeconds,
           returnData: false,
-        },
-        {
-          expression: buildMetricSearchExpression({
-            dimensions: {
-              Environment: stack,
-              Service: applicationServiceName,
-              StatusClass: '5xx',
-            },
-            metricName: 'HttpRequestCount',
-            period: applicationMetricsPeriodSeconds,
-            schemaDimensions: ['Environment', 'Method', 'Route', 'Service', 'StatusClass'],
-            stat: 'Sum',
-          }),
+          stat: 'Sum',
+        }),
+        buildMetricAlarmMetricQuery({
+          dimensions: {
+            Environment: stack,
+            Service: applicationServiceName,
+            StatusClass: '5xx',
+          },
           id: 'errorRequests',
           label: 'HTTP 5xx requests',
+          metricName: 'HttpRequestCount',
+          period: applicationMetricsPeriodSeconds,
           returnData: false,
-        },
+          stat: 'Sum',
+        }),
         {
           expression: `IF(totalRequests >= ${http5xxRateAlarmMinimumRequestCount}, (errorRequests / totalRequests) * 100, 0)`,
           id: 'http5xxRate',
@@ -347,21 +351,18 @@ export function createObservability({
       evaluationPeriods: 3,
       logicalName: 'app-http-latency-p95-alarm',
       metricQueries: [
-        {
-          expression: `MAX(${buildMetricSearchQuery({
-            dimensions: {
-              Environment: stack,
-              Service: applicationServiceName,
-            },
-            metricName: 'HttpRequestDurationMs',
-            period: applicationMetricsPeriodSeconds,
-            schemaDimensions: ['Environment', 'Method', 'Route', 'Service'],
-            stat: 'p95',
-          })})`,
+        buildMetricAlarmMetricQuery({
+          dimensions: {
+            Environment: stack,
+            Service: applicationServiceName,
+          },
           id: 'httpLatencyP95',
           label: 'HTTP latency p95',
+          metricName: 'HttpRequestDurationMs',
+          period: applicationMetricsPeriodSeconds,
           returnData: true,
-        },
+          stat: 'p95',
+        }),
       ],
       period: applicationMetricsPeriodSeconds,
       threshold: httpLatencyAlarmThresholdMilliseconds,
@@ -373,22 +374,19 @@ export function createObservability({
       evaluationPeriods: 1,
       logicalName: 'app-worker-dlq-alarm',
       metricQueries: [
-        {
-          expression: buildMetricSearchExpression({
-            dimensions: {
-              Environment: stack,
-              Result: 'dlq',
-              Service: applicationServiceName,
-            },
-            metricName: 'OrderWorkerMessageCount',
-            period: applicationMetricsTenMinutePeriodSeconds,
-            schemaDimensions: ['Environment', 'Queue', 'Result', 'Service'],
-            stat: 'Sum',
-          }),
+        buildMetricAlarmMetricQuery({
+          dimensions: {
+            Environment: stack,
+            Result: 'dlq',
+            Service: applicationServiceName,
+          },
           id: 'dlqMessages',
           label: 'Worker DLQ messages',
+          metricName: 'OrderWorkerMessageCount',
+          period: applicationMetricsTenMinutePeriodSeconds,
           returnData: true,
-        },
+          stat: 'Sum',
+        }),
       ],
       period: applicationMetricsTenMinutePeriodSeconds,
       threshold: dlqAlarmThreshold,
@@ -400,39 +398,33 @@ export function createObservability({
       evaluationPeriods: 1,
       logicalName: 'app-grpc-client-error-rate-alarm',
       metricQueries: [
-        {
-          expression: buildMetricSearchExpression({
-            dimensions: {
-              Environment: stack,
-              PeerService: grpcPeerServiceName,
-              Service: applicationServiceName,
-            },
-            metricName: 'GrpcClientRequestCount',
-            period: applicationMetricsPeriodSeconds,
-            schemaDimensions: ['Environment', 'Method', 'Outcome', 'PeerService', 'Service'],
-            stat: 'Sum',
-          }),
+        buildMetricAlarmMetricQuery({
+          dimensions: {
+            Environment: stack,
+            PeerService: grpcPeerServiceName,
+            Service: applicationServiceName,
+          },
           id: 'grpcTotalRequests',
           label: 'gRPC total requests',
+          metricName: 'GrpcClientRequestCount',
+          period: applicationMetricsPeriodSeconds,
           returnData: false,
-        },
-        {
-          expression: buildMetricSearchExpression({
-            dimensions: {
-              Environment: stack,
-              Outcome: 'error',
-              PeerService: grpcPeerServiceName,
-              Service: applicationServiceName,
-            },
-            metricName: 'GrpcClientRequestCount',
-            period: applicationMetricsPeriodSeconds,
-            schemaDimensions: ['Environment', 'Method', 'Outcome', 'PeerService', 'Service'],
-            stat: 'Sum',
-          }),
+          stat: 'Sum',
+        }),
+        buildMetricAlarmMetricQuery({
+          dimensions: {
+            Environment: stack,
+            Outcome: 'error',
+            PeerService: grpcPeerServiceName,
+            Service: applicationServiceName,
+          },
           id: 'grpcErrorRequests',
           label: 'gRPC error requests',
+          metricName: 'GrpcClientRequestCount',
+          period: applicationMetricsPeriodSeconds,
           returnData: false,
-        },
+          stat: 'Sum',
+        }),
         {
           expression: `IF(grpcTotalRequests >= ${grpcClientErrorRateAlarmMinimumRequestCount}, (grpcErrorRequests / grpcTotalRequests) * 100, 0)`,
           id: 'grpcErrorRate',
@@ -450,23 +442,20 @@ export function createObservability({
       evaluationPeriods: 2,
       logicalName: 'app-grpc-client-authorize-latency-alarm',
       metricQueries: [
-        {
-          expression: `MAX(${buildMetricSearchQuery({
-            dimensions: {
-              Environment: stack,
-              Method: 'authorize',
-              PeerService: grpcPeerServiceName,
-              Service: applicationServiceName,
-            },
-            metricName: 'GrpcClientDurationMs',
-            period: applicationMetricsPeriodSeconds,
-            schemaDimensions: ['Environment', 'Method', 'PeerService', 'Service'],
-            stat: 'p95',
-          })})`,
+        buildMetricAlarmMetricQuery({
+          dimensions: {
+            Environment: stack,
+            Method: 'authorize',
+            PeerService: grpcPeerServiceName,
+            Service: applicationServiceName,
+          },
           id: 'grpcAuthorizeLatencyP95',
           label: 'gRPC authorize latency p95',
+          metricName: 'GrpcClientDurationMs',
+          period: applicationMetricsPeriodSeconds,
           returnData: true,
-        },
+          stat: 'p95',
+        }),
       ],
       period: applicationMetricsPeriodSeconds,
       threshold: grpcClientLatencyAlarmThresholdMilliseconds,
@@ -1238,6 +1227,29 @@ function buildDashboardWidgets({
   });
 }
 
+function buildMetricAlarmMetricQuery({
+  dimensions,
+  id,
+  label,
+  metricName,
+  period = applicationMetricsPeriodSeconds,
+  returnData,
+  stat,
+}: BuildMetricAlarmMetricQueryArgs): aws.types.input.cloudwatch.MetricAlarmMetricQuery {
+  return {
+    id,
+    label,
+    metric: {
+      dimensions,
+      metricName,
+      namespace: applicationMetricsNamespace,
+      period,
+      stat,
+    },
+    returnData,
+  };
+}
+
 function buildMetricSearchExpression({
   dimensions,
   metricName,
@@ -1369,10 +1381,14 @@ function createMetricMathAlarm({
     datapointsToAlarm,
     evaluationPeriods,
     metricQueries: pulumi.output(metricQueries).apply((queries) =>
-      queries.map((metricQuery) => ({
-        ...metricQuery,
-        period: metricQuery.period ?? period,
-      })),
+      queries.map((metricQuery) =>
+        metricQuery.metric
+          ? metricQuery
+          : {
+              ...metricQuery,
+              period: metricQuery.period ?? period,
+            },
+      ),
     ),
     name: stackName(logicalName),
     tags: {
