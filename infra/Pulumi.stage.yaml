@@ -49,5 +49,11 @@ config:
     secure: AAABAIHOQbaXtEkKwvJV/62FEvvrW4GpK/EhZVQUi/bUKcXgN/rmv7mbE3Yw2i1+v47Now0U9iWViRaQH9yUuG2RKLalENbTxa9Fv1107uE=
   rd-shop-infra:paymentsDatabasePassword:
     secure: AAABABTDJOVDwJtExEevCD1lR69xF3DC/SrhG47KscLeBj6GbGr9lryougqrhnsaDNugTnIeTocurYAWNvh/ujlT8G5uS5kA4r3TWXyNqY8=
+  # Pin singleton EC2 hosts to the current live AMIs before running preview/up to avoid drift-driven replacements.
+  # rd-shop-infra:ecsOptimizedAmiId: ami-<current-stage-ecs-host-ami>
+  # rd-shop-infra:shopRabbitmqAmiId: ami-<current-stage-rabbitmq-ami>
+  # rd-shop-infra:databaseHostAmiId: ami-<current-stage-postgres-host-ami>
   rd-shop-infra:natInstanceAmiId: ami-0e6ea107664115459
   rd-shop-infra:ecsOptimizedAmiSsmParameterName: /rd-shop/stage/ecs/ami-id
+  rd-shop-infra:shopRabbitmqAmiId: ami-09fc5668766215f32
+  rd-shop-infra:databaseHostAmiId: ami-09fc5668766215f32

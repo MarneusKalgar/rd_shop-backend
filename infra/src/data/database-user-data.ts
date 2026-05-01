@@ -1,5 +1,8 @@
 const postgresContainerDataDir = '/var/lib/postgresql/data';
 const postgresContainerPgDataDir = `${postgresContainerDataDir}/pgdata`;
+const postgresHostBootstrapLogPath = '/var/log/rd-shop-postgres-bootstrap.log';
+const postgresHostBootstrapScriptPath = '/usr/local/bin/rd-shop-postgres-bootstrap.sh';
+const postgresHostBootstrapServicePath = '/etc/systemd/system/rd-shop-postgres-bootstrap.service';
 
 interface BuildDatabaseHostUserDataArgs {
   bootstrapSecretArn: string;
@@ -29,14 +32,10 @@ export function buildDatabaseHostUserData({
 }: BuildDatabaseHostUserDataArgs) {
   const postgresHostDataDir = `${dataVolumeMountPath}/pgdata`;
   const normalizedDataVolumeId = dataVolumeId.replace(/-/g, '');
-
-  return `#!/bin/bash
+  const bootstrapScript = `#!/bin/bash
 set -euo pipefail
 
-# Keep xtrace off here because stage diagnostics may collect cloud-init output.
-
-dnf install -y awscli docker jq
-systemctl enable --now docker
+exec > >(tee -a '${postgresHostBootstrapLogPath}') 2>&1
 
 resolved_device=''
 expected_volume_id='${dataVolumeId}'
@@ -85,7 +84,7 @@ if ! grep -q "$filesystem_uuid" /etc/fstab; then
   echo "$fstab_entry" >> /etc/fstab
 fi
 
-mount -a
+mountpoint -q '${dataVolumeMountPath}' || mount -a
 
 # A fresh ext4 volume root contains lost+found. Keep PGDATA on a subdirectory so
 # the official Postgres image can initialize an empty data directory reliably.
@@ -114,13 +113,17 @@ sql_escape_literal() {
 SHOP_DB_PASSWORD_ESCAPED=$(sql_escape_literal "$SHOP_DB_PASSWORD")
 PAYMENTS_DB_PASSWORD_ESCAPED=$(sql_escape_literal "$PAYMENTS_DB_PASSWORD")
 
-cat <<EOF > /opt/rd-shop/postgres-init/10-create-service-dbs.sql
-CREATE USER "\${SHOP_DB_USER}" WITH PASSWORD '\${SHOP_DB_PASSWORD_ESCAPED}';
-CREATE DATABASE "\${SHOP_DB_NAME}" OWNER "\${SHOP_DB_USER}";
+cat <<'POSTGRES_INIT_SQL' > /opt/rd-shop/postgres-init/10-create-service-dbs.sql
+CREATE USER "$SHOP_DB_USER" WITH PASSWORD '$SHOP_DB_PASSWORD_ESCAPED';
+CREATE DATABASE "$SHOP_DB_NAME" OWNER "$SHOP_DB_USER";
 
-CREATE USER "\${PAYMENTS_DB_USER}" WITH PASSWORD '\${PAYMENTS_DB_PASSWORD_ESCAPED}';
-CREATE DATABASE "\${PAYMENTS_DB_NAME}" OWNER "\${PAYMENTS_DB_USER}";
-EOF
+CREATE USER "$PAYMENTS_DB_USER" WITH PASSWORD '$PAYMENTS_DB_PASSWORD_ESCAPED';
+CREATE DATABASE "$PAYMENTS_DB_NAME" OWNER "$PAYMENTS_DB_USER";
+POSTGRES_INIT_SQL
+
+if docker inspect --format '{{.State.Running}}' '${containerName}' 2>/dev/null | grep -q '^true$'; then
+  exit 0
+fi
 
 docker rm -f '${containerName}' || true
 docker run -d \
@@ -143,5 +146,39 @@ done
 
 docker logs '${containerName}' || true
 exit 1
+`;
+
+  return `#!/bin/bash
+set -euo pipefail
+
+# Keep xtrace off here because stage diagnostics may collect cloud-init output.
+
+dnf install -y awscli docker jq
+systemctl enable --now docker
+cat <<'POSTGRES_BOOTSTRAP_SCRIPT' > ${postgresHostBootstrapScriptPath}
+${bootstrapScript}
+POSTGRES_BOOTSTRAP_SCRIPT
+
+chmod 700 ${postgresHostBootstrapScriptPath}
+
+cat <<'POSTGRES_BOOTSTRAP_UNIT' > ${postgresHostBootstrapServicePath}
+[Unit]
+Description=rd-shop stage PostgreSQL bootstrap
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${postgresHostBootstrapScriptPath}
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
+POSTGRES_BOOTSTRAP_UNIT
+
+systemctl daemon-reload
+systemctl enable --now rd-shop-postgres-bootstrap.service
 `;
 }

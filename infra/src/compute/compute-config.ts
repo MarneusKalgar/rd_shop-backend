@@ -11,6 +11,7 @@ export interface FoundationComputeConfig {
   capacityProviderName: string;
   clusterName: string;
   desiredCapacity: number;
+  ecsOptimizedAmiId?: string;
   ecsOptimizedAmiSsmParameterName: string;
   instanceProfileName: string;
   instanceRoleName: string;
@@ -33,11 +34,13 @@ export function getFoundationComputeConfig(): FoundationComputeConfig {
   const keyPairName = config.get('ecsKeyPairName') ?? undefined;
   const maxSize = config.getNumber('ecsMaxSize') ?? defaultClusterCapacity;
   const minSize = config.getNumber('ecsMinSize') ?? defaultClusterCapacity;
+  const ecsOptimizedAmiId = normalizeOptionalAmiId(config.get('ecsOptimizedAmiId'));
   const ecsOptimizedAmiSsmParameterName =
     config.get('ecsOptimizedAmiSsmParameterName') ?? defaultEcsOptimizedAmiSsmParameterName;
 
   validateClusterName(clusterName);
   validateCapacity({ desiredCapacity, maxSize, minSize });
+  validateOptionalAmiId('ecsOptimizedAmiId', ecsOptimizedAmiId);
   validateInstanceType(instanceType);
   validateOptionalName('ecsKeyPairName', keyPairName);
   validateSsmParameterName(ecsOptimizedAmiSsmParameterName);
@@ -47,6 +50,7 @@ export function getFoundationComputeConfig(): FoundationComputeConfig {
     capacityProviderName: stackName('ecs-capacity-provider'),
     clusterName,
     desiredCapacity,
+    ecsOptimizedAmiId,
     ecsOptimizedAmiSsmParameterName,
     instanceProfileName: stackName('ecs-instance-profile'),
     instanceRoleName: stackName('ecs-instance-role'),
@@ -56,6 +60,15 @@ export function getFoundationComputeConfig(): FoundationComputeConfig {
     maxSize,
     minSize,
   };
+}
+
+function normalizeOptionalAmiId(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 ? trimmedValue : undefined;
 }
 
 /**
@@ -104,6 +117,12 @@ function validateClusterName(clusterName: string) {
 function validateInstanceType(instanceType: string) {
   if (!/^[a-z0-9]+\.[a-z0-9]+$/.test(instanceType)) {
     throw new Error('ecsInstanceType must look like a valid EC2 instance type, e.g. t3.micro.');
+  }
+}
+
+function validateOptionalAmiId(label: string, value: string | undefined) {
+  if (value && !/^ami-[a-z0-9]+$/i.test(value)) {
+    throw new Error(`${label} must look like a valid AMI id, e.g. ami-0123456789abcdef0.`);
   }
 }
 

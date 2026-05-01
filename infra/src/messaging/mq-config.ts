@@ -16,6 +16,7 @@ const previewRabbitMqPassword = 'preview-only-shop-rabbitmq-password';
 const previewRabbitMqUser = 'preview-only-shop-rabbitmq-user';
 
 export interface MessageBrokerConfig {
+  amiId?: string;
   brokerName: string;
   credentials: MessageQueueCredentials;
   dataVolumeDeviceName: string;
@@ -42,6 +43,7 @@ export function getMessageBrokerConfig(): MessageBrokerConfig {
   const isProduction = stack === 'production';
 
   return {
+    amiId: config.get('shopRabbitmqAmiId') ?? undefined,
     brokerName: config.get('shopRabbitmqBrokerName') ?? `${projectPrefix}-${stack}-shop-rabbitmq`,
     credentials: getMessageQueueCredentials(),
     dataVolumeDeviceName:

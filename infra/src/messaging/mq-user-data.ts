@@ -1,6 +1,10 @@
 const rabbitMqContainerDataDir = '/var/lib/rabbitmq';
 const rabbitMqContainerName = 'rd-shop-rabbitmq';
 const rabbitMqManagementPort = 15672;
+const rabbitMqBootstrapLogPath = '/var/log/rd-shop-rabbitmq-bootstrap.log';
+const rabbitMqBootstrapScriptPath = '/usr/local/bin/rd-shop-rabbitmq-bootstrap.sh';
+const rabbitMqBootstrapServicePath = '/etc/systemd/system/rd-shop-rabbitmq-bootstrap.service';
+const rabbitMqBootstrapRevision = '2026-05-01-01';
 
 interface BuildMessageBrokerUserDataArgs {
   brokerSecretArn: string;
@@ -26,23 +30,32 @@ export function buildMessageBrokerUserData({
   port,
   region,
 }: BuildMessageBrokerUserDataArgs) {
-  return `#!/bin/bash
-set -euxo pipefail
+  const normalizedDataVolumeId = dataVolumeId.replace(/-/g, '');
+  const bootstrapScript = `#!/bin/bash
+# bootstrap-revision=${rabbitMqBootstrapRevision}
+set -euo pipefail
 
-dnf install -y awscli docker jq
-systemctl enable --now docker
+exec > >(tee -a '${rabbitMqBootstrapLogPath}') 2>&1
 
 resolved_device=''
+expected_volume_id='${dataVolumeId}'
+expected_volume_serial='${normalizedDataVolumeId}'
 
-for attempt in {1..60}; do
+for attempt in {1..180}; do
   if [[ -b '${dataVolumeDeviceName}' ]]; then
     resolved_device='${dataVolumeDeviceName}'
     break
   fi
 
-  device_by_id=$(find /dev/disk/by-id -maxdepth 1 -type l -name '*${dataVolumeId}' | head -n 1 || true)
+  device_by_id=$(find /dev/disk/by-id -maxdepth 1 -type l '(' -name "*$expected_volume_serial" -o -name "*$expected_volume_id" ')' | head -n 1 || true)
   if [[ -n "$device_by_id" ]]; then
     resolved_device=$(readlink -f "$device_by_id")
+    break
+  fi
+
+  device_by_serial=$(lsblk -dn -o PATH,SERIAL | awk -v serial="$expected_volume_serial" '$2 == serial { print $1; exit }' || true)
+  if [[ -n "$device_by_serial" ]]; then
+    resolved_device="$device_by_serial"
     break
   fi
 
@@ -51,6 +64,10 @@ done
 
 if [[ -z "$resolved_device" ]]; then
   echo 'RabbitMQ data volume device not found' >&2
+  echo 'Visible block devices:' >&2
+  lsblk -dn -o PATH,SIZE,MODEL,SERIAL >&2 || true
+  echo 'Visible by-id entries:' >&2
+  ls -l /dev/disk/by-id >&2 || true
   exit 1
 fi
 
@@ -67,7 +84,7 @@ if ! grep -q "$filesystem_uuid" /etc/fstab; then
   echo "$fstab_entry" >> /etc/fstab
 fi
 
-mount -a
+mountpoint -q '${dataVolumeMountPath}' || mount -a
 chown -R 999:999 '${dataVolumeMountPath}'
 
 mkdir -p /etc/rd-shop
@@ -80,6 +97,10 @@ aws secretsmanager get-secret-value \
 RABBITMQ_DEFAULT_USER=$(jq -r '.RABBITMQ_DEFAULT_USER' /etc/rd-shop/rabbitmq-bootstrap.json)
 RABBITMQ_DEFAULT_PASS=$(jq -r '.RABBITMQ_DEFAULT_PASS' /etc/rd-shop/rabbitmq-bootstrap.json)
 RABBITMQ_DEFAULT_VHOST=$(jq -r '.RABBITMQ_DEFAULT_VHOST' /etc/rd-shop/rabbitmq-bootstrap.json)
+
+if docker inspect --format '{{.State.Running}}' '${rabbitMqContainerName}' 2>/dev/null | grep -q '^true$'; then
+  exit 0
+fi
 
 docker rm -f '${rabbitMqContainerName}' || true
 docker run -d \
@@ -103,5 +124,39 @@ done
 
 docker logs '${rabbitMqContainerName}' || true
 exit 1
+`;
+
+  return `#!/bin/bash
+# bootstrap-revision=${rabbitMqBootstrapRevision}
+set -euo pipefail
+
+dnf install -y awscli docker jq
+systemctl enable --now docker
+
+cat <<'RABBITMQ_BOOTSTRAP_SCRIPT' > ${rabbitMqBootstrapScriptPath}
+${bootstrapScript}
+RABBITMQ_BOOTSTRAP_SCRIPT
+
+chmod 700 ${rabbitMqBootstrapScriptPath}
+
+cat <<'RABBITMQ_BOOTSTRAP_UNIT' > ${rabbitMqBootstrapServicePath}
+[Unit]
+Description=rd-shop RabbitMQ bootstrap
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${rabbitMqBootstrapScriptPath}
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
+RABBITMQ_BOOTSTRAP_UNIT
+
+systemctl daemon-reload
+systemctl enable --now rd-shop-rabbitmq-bootstrap.service
 `;
 }

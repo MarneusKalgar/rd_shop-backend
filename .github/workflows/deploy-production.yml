@@ -194,6 +194,7 @@ jobs:
           pulumi stack select "${{ env.PULUMI_STACK }}"
 
           echo "ecs_cluster_name=$(pulumi stack output ecsClusterName)" >> "$GITHUB_OUTPUT"
+          echo "mq_broker_id=$(pulumi stack output mqBrokerId 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
           echo "payments_desired_count=$(pulumi stack output paymentsDesiredCount)" >> "$GITHUB_OUTPUT"
           echo "payments_log_group_name=$(pulumi stack output paymentsLogGroupName)" >> "$GITHUB_OUTPUT"
           echo "payments_service_name=$(pulumi stack output paymentsServiceName)" >> "$GITHUB_OUTPUT"
@@ -259,6 +260,149 @@ jobs:
           aws ecs wait services-stable \
             --cluster "${ECS_CLUSTER_NAME}" \
             --services "${SHOP_SERVICE_NAME}"
+
+      - name: Wait for production RabbitMQ broker
+        env:
+          MQ_BOOTSTRAP_CONTAINER_NAME: rd-shop-rabbitmq
+          MQ_BROKER_INSTANCE_ID: ${{ steps.stack.outputs.mq_broker_id }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${MQ_BROKER_INSTANCE_ID:-}" || "${MQ_BROKER_INSTANCE_ID}" == "null" ]]; then
+            echo "Production RabbitMQ broker instance id is unavailable" >&2
+            exit 1
+          fi
+
+          dump_production_rabbitmq_diagnostics() {
+            local diagnostic_commands
+            local diagnostic_command_id
+
+            diagnostic_commands=$(jq -nc --arg container_name "${MQ_BOOTSTRAP_CONTAINER_NAME}" '{
+              commands: [
+                "sudo docker ps -a --no-trunc --filter name=" + $container_name,
+                "sudo docker inspect --format \"{{json .State}}\" " + $container_name + " || true",
+                "sudo test -f /var/lib/cloud/instance/boot-finished && echo cloud-init-finished=yes || echo cloud-init-finished=no",
+                "sudo systemctl status rd-shop-rabbitmq-bootstrap.service --no-pager || true",
+                "sudo journalctl -u rd-shop-rabbitmq-bootstrap.service -n 200 --no-pager || true",
+                "sudo cat /var/log/rd-shop-rabbitmq-bootstrap.log || true",
+                "sudo lsblk -o PATH,SIZE,MODEL,SERIAL,FSTYPE,MOUNTPOINT || true",
+                "sudo df -h || true"
+              ]
+            }')
+
+            diagnostic_command_id="$(aws ssm send-command \
+              --instance-ids "${MQ_BROKER_INSTANCE_ID}" \
+              --document-name 'AWS-RunShellScript' \
+              --comment 'Dump production RabbitMQ host diagnostics' \
+              --parameters "${diagnostic_commands}" \
+              --query 'Command.CommandId' \
+              --output text 2>/tmp/production-mq-diagnostics.err || true)"
+
+            if [[ -z "${diagnostic_command_id}" || "${diagnostic_command_id}" == "None" ]]; then
+              cat /tmp/production-mq-diagnostics.err >&2 || true
+              return
+            fi
+
+            aws ssm wait command-executed \
+              --command-id "${diagnostic_command_id}" \
+              --instance-id "${MQ_BROKER_INSTANCE_ID}" || true
+
+            echo "Production RabbitMQ host diagnostics (redacted):"
+            aws ssm get-command-invocation \
+              --command-id "${diagnostic_command_id}" \
+              --instance-id "${MQ_BROKER_INSTANCE_ID}" \
+              --query '{stdout:StandardOutputContent,stderr:StandardErrorContent}' \
+              --output json || true
+          }
+
+          diagnostics_dumped=false
+          readiness_commands=$(jq -nc --arg container_name "${MQ_BOOTSTRAP_CONTAINER_NAME}" '{
+            commands: [
+              "set -euo pipefail",
+              "if [[ ! -f /var/lib/cloud/instance/boot-finished ]]; then echo production-rabbitmq-wait=cloud-init-not-finished; exit 10; fi",
+              "if ! sudo docker container inspect " + $container_name + " >/dev/null 2>&1; then echo production-rabbitmq-wait=container-not-created; exit 11; fi",
+              "if ! sudo docker ps --filter name=" + $container_name + " --filter status=running --quiet | grep -q .; then echo production-rabbitmq-wait=container-not-running; exit 12; fi",
+              "sudo docker exec " + $container_name + " rabbitmq-diagnostics ping"
+            ]
+          }')
+
+          for attempt in $(seq 1 30); do
+            command_id="$(aws ssm send-command \
+              --instance-ids "${MQ_BROKER_INSTANCE_ID}" \
+              --document-name 'AWS-RunShellScript' \
+              --comment 'Wait for the production RabbitMQ broker to become ready' \
+              --parameters "${readiness_commands}" \
+              --query 'Command.CommandId' \
+              --output text 2>/tmp/production-mq-wait.err || true)"
+
+            if [[ -z "${command_id}" || "${command_id}" == "None" ]]; then
+              if grep -Eq 'TargetNotConnected|InvalidInstanceId' /tmp/production-mq-wait.err; then
+                echo "Production RabbitMQ host is not ready for SSM yet (${attempt}/30)"
+                sleep 10
+                continue
+              fi
+
+              cat /tmp/production-mq-wait.err >&2 || true
+              exit 1
+            fi
+
+            aws ssm wait command-executed \
+              --command-id "${command_id}" \
+              --instance-id "${MQ_BROKER_INSTANCE_ID}" || true
+
+            invocation_json="$(aws ssm get-command-invocation \
+              --command-id "${command_id}" \
+              --instance-id "${MQ_BROKER_INSTANCE_ID}" \
+              --output json || true)"
+
+            command_status="$(echo "${invocation_json}" | jq -r '.Status // "Unknown"')"
+            command_stdout="$(echo "${invocation_json}" | jq -r '.StandardOutputContent // ""')"
+            command_stderr="$(echo "${invocation_json}" | jq -r '.StandardErrorContent // ""')"
+
+            if [[ "${command_status}" == "Success" ]]; then
+              exit 0
+            fi
+
+            if grep -q 'production-rabbitmq-wait=cloud-init-not-finished' <<<"${command_stdout}${command_stderr}"; then
+              echo "Production RabbitMQ host is still bootstrapping via cloud-init (${attempt}/30)"
+              sleep 10
+              continue
+            fi
+
+            if grep -q 'production-rabbitmq-wait=container-not-created' <<<"${command_stdout}${command_stderr}"; then
+              echo "Production RabbitMQ bootstrap finished without creating the container (${attempt}/30)"
+              echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
+              if [[ "${diagnostics_dumped}" != "true" ]]; then
+                diagnostics_dumped=true
+                dump_production_rabbitmq_diagnostics
+              fi
+              exit 1
+            fi
+
+            if grep -q 'production-rabbitmq-wait=container-not-running' <<<"${command_stdout}${command_stderr}"; then
+              echo "Production RabbitMQ container exists but is not running yet (${attempt}/30)"
+              echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
+              if [[ "${attempt}" -ge 3 && "${diagnostics_dumped}" != "true" ]]; then
+                diagnostics_dumped=true
+                dump_production_rabbitmq_diagnostics
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+
+            echo "Production RabbitMQ host readiness status: ${command_status} (${attempt}/30)"
+            echo "${invocation_json}" | jq '{stdout: .StandardOutputContent, stderr: .StandardErrorContent}'
+
+            sleep 10
+          done
+
+          if [[ "${diagnostics_dumped}" != "true" ]]; then
+            dump_production_rabbitmq_diagnostics
+          fi
+
+          echo "Timed out waiting for the production RabbitMQ broker to become ready" >&2
+          exit 1
 
       - name: Run production database init tasks
         id: db_init

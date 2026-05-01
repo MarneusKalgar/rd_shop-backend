@@ -33,9 +33,11 @@ export function createMessageBroker({
 
     return subnetIds[0];
   });
-  const brokerAmiId = aws.ssm.getParameterOutput({
-    name: amazonLinuxAmiSsmParameterName,
-  }).value;
+  const brokerAmiId =
+    messageBrokerConfig.amiId ??
+    aws.ssm.getParameterOutput({
+      name: amazonLinuxAmiSsmParameterName,
+    }).value;
   const brokerSubnet = aws.ec2.getSubnetOutput({ id: selectedSubnetId });
 
   const brokerBootstrapSecret = new aws.secretsmanager.Secret(
@@ -161,15 +163,22 @@ export function createMessageBroker({
           region,
         }),
       ),
+    userDataReplaceOnChange: true,
     vpcSecurityGroupIds: [securityGroupId],
   });
 
-  new aws.ec2.VolumeAttachment(stackName('shop-rabbitmq-data-volume-attachment'), {
-    deviceName: messageBrokerConfig.dataVolumeDeviceName,
-    instanceId: broker.id,
-    stopInstanceBeforeDetaching: true,
-    volumeId: brokerDataVolume.id,
-  });
+  new aws.ec2.VolumeAttachment(
+    stackName('shop-rabbitmq-data-volume-attachment'),
+    {
+      deviceName: messageBrokerConfig.dataVolumeDeviceName,
+      instanceId: broker.id,
+      stopInstanceBeforeDetaching: true,
+      volumeId: brokerDataVolume.id,
+    },
+    {
+      deleteBeforeReplace: true,
+    },
+  );
 
   const brokerArn = pulumi.interpolate`arn:aws:ec2:${region}:${accountId}:instance/${broker.id}`;
   const brokerEndpoint = pulumi.interpolate`amqp://${broker.privateIp}:${messageBrokerConfig.port}`;
