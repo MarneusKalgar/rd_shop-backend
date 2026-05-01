@@ -2,12 +2,12 @@
 
 ## Tier layout
 
-| Tier           | Suffix                  | Config                                 | Command                                  | Coverage command                    | Notes                                          |
-| -------------- | ----------------------- | -------------------------------------- | ---------------------------------------- | ----------------------------------- | ---------------------------------------------- |
-| Unit           | `*.spec.ts`             | `jest.config.js` (root)                | `npm test`                               | `npm run test:cov`                  | `apps/*/src/`; all deps mocked via `jest.fn()` |
-| Integration    | `*.integration-spec.ts` | `apps/shop/test/jest-integration.json` | `npm run test:integration:shop`          | `npm run test:integration:shop:cov` | real Postgres via Testcontainers; infra mocked |
-| e2e            | `*.e2e-spec.ts`         | `apps/shop/test/jest-e2e.json`         | `npm run test:e2e:shop`                  | —                                   | full docker-compose stack; real HTTP calls     |
-| Contract (buf) | —                       | `proto/buf.yaml` / `buf.breaking.yaml` | `cd proto && buf lint && buf breaking …` | —                                   | proto wire-compat gate; runs in CI only        |
+| Tier           | Suffix                  | Config                                 | Command                                  | Coverage command                    | Notes                                                                     |
+| -------------- | ----------------------- | -------------------------------------- | ---------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------- |
+| Unit           | `*.spec.ts`             | `jest.config.js` (root)                | `npm test`                               | `npm run test:cov`                  | `apps/*/src/`; all deps mocked via `jest.fn()`                            |
+| Integration    | `*.integration-spec.ts` | `apps/shop/test/jest-integration.json` | `npm run test:integration:shop`          | `npm run test:integration:shop:cov` | real Postgres via Testcontainers; infra mocked                            |
+| e2e            | `*.e2e-spec.ts`         | `apps/shop/test/jest-e2e.json`         | `npm run test:e2e:shop`                  | —                                   | local full docker-compose stack; same Jest config reused for stage checks |
+| Contract (buf) | —                       | `proto/buf.yaml` / `buf.breaking.yaml` | `cd proto && buf lint && buf breaking …` | —                                   | proto wire-compat gate; runs in CI only                                   |
 
 ## File layout under `apps/shop/test/`
 
@@ -27,10 +27,14 @@ test/
     .env.e2e.payments      payments env vars for e2e stack (committed — non-secret defaults)
     test-env-setup.ts      loads .env.e2e with override:false; referenced as setupFiles in jest-e2e.json
     helpers/
-      index.ts             barrel — re-exports all 4 helpers
+      index.ts             barrel — re-exports auth/cart/product/request/poll/constants/validation-config/wait-for-ready helpers
       auth.ts              signupAndSignin(email, password) → JWT token
       cart.ts              addToCartAndCheckout(token, productId, quantity?, idempotencyKey?) → { order, token }
+      constants.ts         BASE_URL and shared e2e constants
       poll.ts              poll<T>(fn, opts) — retries until truthy or timeout
+      product.ts           resolveE2EProductId() from env / stage-validation config
+      request.ts           e2eRequest() wrapper for Supertest against BASE_URL
+      validation-config.ts namespace-scoped stage-validation helpers
       wait-for-ready.ts    waitForReady(baseUrl) — polls /health until 200
     cart/
       cart-flow.e2e-spec.ts
@@ -105,6 +109,16 @@ Output directory: `coverage-integration/` (repo root). Same reporters as unit.
 
 - `code-quality` job: reads `coverage/coverage-summary.json` and prints a summary table after unit tests run
 - `integration-tests` job: same for `coverage-integration/coverage-summary.json`; uploads `coverage-integration/` as a build artifact (7-day retention)
+
+## Stage validation workflow
+
+`stage-validation.yml` reuses the same e2e Jest config against the deployed stage environment instead of the local compose stack.
+
+- Command: `npm run test:e2e:shop:stage`
+- Base URL: `STAGE_VALIDATION_BASE_URL` from the stage Pulumi output `publicEndpointUrl`
+- Data setup: one-off ECS task runs `dist/apps/shop/db/stage-validation/seed.js`
+- Data cleanup: one-off ECS task runs `dist/apps/shop/db/stage-validation/cleanup.js`
+- Isolation: validation records are namespace-scoped via `STAGE_VALIDATION_NAMESPACE`
 
 ## Contract tests (buf)
 

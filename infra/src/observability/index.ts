@@ -66,6 +66,7 @@ interface CreateMetricMathAlarmArgs {
   evaluationPeriods: number;
   logicalName: string;
   metricQueries: pulumi.Input<pulumi.Input<aws.types.input.cloudwatch.MetricAlarmMetricQuery>[]>;
+  period?: number;
   threshold: number;
   treatMissingData?: string;
 }
@@ -336,6 +337,7 @@ export function createObservability({
           returnData: true,
         },
       ],
+      period: applicationMetricsPeriodSeconds,
       threshold: http5xxRateAlarmThresholdPercent,
     });
 
@@ -361,6 +363,7 @@ export function createObservability({
           returnData: true,
         },
       ],
+      period: applicationMetricsPeriodSeconds,
       threshold: httpLatencyAlarmThresholdMilliseconds,
     });
 
@@ -387,6 +390,7 @@ export function createObservability({
           returnData: true,
         },
       ],
+      period: applicationMetricsTenMinutePeriodSeconds,
       threshold: dlqAlarmThreshold,
     });
 
@@ -436,6 +440,7 @@ export function createObservability({
           returnData: true,
         },
       ],
+      period: applicationMetricsPeriodSeconds,
       threshold: grpcClientErrorRateAlarmThresholdPercent,
     });
 
@@ -463,6 +468,7 @@ export function createObservability({
           returnData: true,
         },
       ],
+      period: applicationMetricsPeriodSeconds,
       threshold: grpcClientLatencyAlarmThresholdMilliseconds,
     });
   }
@@ -1351,6 +1357,7 @@ function createMetricMathAlarm({
   evaluationPeriods,
   logicalName,
   metricQueries,
+  period = applicationMetricsPeriodSeconds,
   threshold,
   treatMissingData = 'notBreaching',
 }: CreateMetricMathAlarmArgs) {
@@ -1361,7 +1368,12 @@ function createMetricMathAlarm({
     comparisonOperator,
     datapointsToAlarm,
     evaluationPeriods,
-    metricQueries,
+    metricQueries: pulumi.output(metricQueries).apply((queries) =>
+      queries.map((metricQuery) => ({
+        ...metricQuery,
+        period: metricQuery.period ?? period,
+      })),
+    ),
     name: stackName(logicalName),
     tags: {
       ...commonTags,

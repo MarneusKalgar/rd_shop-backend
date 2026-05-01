@@ -33,9 +33,11 @@ export function createMessageBroker({
 
     return subnetIds[0];
   });
-  const brokerAmiId = aws.ssm.getParameterOutput({
-    name: amazonLinuxAmiSsmParameterName,
-  }).value;
+  const brokerAmiId =
+    messageBrokerConfig.amiId ??
+    aws.ssm.getParameterOutput({
+      name: amazonLinuxAmiSsmParameterName,
+    }).value;
   const brokerSubnet = aws.ec2.getSubnetOutput({ id: selectedSubnetId });
 
   const brokerBootstrapSecret = new aws.secretsmanager.Secret(

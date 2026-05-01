@@ -3,23 +3,44 @@
 ## Shop entities & relationships
 
 ```
-User ──< Order ──< OrderItem >── Product
-                                    │
-FileRecord <── Product.mainImageId  │  (ON DELETE SET NULL)
+User ──< Order ──< OrderItem >── Product ──< ProductReview >── User
      │
-     └── ownerId → User (ON DELETE CASCADE)
+     ├──|| Cart ──< CartItem >── Product
+     ├──< RefreshToken
+     ├──< EmailVerificationToken
+     ├──< PasswordResetToken
+     ├──< FileRecord (ownerId, ON DELETE CASCADE)
+     └──o FileRecord (avatarId, ON DELETE SET NULL)
 
-ProcessedMessage  (standalone idempotency table)
+Product ──o FileRecord (mainImageId, ON DELETE SET NULL)
+
+ProcessedMessage  (worker idempotency table)
+AuditLog          (append-only audit table; actorId/targetId are logical refs, no FK)
 ```
 
-| Entity           | Table                | PK   | Notable columns                                                                                                |
-| ---------------- | -------------------- | ---- | -------------------------------------------------------------------------------------------------------------- |
-| User             | `users`              | uuid | email (unique), password (nullable), roles text[], scopes text[]                                               |
-| Order            | `orders`             | uuid | userId FK, status enum, idempotencyKey (unique nullable), paymentId (unique nullable)                          |
-| OrderItem        | `order_items`        | uuid | orderId FK CASCADE, productId FK RESTRICT, quantity, priceAtPurchase decimal(12,2)                             |
-| Product          | `products`           | uuid | title (unique), price decimal(12,2), stock int, isActive bool, mainImageId FK→FileRecord nullable              |
-| FileRecord       | `file_records`       | uuid | key, bucket, contentType, size bigint, status (PENDING/READY), visibility (PRIVATE/PUBLIC), ownerId FK CASCADE |
-| ProcessedMessage | `processed_messages` | uuid | messageId (unique), idempotencyKey (unique partial), orderId, scope                                            |
+| Domain    | Entity                   | Table                       | PK   | Key relations / notable columns                                                                                                                                             |
+| --------- | ------------------------ | --------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Users     | `User`                   | `users`                     | uuid | email unique, password nullable/select:false, avatarId FK → `file_records`, roles text[], scopes text[], soft-delete `deletedAt`                                            |
+| Auth      | `RefreshToken`           | `refresh_tokens`            | uuid | userId FK → `users` CASCADE, tokenHash, expiresAt, revokedAt; active-token index on `(userId, revokedAt)`                                                                   |
+| Auth      | `EmailVerificationToken` | `email_verification_tokens` | uuid | userId FK → `users` CASCADE, tokenHash, expiresAt, usedAt                                                                                                                   |
+| Auth      | `PasswordResetToken`     | `password_reset_tokens`     | uuid | userId FK → `users` CASCADE, tokenHash, expiresAt, usedAt                                                                                                                   |
+| Cart      | `Cart`                   | `carts`                     | uuid | userId one-to-one owner, CASCADE on user delete, `items` one-to-many                                                                                                        |
+| Cart      | `CartItem`               | `cart_items`                | uuid | cartId FK → `carts` CASCADE, productId FK → `products` RESTRICT, unique `(cartId, productId)`, quantity                                                                     |
+| Catalog   | `Product`                | `products`                  | uuid | title unique, price decimal(12,2), stock int, isActive bool, category enum, mainImageId FK → `file_records` nullable, soft-delete `deletedAt`                               |
+| Catalog   | `ProductReview`          | `product_reviews`           | uuid | productId FK → `products` CASCADE, userId FK → `users` CASCADE, rating smallint with `CHECK 1..5`, unique `(userId, productId)`                                             |
+| Files     | `FileRecord`             | `file_records`              | uuid | key, bucket, contentType, size bigint, status enum (PENDING/READY), visibility enum (PRIVATE/PUBLIC), ownerId FK → `users` CASCADE, `entityId` is logical association field |
+| Orders    | `Order`                  | `orders`                    | uuid | userId FK → `users` CASCADE, status enum, idempotencyKey unique nullable, paymentId unique nullable, shipping snapshot columns                                              |
+| Orders    | `OrderItem`              | `order_items`               | uuid | orderId FK → `orders` CASCADE, productId FK → `products` RESTRICT, quantity, priceAtPurchase decimal(12,2)                                                                  |
+| Messaging | `ProcessedMessage`       | `processed_messages`        | uuid | messageId unique, idempotencyKey partial unique nullable, orderId varchar nullable, processedAt, scope                                                                      |
+| Audit     | `AuditLog`               | `audit_logs`                | uuid | action/outcome enums in app code, actorId/targetId/correlationId/ip/userAgent stored as scalar columns, append-only audit record                                            |
+
+## Payments service schema
+
+Payments runs against a separate PostgreSQL database, so it cannot hold a foreign key to `shop.orders`. The link back to an order is application-level via `payments.order_id`.
+
+| Entity    | Table      | PK   | Key relations / notable columns                                                                                                               |
+| --------- | ---------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Payment` | `payments` | uuid | `orderId` unique (logical reference to shop order), `paymentId` unique, `status` smallint enum, `amount` decimal(12,2), `currency` varchar(3) |
 
 ## Order status flow
 
@@ -35,15 +56,17 @@ Also: `CREATED`, `CANCELLED`
 
 ## DatabaseAdapterFactory / adapter pattern
 
-**Why:** Dev uses local Postgres; prod uses Neon (serverless Postgres with different SSL/pooling needs).
+**Why:** Dev commonly uses local Postgres. The adapter layer also keeps support for Neon-style managed Postgres endpoints, but the current deployed AWS stacks use standard PostgreSQL connections (`ec2-postgres` on stage, `rds` in production).
 
 | Adapter         | Detects                                   | Priority   |
 | --------------- | ----------------------------------------- | ---------- |
 | NeonAdapter     | `neon.tech` or `.neon.` in DATABASE_URL   | 10 (first) |
 | PostgresAdapter | localhost / 127.0.0.1 / postgres hostname | 5          |
 
-`DatabaseAdapterFactory.create()` auto-detects from DATABASE_URL.  
-`DatabaseAdapterFactory.create('neon')` explicit selection.
+`DatabaseAdapterFactory.create()` auto-detects from DATABASE_URL when possible.  
+`DatabaseAdapterFactory.create('neon')` explicit Neon selection.
+
+Current AWS deploys select the standard Postgres path; Neon remains a supported option, not the active production backend.
 
 Both implement `IDatabaseAdapter`: `getDataSourceOptions()`, `getModuleOptions()`, `validateConfig()`.
 
