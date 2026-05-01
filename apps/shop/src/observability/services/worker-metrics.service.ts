@@ -66,13 +66,22 @@ export class WorkerMetricsService extends BaseMetricsService {
    * Emits `OrderWorkerMessageCount` for the final worker outcome.
    */
   recordWorkerMessage({ queue, result }: RecordWorkerMessageArgs): void {
+    const serviceDimensions = {
+      Environment: this.environment,
+      Result: result,
+      Service: this.serviceName,
+    };
+
     this.metricsSink.emit({
       dimensions: {
-        Environment: this.environment,
         Queue: queue,
-        Result: result,
-        Service: this.serviceName,
+        ...serviceDimensions,
       },
+      metrics: [{ name: 'OrderWorkerMessageCount', unit: 'Count', value: 1 }],
+    });
+
+    this.metricsSink.emit({
+      dimensions: serviceDimensions,
       metrics: [{ name: 'OrderWorkerMessageCount', unit: 'Count', value: 1 }],
     });
   }

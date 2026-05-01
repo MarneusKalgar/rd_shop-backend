@@ -42,11 +42,31 @@ export class HttpMetricsService {
       Route: route,
       Service: this.serviceName,
     };
+    const serviceDimensions = {
+      Environment: this.environment,
+      Service: this.serviceName,
+    };
+    const statusClass = `${Math.floor(statusCode / 100)}xx`;
 
     this.metricsSink.emit({
       dimensions: {
         ...baseDimensions,
-        StatusClass: `${Math.floor(statusCode / 100)}xx`,
+        StatusClass: statusClass,
+      },
+      metrics: [{ name: 'HttpRequestCount', unit: 'Count', value: 1 }],
+      properties: { statusCode },
+    });
+
+    this.metricsSink.emit({
+      dimensions: serviceDimensions,
+      metrics: [{ name: 'HttpRequestCount', unit: 'Count', value: 1 }],
+      properties: { statusCode },
+    });
+
+    this.metricsSink.emit({
+      dimensions: {
+        ...serviceDimensions,
+        StatusClass: statusClass,
       },
       metrics: [{ name: 'HttpRequestCount', unit: 'Count', value: 1 }],
       properties: { statusCode },
@@ -54,6 +74,12 @@ export class HttpMetricsService {
 
     this.metricsSink.emit({
       dimensions: baseDimensions,
+      metrics: [{ name: 'HttpRequestDurationMs', unit: 'Milliseconds', value: durationMs }],
+      properties: { statusCode },
+    });
+
+    this.metricsSink.emit({
+      dimensions: serviceDimensions,
       metrics: [{ name: 'HttpRequestDurationMs', unit: 'Milliseconds', value: durationMs }],
       properties: { statusCode },
     });

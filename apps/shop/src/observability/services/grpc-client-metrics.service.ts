@@ -52,13 +52,30 @@ export class GrpcClientMetricsService extends BaseMetricsService {
    * Emits `GrpcClientRequestCount` for one outbound client outcome.
    */
   recordRequest({ method, outcome, peerService }: RecordGrpcClientRequestArgs): void {
+    const serviceDimensions = {
+      Environment: this.environment,
+      PeerService: peerService,
+      Service: this.serviceName,
+    };
+
     this.metricsSink.emit({
       dimensions: {
-        Environment: this.environment,
         Method: method,
         Outcome: outcome,
-        PeerService: peerService,
-        Service: this.serviceName,
+        ...serviceDimensions,
+      },
+      metrics: [{ name: 'GrpcClientRequestCount', unit: 'Count', value: 1 }],
+    });
+
+    this.metricsSink.emit({
+      dimensions: serviceDimensions,
+      metrics: [{ name: 'GrpcClientRequestCount', unit: 'Count', value: 1 }],
+    });
+
+    this.metricsSink.emit({
+      dimensions: {
+        ...serviceDimensions,
+        Outcome: outcome,
       },
       metrics: [{ name: 'GrpcClientRequestCount', unit: 'Count', value: 1 }],
     });
