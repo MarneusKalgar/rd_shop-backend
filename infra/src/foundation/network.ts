@@ -110,6 +110,7 @@ export function createFoundationNetwork() {
       Scope: 'public',
     },
     userData: buildNatInstanceUserData(),
+    userDataReplaceOnChange: true,
     vpcSecurityGroupIds: [natSecurityGroup.id],
   });
 
@@ -139,11 +140,18 @@ export function createFoundationNetwork() {
     vpcId: vpc.id,
   });
 
-  new aws.ec2.Route(stackName('private-default-route'), {
-    destinationCidrBlock: networkConfig.anyIpv4Cidr,
-    networkInterfaceId: natInstance.primaryNetworkInterfaceId,
-    routeTableId: privateRouteTable.id,
-  });
+  new aws.ec2.Route(
+    stackName('private-default-route'),
+    {
+      destinationCidrBlock: networkConfig.anyIpv4Cidr,
+      networkInterfaceId: natInstance.primaryNetworkInterfaceId,
+      routeTableId: privateRouteTable.id,
+    },
+    {
+      deleteBeforeReplace: true,
+      replaceOnChanges: ['networkInterfaceId'],
+    },
+  );
 
   // Private tier holds ECS, RDS, MQ, and other non-public resources in later phases.
   const privateSubnets = createSubnets({
