@@ -163,6 +163,7 @@ export function createMessageBroker({
           region,
         }),
       ),
+    userDataReplaceOnChange: true,
     vpcSecurityGroupIds: [securityGroupId],
   });
 
