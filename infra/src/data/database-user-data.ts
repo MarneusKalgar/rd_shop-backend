@@ -113,13 +113,13 @@ sql_escape_literal() {
 SHOP_DB_PASSWORD_ESCAPED=$(sql_escape_literal "$SHOP_DB_PASSWORD")
 PAYMENTS_DB_PASSWORD_ESCAPED=$(sql_escape_literal "$PAYMENTS_DB_PASSWORD")
 
-cat <<EOF > /opt/rd-shop/postgres-init/10-create-service-dbs.sql
+cat <<'POSTGRES_INIT_SQL' > /opt/rd-shop/postgres-init/10-create-service-dbs.sql
 CREATE USER "$SHOP_DB_USER" WITH PASSWORD '$SHOP_DB_PASSWORD_ESCAPED';
 CREATE DATABASE "$SHOP_DB_NAME" OWNER "$SHOP_DB_USER";
 
 CREATE USER "$PAYMENTS_DB_USER" WITH PASSWORD '$PAYMENTS_DB_PASSWORD_ESCAPED';
 CREATE DATABASE "$PAYMENTS_DB_NAME" OWNER "$PAYMENTS_DB_USER";
-EOF
+POSTGRES_INIT_SQL
 
 if docker inspect --format '{{.State.Running}}' '${containerName}' 2>/dev/null | grep -q '^true$'; then
   exit 0
@@ -155,13 +155,13 @@ set -euo pipefail
 
 dnf install -y awscli docker jq
 systemctl enable --now docker
-cat <<'EOF' > ${postgresHostBootstrapScriptPath}
+cat <<'POSTGRES_BOOTSTRAP_SCRIPT' > ${postgresHostBootstrapScriptPath}
 ${bootstrapScript}
-EOF
+POSTGRES_BOOTSTRAP_SCRIPT
 
 chmod 700 ${postgresHostBootstrapScriptPath}
 
-cat <<'EOF' > ${postgresHostBootstrapServicePath}
+cat <<'POSTGRES_BOOTSTRAP_UNIT' > ${postgresHostBootstrapServicePath}
 [Unit]
 Description=rd-shop stage PostgreSQL bootstrap
 After=docker.service network-online.target
@@ -176,7 +176,7 @@ RestartSec=15
 
 [Install]
 WantedBy=multi-user.target
-EOF
+POSTGRES_BOOTSTRAP_UNIT
 
 systemctl daemon-reload
 systemctl enable --now rd-shop-postgres-bootstrap.service
