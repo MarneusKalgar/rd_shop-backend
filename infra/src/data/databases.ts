@@ -303,43 +303,49 @@ function createEc2FoundationDatabases({
     type: config.storageType,
   });
 
-  const databaseHost = new aws.ec2.Instance(stackName('postgres-host'), {
-    ami: databaseHostAmiId,
-    associatePublicIpAddress: false,
-    iamInstanceProfile: databaseHostInstanceProfile.name,
-    instanceType: config.host.instanceType,
-    metadataOptions: {
-      httpEndpoint: 'enabled',
-      httpTokens: 'required',
+  const databaseHost = new aws.ec2.Instance(
+    stackName('postgres-host'),
+    {
+      ami: databaseHostAmiId,
+      associatePublicIpAddress: false,
+      iamInstanceProfile: databaseHostInstanceProfile.name,
+      instanceType: config.host.instanceType,
+      metadataOptions: {
+        httpEndpoint: 'enabled',
+        httpTokens: 'required',
+      },
+      subnetId: selectedSubnetId,
+      tags: {
+        ...commonTags,
+        Component: 'database',
+        Name: stackName('postgres-host'),
+        Scope: 'private',
+      },
+      userData: pulumi
+        .all([
+          databaseBootstrapSecret.arn,
+          databaseBootstrapSecretVersion.versionId,
+          databaseDataVolume.id,
+        ])
+        .apply(([bootstrapSecretArn, , dataVolumeId]) =>
+          buildDatabaseHostUserData({
+            bootstrapSecretArn,
+            containerName: databaseHostContainerName,
+            dataVolumeDeviceName: config.host.dataVolumeDeviceName,
+            dataVolumeId,
+            dataVolumeMountPath: config.host.dataVolumeMountPath,
+            image: config.host.image,
+            port: config.port,
+            region,
+          }),
+        ),
+      userDataReplaceOnChange: true,
+      vpcSecurityGroupIds: [securityGroupIds.rdsShop, securityGroupIds.rdsPayments],
     },
-    subnetId: selectedSubnetId,
-    tags: {
-      ...commonTags,
-      Component: 'database',
-      Name: stackName('postgres-host'),
-      Scope: 'private',
+    {
+      deleteBeforeReplace: true,
     },
-    userData: pulumi
-      .all([
-        databaseBootstrapSecret.arn,
-        databaseBootstrapSecretVersion.versionId,
-        databaseDataVolume.id,
-      ])
-      .apply(([bootstrapSecretArn, , dataVolumeId]) =>
-        buildDatabaseHostUserData({
-          bootstrapSecretArn,
-          containerName: databaseHostContainerName,
-          dataVolumeDeviceName: config.host.dataVolumeDeviceName,
-          dataVolumeId,
-          dataVolumeMountPath: config.host.dataVolumeMountPath,
-          image: config.host.image,
-          port: config.port,
-          region,
-        }),
-      ),
-    userDataReplaceOnChange: true,
-    vpcSecurityGroupIds: [securityGroupIds.rdsShop, securityGroupIds.rdsPayments],
-  });
+  );
 
   new aws.ec2.VolumeAttachment(
     stackName('postgres-data-volume-attachment'),
