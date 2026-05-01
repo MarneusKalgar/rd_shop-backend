@@ -43,6 +43,9 @@ config:
     secure: AAABABR55SQQoSq941wfZc9edeKU+ZLrQTyD8ud63l+jPEZv9fmi88chSMo=
   rd-shop-infra:shopRabbitmqPassword:
     secure: AAABAHCHPCUZQgmk/4rxk8o6cCA4gKWLODusH1O/WlzpeWZKWtbAYqmUGH0U9j2mrWrX9bRy3bXz3UHIM7z2QuJP8pxmS7/TfiSPjPUombOrip3noLzrj89KN90Wpulj
+  # ECS hosts are already controlled via a stack-specific SSM parameter path below.
+  # Set ecsOptimizedAmiId directly only when you want the stack config itself to own the pin.
+  # rd-shop-infra:ecsOptimizedAmiId: ami-<current-production-ecs-host-ami>
   rd-shop-infra:ecsOptimizedAmiSsmParameterName: /rd-shop/production/ecs/ami-id
   rd-shop-infra:natInstanceAmiId: ami-0e6ea107664115459
   rd-shop-infra:shopRabbitmqAmiId: ami-0de6934e87badb694

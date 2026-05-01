@@ -28,9 +28,11 @@ export function createFoundationCompute({
     computeConfig.desiredCapacity === 1 &&
     computeConfig.maxSize === 1 &&
     computeConfig.minSize === 1;
-  const ecsOptimizedAmiId = aws.ssm.getParameterOutput({
-    name: computeConfig.ecsOptimizedAmiSsmParameterName,
-  }).value;
+  const ecsOptimizedAmiId =
+    computeConfig.ecsOptimizedAmiId ??
+    aws.ssm.getParameterOutput({
+      name: computeConfig.ecsOptimizedAmiSsmParameterName,
+    }).value;
 
   const cluster = new aws.ecs.Cluster(stackName('ecs-cluster'), {
     name: computeConfig.clusterName,

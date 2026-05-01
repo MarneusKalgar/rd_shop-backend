@@ -198,9 +198,11 @@ function createEc2FoundationDatabases({
 
     return subnetIds[0];
   });
-  const databaseHostAmiId = aws.ssm.getParameterOutput({
-    name: amazonLinuxAmiSsmParameterName,
-  }).value;
+  const databaseHostAmiId =
+    config.host.amiId ??
+    aws.ssm.getParameterOutput({
+      name: amazonLinuxAmiSsmParameterName,
+    }).value;
   const databaseSubnet = aws.ec2.getSubnetOutput({ id: selectedSubnetId });
   const databaseHostContainerName = stackName('postgres-host');
   const postgresAdminPassword = stackConfig.requireSecret('databaseHostAdminPassword');
