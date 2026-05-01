@@ -21,6 +21,7 @@ const defaultShopDatabaseUsername = 'shop';
 const minimumAllocatedStorageGiB = 20;
 
 export interface DatabaseHostConfig {
+  amiId?: string;
   bootstrapSecretRecoveryWindowInDays: number;
   dataVolumeDeviceName: string;
   dataVolumeMountPath: string;
@@ -75,11 +76,13 @@ export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
   const databaseHostImage =
     config.get('databaseHostImage') ??
     `public.ecr.aws/docker/library/postgres:${engineMajorVersion}-alpine`;
+  const databaseHostAmiId = normalizeOptionalAmiId(config.get('databaseHostAmiId'));
 
   validateBackend(backend);
   validateEngineMajorVersion(engineMajorVersion);
   validateAllocatedStorage(allocatedStorageGiB);
   validateBackupRetention(backupRetentionDays);
+  validateOptionalAmiId('databaseHostAmiId', databaseHostAmiId);
 
   return {
     allocatedStorageGiB,
@@ -90,6 +93,7 @@ export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
     engine: defaultDatabaseEngine,
     engineMajorVersion,
     host: {
+      amiId: databaseHostAmiId,
       bootstrapSecretRecoveryWindowInDays: isProduction ? 30 : 0,
       dataVolumeDeviceName:
         config.get('databaseHostDataVolumeDeviceName') ?? defaultDatabaseHostDataVolumeDeviceName,
@@ -119,6 +123,15 @@ export function getFoundationDatabaseConfig(): FoundationDatabaseConfig {
     storageEncrypted: true,
     storageType: defaultDatabaseStorageType,
   };
+}
+
+function normalizeOptionalAmiId(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 ? trimmedValue : undefined;
 }
 
 /**
@@ -164,5 +177,11 @@ function validateBackupRetention(backupRetentionDays: number) {
 function validateEngineMajorVersion(engineMajorVersion: string) {
   if (!/^\d+$/.test(engineMajorVersion)) {
     throw new Error('databaseEngineMajorVersion must be a major PostgreSQL version like "16".');
+  }
+}
+
+function validateOptionalAmiId(label: string, value: string | undefined) {
+  if (value && !/^ami-[a-z0-9]+$/i.test(value)) {
+    throw new Error(`${label} must look like a valid AMI id, e.g. ami-0123456789abcdef0.`);
   }
 }

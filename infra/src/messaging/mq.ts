@@ -166,12 +166,18 @@ export function createMessageBroker({
     vpcSecurityGroupIds: [securityGroupId],
   });
 
-  new aws.ec2.VolumeAttachment(stackName('shop-rabbitmq-data-volume-attachment'), {
-    deviceName: messageBrokerConfig.dataVolumeDeviceName,
-    instanceId: broker.id,
-    stopInstanceBeforeDetaching: true,
-    volumeId: brokerDataVolume.id,
-  });
+  new aws.ec2.VolumeAttachment(
+    stackName('shop-rabbitmq-data-volume-attachment'),
+    {
+      deviceName: messageBrokerConfig.dataVolumeDeviceName,
+      instanceId: broker.id,
+      stopInstanceBeforeDetaching: true,
+      volumeId: brokerDataVolume.id,
+    },
+    {
+      deleteBeforeReplace: true,
+    },
+  );
 
   const brokerArn = pulumi.interpolate`arn:aws:ec2:${region}:${accountId}:instance/${broker.id}`;
   const brokerEndpoint = pulumi.interpolate`amqp://${broker.privateIp}:${messageBrokerConfig.port}`;
