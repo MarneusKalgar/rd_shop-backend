@@ -4,6 +4,7 @@ const rabbitMqManagementPort = 15672;
 const rabbitMqBootstrapLogPath = '/var/log/rd-shop-rabbitmq-bootstrap.log';
 const rabbitMqBootstrapScriptPath = '/usr/local/bin/rd-shop-rabbitmq-bootstrap.sh';
 const rabbitMqBootstrapServicePath = '/etc/systemd/system/rd-shop-rabbitmq-bootstrap.service';
+const rabbitMqBootstrapRevision = '2026-05-01-01';
 
 interface BuildMessageBrokerUserDataArgs {
   brokerSecretArn: string;
@@ -31,6 +32,7 @@ export function buildMessageBrokerUserData({
 }: BuildMessageBrokerUserDataArgs) {
   const normalizedDataVolumeId = dataVolumeId.replace(/-/g, '');
   const bootstrapScript = `#!/bin/bash
+# bootstrap-revision=${rabbitMqBootstrapRevision}
 set -euo pipefail
 
 exec > >(tee -a '${rabbitMqBootstrapLogPath}') 2>&1
@@ -125,6 +127,7 @@ exit 1
 `;
 
   return `#!/bin/bash
+# bootstrap-revision=${rabbitMqBootstrapRevision}
 set -euo pipefail
 
 dnf install -y awscli docker jq
