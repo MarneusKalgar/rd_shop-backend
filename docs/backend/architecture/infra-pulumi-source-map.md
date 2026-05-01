@@ -23,6 +23,7 @@ Use this page when you need to find which file owns a migration step, resource f
 | 2.3-2.4 | ECS task defs, IAM roles, CloudWatch logs, Cloud Map, ECS services                         | `createComputeServices(...)`         | `infra/src/compute/service-definitions.ts`, `infra/src/compute/services-config.ts`, `infra/src/compute/services.ts`                          |
 | 2.4-2.5 | ALB, access logs bucket, CloudFront/custom-domain public edge                              | `createComputeEdge(...)`             | `infra/src/compute/edge-config.ts`, `infra/src/compute/edge.ts`, `infra/src/public-domain.ts`                                                |
 | 3       | Dedicated RabbitMQ broker on EC2 with EBS-backed data volume                               | `createMessageBroker(...)`           | `infra/src/messaging/mq-config.ts`, `infra/src/messaging/mq-user-data.ts`, `infra/src/messaging/mq.ts`                                       |
+| 4       | CloudWatch dashboard, SNS alarms, infra alarms, prod-only application observability        | `createObservability(...)`           | `infra/src/observability/index.ts`                                                                                                           |
 
 ## Module Ownership
 
@@ -76,6 +77,11 @@ Use this page when you need to find which file owns a migration step, resource f
 - Owns dedicated RabbitMQ broker config, credentials, and host bootstrap.
 - Edit here for broker image/version, instance sizing, storage, bootstrap flow, or connection endpoint behavior.
 
+### `infra/src/observability/`
+
+- Owns the CloudWatch dashboard, alarm SNS topic/subscriptions, infra alarm definitions, and production-only app metric widgets/alarms.
+- Edit here for threshold tuning, dashboard layout, metric namespace decisions, or the stage/production observability split.
+
 ### `infra/src/public-domain.ts`
 
 - Owns normalization and validation of public API domain inputs.
@@ -94,6 +100,7 @@ Use this page when you need to find which file owns a migration step, resource f
 | Desired counts/deployment policy/image selection | `infra/src/compute/services-config.ts`     | CI image publishing and stack config                               |
 | Public ALB / CloudFront / certs / DNS            | `infra/src/compute/edge-config.ts`         | `infra/src/compute/edge.ts`, `infra/src/public-domain.ts`          |
 | RabbitMQ host sizing/bootstrap                   | `infra/src/messaging/mq-config.ts`         | `infra/src/messaging/mq-user-data.ts`, `infra/src/messaging/mq.ts` |
+| CloudWatch dashboards, alarms, observability     | `infra/src/observability/index.ts`         | stack alarm endpoints, runtime metric gating, `infra/index.ts`     |
 
 ## Guardrails
 
@@ -107,9 +114,8 @@ Use this page when you need to find which file owns a migration step, resource f
 Minimal safe loop after infra edits:
 
 ```bash
-cd infra
-npx tsc --noEmit -p tsconfig.json
-pulumi preview --stack stage
+npm run type-check
+cd infra && pulumi preview --stack stage
 ```
 
 Use `pulumi up` only after the preview matches the intended blast radius.

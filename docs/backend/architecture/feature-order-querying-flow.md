@@ -28,16 +28,16 @@ for both "not found" and "wrong owner" cases (IDOR prevention).
 
 **DTO:** `FindOrdersFilterDto`
 
-| Field         | Type               | SQL operation                                                  | Default |
-| ------------- | ------------------ | -------------------------------------------------------------- | ------- |
-| `cursor`      | UUID               | Keyset: `(createdAt, id) <` cursor position                    | none    |
-| `limit`       | Int, 1–50          | `LIMIT` on subquery                                            | 10      |
-| `status`      | `OrderStatus` enum | `=`                                                            | none    |
-| `startDate`   | ISO Date           | `createdAt >=`                                                 | none    |
-| `endDate`     | ISO Date           | `createdAt <=`                                                 | none    |
-| `productName` | string             | `product.title ILIKE %value%` — requires INNER JOIN + GROUP BY | none    |
+| Field         | Type               | SQL operation                                                     | Default |
+| ------------- | ------------------ | ----------------------------------------------------------------- | ------- |
+| `cursor`      | string             | Opaque encoded cursor; decoded to `(createdAt, id)` keyset anchor | none    |
+| `limit`       | Int, 1–50          | `LIMIT` on subquery                                               | 10      |
+| `status`      | `OrderStatus` enum | `=`                                                               | none    |
+| `startDate`   | ISO Date           | `createdAt >=`                                                    | none    |
+| `endDate`     | ISO Date           | `createdAt <=`                                                    | none    |
+| `productName` | string             | `product.title ILIKE %value%` — requires INNER JOIN + GROUP BY    | none    |
 
-**Cursor encoding:** plain UUID string of the last order's `id` (not base64).  
+**Cursor encoding:** opaque string built as `${id}|${createdAt epoch ms}` via `encodeCursor()`.  
 **Sort:** `DESC createdAt`, `DESC id` (tiebreaker).
 
 ## Two-query split (query optimization)
@@ -88,7 +88,7 @@ Error mapping: NOT_FOUND→404, INVALID_ARGUMENT→400, ALREADY_EXISTS→409, UN
 query {
   orders(
     filter: { status: PAID, startDate: "...", endDate: "..." }
-    pagination: { limit: 10, cursor: "<uuid>" }
+    pagination: { limit: 10, cursor: "<encoded-cursor>" }
   ) {
     nodes {
       id
@@ -131,7 +131,7 @@ GraphQL does **not** expose a separate payment status query; only `paymentId` on
 
 ```typescript
 OrdersFilterInput     { status?, startDate?, endDate? }
-OrdersPaginationInput { cursor?: UUID, limit?: Int (default 10, min 1, max 50) }
+OrdersPaginationInput { cursor?: String, limit?: Int (default 10, min 1, max 50) }
 ```
 
 ## Response types (GraphQL)
@@ -154,13 +154,13 @@ File: `apps/shop/test/integration/orders/graphql-orders-pagination.integration-s
 Tests the GraphQL `orders` query against a real Postgres container (Testcontainers). RabbitMQ, gRPC client, and PaymentsHealthIndicator are overridden with mocks (see `test-infrastructure.md` — providers always overridden).
 
 | Coverage                                                                          |
-| --------------------------------------------------------------------------------- |
+| --------------------------------------------------------------------------------- | --------------- |
 | Cursor pagination: first page, next-page cursor, last page (`hasNextPage: false`) |
 | `status` filter                                                                   |
 | `startDate` / `endDate` filter                                                    |
 | `productName` ILIKE filter                                                        |
 | Empty result set                                                                  |
-| `pageInfo.nextCursor` encodes the last item's UUID                                |
+| `pageInfo.nextCursor` encodes the last item's `id                                 | epochMs` anchor |
 
 ### e2e tests
 

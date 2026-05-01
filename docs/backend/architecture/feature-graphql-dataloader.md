@@ -22,7 +22,7 @@
 - Input: `OrdersPaginationInput { limit, cursor? }`
 - Output: `{ nodes: Order[], pageInfo: { hasNextPage, nextCursor } }`
 - Implementation: Postgres-specific SQL (`date_trunc`, composite ORDER BY, ILIKE, enums)
-- Cursor is opaque base64 token encoding `(createdAt, id)`
+- Cursor is an opaque string built as `${id}|${createdAt epoch ms}` and decoded back to `(createdAt, id)` for keyset pagination
 
 ## DataLoaders
 

@@ -178,7 +178,7 @@ Controller → Service → AuditLogService.log(CreateAuditEventDto)
 - **Fire-and-forget** — audit writes swallow errors to prevent audit failures from disrupting the primary business flow; failures are logged as `WARN` via Pino
 - **`actorRole` on admin actions** — `USER_ROLE_CHANGED`, `USER_SCOPE_CHANGED`, `USER_SOFT_DELETED` capture `user.roles.join(',')` at call time; guards against post-hoc role revocation obscuring who held admin at time of action
 - **Worker-path events have no HTTP context** — `ORDER_PAYMENT_AUTHORIZED` and `ORDER_PAYMENT_FAILED` are fired by the RabbitMQ worker, so `ip`, `userAgent`, and `correlationId` are null
-- **Storage-agnostic interface** — `AuditLogService` depends on a TypeORM `Repository<AuditLog>`; swapping to CloudWatch post-AWS-migration requires only a backing store change, not a change to callers
+- **Storage abstraction stays local to the service** — `AuditLogService` depends on a TypeORM `Repository<AuditLog>`, but the current AWS deployment still persists audit events in the `audit_logs` table. CloudWatch Logs complements request/application logging; it does not replace the audit store.
 
 ---
 
@@ -196,8 +196,9 @@ Controller → Service → AuditLogService.log(CreateAuditEventDto)
 
 - All secrets loaded via `ConfigService` from env vars — no hardcoded values
 - Env validation at startup via `class-validator` schemas in `apps/shop/src/core/environment/schema.ts` — fail-fast on missing/invalid vars
-- `.env.production` is gitignored; `.env.example` contains empty placeholder values
-- **Delivery**: GitHub Environment Secrets → base64 decode over SSH → VM `.env.production` → Docker Compose `env_file` mount
+- Local `.env.*` files still exist for development and compose-based flows; `.env.production` remains gitignored
+- **AWS runtime delivery**: Pulumi publishes sensitive values to Secrets Manager and runtime parameters to SSM Parameter Store; ECS task definitions inject them into the running containers by ARN/name
+- **CI access model**: GitHub Actions assumes AWS roles through OIDC, then runs Pulumi with environment-scoped secrets and variables. No active deploy step copies env files onto a VM
 - **Never logged**: `Authorization` header, `cookie` header, `password`, `tokenHash`, `JWT_SECRET`, AWS credentials
 
 ---
@@ -207,5 +208,6 @@ Controller → Service → AuditLogService.log(CreateAuditEventDto)
 - [SECURITY-BASELINE.md](../../../SECURITY-BASELINE.md) — full OWASP ASVS mapping, risk table, evidence index
 - [docs/backend/requirements/security-hardening-plan.md](../requirements/security-hardening-plan.md) — implementation plan with task tracking
 - [docs/backend/architecture/feature-auth-rbac.md](feature-auth-rbac.md) — JWT strategy, guards, decorators
+- [docs/backend/architecture/infra-aws.md](infra-aws.md) — deployed AWS topology, stack split, ops tradeoffs
 - [docs/backend/architecture/infra-docker-compose.md](infra-docker-compose.md) — Docker security (non-root, tini, distroless option)
 - [docs/backend/architecture/infra-ci-pipeline.md](infra-ci-pipeline.md) — CI/CD secrets delivery

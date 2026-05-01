@@ -88,18 +88,19 @@ tmpfs:
 
 All scripts live in `apps/shop/test/performance/scenarios/k6/`.
 
-| Script                              | Profile | Scenario                                                |
-| ----------------------------------- | ------- | ------------------------------------------------------- |
-| `product-search.js`                 | before  | Baseline product search (no index)                      |
-| `product-search.after.js`           | after   | Post-GIN-index product search (A1)                      |
-| `order-flow.js`                     | before  | Baseline order create + cancel                          |
-| `order-flow.after.js`               | after   | Post A3+B4 order flow                                   |
-| `auth-flow.js`                      | before  | Baseline signin + refresh                               |
-| `auth-flow.after.js`                | after   | Post B1+B5 auth flow                                    |
-| `signin-stress.js`                  | before  | High-concurrency signin stress (B1 isolation)           |
-| `signin-stress.after.js`            | after   | Post-bcryptjs signin stress                             |
-| `order-flow-grpc-breaker.before.js` | before  | Order flow with hanging gRPC (B3 before)                |
-| `order-flow-grpc-breaker.after.js`  | after   | Order flow with opossum circuit breaker open (B3 after) |
+| Script                           | Profile | Scenario                                                             |
+| -------------------------------- | ------- | -------------------------------------------------------------------- |
+| `product-search.js`              | before  | Baseline product search                                              |
+| `product-search-after-a1.js`     | after   | Post-GIN-index product search (A1)                                   |
+| `product-pagination-after-a2.js` | after   | Product pagination improvements (A2)                                 |
+| `order-flow.js`                  | before  | Baseline order create + cancel                                       |
+| `order-flow-after-a3.js`         | after   | Post order-create optimization (A3)                                  |
+| `order-flow-after-b4.js`         | after   | Post cancel-path optimization (B4); also reused in gRPC-breaker runs |
+| `auth-flow.js`                   | before  | Baseline signin + refresh                                            |
+| `auth-flow-after-b1.js`          | after   | Post auth-path optimization (B1)                                     |
+| `auth-flow-after-b5.js`          | after   | Post token-HMAC optimization (B5)                                    |
+| `signin-stress.js`               | before  | High-concurrency signin stress                                       |
+| `signin-stress-after-b1.js`      | after   | Post-bcryptjs signin stress                                          |
 
 ### Configuration
 
@@ -110,14 +111,14 @@ k6 run \
   --env PERF_K6_VUS=20 \
   --env PERF_K6_DURATION=60s \
   --out json=results.json \
-  scenarios/k6/product-search.after.js
+  scenarios/k6/product-search-after-a1.js
 ```
 
 ---
 
 ## Bash Lifecycle Scripts
 
-Located at `apps/shop/test/performance/`:
+Located at `apps/shop/test/performance/scripts/`:
 
 | Script                     | Purpose                                                 |
 | -------------------------- | ------------------------------------------------------- |
@@ -138,13 +139,16 @@ perf:seed                # run seed-perf profile
 perf:app                 # start shop-perf (normal gRPC target)
 perf:app:rebuild         # force-rebuild image before starting
 perf:app:grpc-breaker    # start shop-perf + grpc-stub-perf
+perf:app:grpc-breaker:rebuild # same, but rebuild first
+perf:app:unconstrained   # start unconstrained app profile
 perf:fresh               # perf:up + perf:migrate + perf:seed + perf:app
+perf:fresh:unconstrained # same, with unconstrained app profile
 perf:fresh:grpc-breaker  # same, with grpc-stub-perf
-perf:baseline:*          # run k6 baseline scripts
-perf:after:*             # run k6 after scripts
+perf:baseline:*          # search / orders / auth / signin baseline k6 scripts
+perf:after:*             # search / pagination / orders / signin / auth after-state scripts
 perf:grpc-breaker:before # k6 + hanging-stub scenario
 perf:grpc-breaker:after  # k6 + breaker-open scenario
-perf:down                # docker compose down -v
+perf:down                # docker compose down -v --remove-orphans
 ```
 
 ---
@@ -162,7 +166,7 @@ A custom Docker service that speaks the payments gRPC proto but **never responds
 
 ## Evidence Artifacts
 
-All measurement outputs stored in `apps/shop/test/performance/performance-evidences/`:
+All measurement outputs stored in the repo-root `performance-evidences/` directory:
 
 | File / Dir              | Contents                                                                |
 | ----------------------- | ----------------------------------------------------------------------- |

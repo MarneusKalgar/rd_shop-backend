@@ -1,5 +1,8 @@
 # rd_shop — Docker & Compose
 
+This page documents the container image pipeline and the compose profiles kept in the repo for local dev, e2e, perf, and self-hosted flows.
+The deployed AWS stage/prod runtime is described in [infra-aws.md](infra-aws.md); the compose topology below is not the active cloud deployment surface.
+
 ## Dockerfile (multi-stage production)
 
 ```
@@ -21,7 +24,7 @@ Single-stage; installs build tools (`python3`, `make`, `g++`) for native modules
 Same non-root user `nestjs:1001`.  
 Command is overridden in compose: proto copy → `npm run start:dev` (hot reload).
 
-## Networks (production)
+## Networks (compose production profile)
 
 | Network                       | Scope                | Who joins                             |
 | ----------------------------- | -------------------- | ------------------------------------- |
@@ -32,7 +35,7 @@ Command is overridden in compose: proto copy → `npm run start:dev` (hot reload
 
 `rd_shop_backend_prod_shared` is created by the payments compose and declared `external` in the shop compose — both must be started for gRPC to work.
 
-## Shop compose (production) — `apps/shop/compose.yml`
+## Shop compose (self-hosted production profile) — `apps/shop/compose.yml`
 
 | Service      | Image                           | Key Config                                                                        |
 | ------------ | ------------------------------- | --------------------------------------------------------------------------------- |
@@ -45,7 +48,7 @@ Command is overridden in compose: proto copy → `npm run start:dev` (hot reload
 | `migrate`    | prod-shop (profile: tools)      | Runs DB migrations once, exits. Depends on postgres (healthy)                     |
 | `seed`       | prod-shop (profile: tools)      | Seeds DB, exits. Depends on migrate completing                                    |
 
-## Payments compose (production) — `apps/payments/compose.yml`
+## Payments compose (self-hosted production profile) — `apps/payments/compose.yml`
 
 | Service    | Image                          | Key Config                                                                 |
 | ---------- | ------------------------------ | -------------------------------------------------------------------------- |
