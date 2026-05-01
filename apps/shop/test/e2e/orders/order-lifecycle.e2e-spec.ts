@@ -1,5 +1,6 @@
 import {
   addToCartAndCheckout,
+  e2eRequest,
   getScenarioUserEmail,
   getScenarioUserPassword,
   poll,
@@ -8,7 +9,6 @@ import {
   signupAndSignin,
   waitForReady,
 } from '@test/e2e/helpers';
-import supertest from 'supertest';
 
 import { BASE_URL } from './constants';
 import { OrderBody, PaymentBody, ProductBody } from './interfaces';
@@ -38,7 +38,7 @@ describe('Order lifecycle (e2e)', () => {
     let stockBefore: number;
 
     it('creates an order via cart and receives PENDING status', async () => {
-      const productRes = await supertest(BASE_URL).get(`/api/v1/products/${productId}`).expect(200);
+      const productRes = await e2eRequest('get', `/api/v1/products/${productId}`).expect(200);
       stockBefore = (productRes.body as unknown as { data: ProductBody }).data.stock;
 
       const { orderId: id, status } = await addToCartAndCheckout(token, productId);
@@ -51,8 +51,7 @@ describe('Order lifecycle (e2e)', () => {
       // seconds. 30s × 1s intervals gives 30 retries — more than enough for a healthy stack.
       const order = await poll(
         async () => {
-          const r = await supertest(BASE_URL)
-            .get(`/api/v1/orders/${orderId}`)
+          const r = await e2eRequest('get', `/api/v1/orders/${orderId}`)
             .set('Authorization', `Bearer ${token}`)
             .expect(200);
           return (r.body as unknown as { data: OrderBody }).data;
@@ -66,8 +65,7 @@ describe('Order lifecycle (e2e)', () => {
     }, 35_000);
 
     it('GET /orders/:id/payment returns payment info with correct structure', async () => {
-      const res = await supertest(BASE_URL)
-        .get(`/api/v1/orders/${orderId}/payment`)
+      const res = await e2eRequest('get', `/api/v1/orders/${orderId}/payment`)
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -77,15 +75,14 @@ describe('Order lifecycle (e2e)', () => {
     });
 
     it('product stock is decremented by 1 after order reaches PAID', async () => {
-      const res = await supertest(BASE_URL).get(`/api/v1/products/${productId}`).expect(200);
+      const res = await e2eRequest('get', `/api/v1/products/${productId}`).expect(200);
       const { data: product } = res.body as unknown as { data: ProductBody };
       expect(product.stock).toBe(stockBefore - 1);
     });
 
     afterAll(async () => {
       if (orderId) {
-        await supertest(BASE_URL)
-          .post(`/api/v1/orders/${orderId}/cancellation`)
+        await e2eRequest('post', `/api/v1/orders/${orderId}/cancellation`)
           .set('Authorization', `Bearer ${token}`)
           .catch(() => undefined);
       }
@@ -103,7 +100,7 @@ describe('Order lifecycle (e2e)', () => {
 
     beforeAll(async () => {
       // Capture stock before this flow's order creation (after Flow 1 has decremented once)
-      const productRes = await supertest(BASE_URL).get(`/api/v1/products/${productId}`).expect(200);
+      const productRes = await e2eRequest('get', `/api/v1/products/${productId}`).expect(200);
       const { data: product } = productRes.body as unknown as { data: ProductBody };
       stockBefore = product.stock;
 
@@ -112,8 +109,7 @@ describe('Order lifecycle (e2e)', () => {
       // Wait for PAID before cancelling — PAID is the most realistic pre-cancel state
       await poll(
         async () => {
-          const r = await supertest(BASE_URL)
-            .get(`/api/v1/orders/${orderId}`)
+          const r = await e2eRequest('get', `/api/v1/orders/${orderId}`)
             .set('Authorization', `Bearer ${token}`)
             .expect(200);
           return (r.body as unknown as { data: OrderBody }).data;
@@ -123,8 +119,7 @@ describe('Order lifecycle (e2e)', () => {
         1_000,
       );
 
-      const cancelRes = await supertest(BASE_URL)
-        .post(`/api/v1/orders/${orderId}/cancellation`)
+      const cancelRes = await e2eRequest('post', `/api/v1/orders/${orderId}/cancellation`)
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
@@ -137,7 +132,7 @@ describe('Order lifecycle (e2e)', () => {
     });
 
     it('product stock is restored to pre-order level after cancellation', async () => {
-      const res = await supertest(BASE_URL).get(`/api/v1/products/${productId}`).expect(200);
+      const res = await e2eRequest('get', `/api/v1/products/${productId}`).expect(200);
       const { data: product } = res.body as unknown as { data: ProductBody };
       expect(product.stock).toBe(stockBefore);
     });
@@ -165,8 +160,7 @@ describe('Order lifecycle (e2e)', () => {
 
     afterAll(async () => {
       if (flow3OrderId) {
-        await supertest(BASE_URL)
-          .post(`/api/v1/orders/${flow3OrderId}/cancellation`)
+        await e2eRequest('post', `/api/v1/orders/${flow3OrderId}/cancellation`)
           .set('Authorization', `Bearer ${token}`)
           .catch(() => undefined);
       }

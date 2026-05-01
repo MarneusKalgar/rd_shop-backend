@@ -6,5 +6,6 @@ export const DEFAULT_VALUES = {
   ENV: '.env',
   JWT_ACCESS_EXPIRES_IN: '15m',
   NODE_HOSTNAME: 'localhost',
+  OBSERVABILITY_METRICS_ENABLED: 'false',
   PORT: 3000,
 } as const;

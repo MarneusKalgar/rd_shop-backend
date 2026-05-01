@@ -5,6 +5,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
+import { OrdersMetricsService } from '@/observability';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 
@@ -84,6 +85,7 @@ describe('OrderProcessingService', () => {
   let authorize: jest.Mock;
   let auditLog: jest.Mock;
   let eventEmit: jest.Mock;
+  let recordOrderCompleted: jest.Mock;
 
   beforeEach(async () => {
     configGet = jest.fn().mockReturnValue(undefined);
@@ -93,6 +95,7 @@ describe('OrderProcessingService', () => {
     authorize = jest.fn();
     auditLog = jest.fn().mockResolvedValue(undefined);
     eventEmit = jest.fn();
+    recordOrderCompleted = jest.fn();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -114,6 +117,7 @@ describe('OrderProcessingService', () => {
         { provide: PaymentsGrpcService, useValue: { authorize } },
         { provide: AuditLogService, useValue: { log: auditLog } },
         { provide: EventEmitter2, useValue: { emit: eventEmit } },
+        { provide: OrdersMetricsService, useValue: { recordOrderCompleted } },
       ],
     }).compile();
 
@@ -284,6 +288,9 @@ describe('OrderProcessingService', () => {
       expect(ordersRepoUpdate).toHaveBeenCalledWith(
         { id: 'order-1' },
         { paymentId: 'pay-abc', status: OrderStatus.PAID },
+      );
+      expect(recordOrderCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({ finalStatus: OrderStatus.PAID }),
       );
       expect(eventEmit).toHaveBeenCalledWith(ORDER_PAID_EVENT, expect.anything());
       expect(auditLog).toHaveBeenCalledWith(

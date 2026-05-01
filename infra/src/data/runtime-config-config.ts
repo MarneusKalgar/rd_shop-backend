@@ -129,6 +129,7 @@ export function getFoundationRuntimeConfig(): FoundationRuntimeConfig {
         JWT_REFRESH_EXPIRES_IN:
           config.get('shopJwtRefreshExpiresIn') ?? defaultShopJwtRefreshExpiresIn,
         NODE_ENV: config.get('shopNodeEnv') ?? defaultRuntimeNodeEnv,
+        OBSERVABILITY_METRICS_ENABLED: stack === 'production' ? 'true' : 'false',
         PASSWORD_RESET_EXPIRES_IN:
           config.get('shopPasswordResetExpiresIn') ?? defaultShopPasswordResetExpiresIn,
         PAYMENTS_GRPC_HOST: config.get('shopPaymentsGrpcHost') ?? defaultShopPaymentsGrpcHost,

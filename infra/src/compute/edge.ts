@@ -254,6 +254,7 @@ export function createComputeEdge({
       albAccessLogsBucketArn: albLogsBucket.arn,
       albAccessLogsBucketName: albLogsBucket.bucket,
       publicAlbArn: publicAlb.arn,
+      publicAlbArnSuffix: getLoadBalancerArnSuffix(publicAlb.arn),
       publicAlbDnsName: publicAlb.dnsName,
       publicAlbHttpListenerArn: httpListener.arn,
       publicAlbHttpsListenerArn: httpsListener.arn,
@@ -275,6 +276,7 @@ export function createComputeEdge({
       publicHostedZoneNameServers: hostedZone.nameServers,
       shopLoadBalancerDependency: httpsListener,
       shopTargetGroupArn: shopTargetGroup.arn,
+      shopTargetGroupArnSuffix: getTargetGroupArnSuffix(shopTargetGroup.arn),
       shopTargetGroupName: shopTargetGroup.name,
     };
   }
@@ -362,6 +364,7 @@ export function createComputeEdge({
     albAccessLogsBucketArn: albLogsBucket.arn,
     albAccessLogsBucketName: albLogsBucket.bucket,
     publicAlbArn: publicAlb.arn,
+    publicAlbArnSuffix: getLoadBalancerArnSuffix(publicAlb.arn),
     publicAlbDnsName: publicAlb.dnsName,
     publicAlbHttpListenerArn: httpListener.arn,
     publicAlbHttpsListenerArn: null,
@@ -383,8 +386,33 @@ export function createComputeEdge({
     publicHostedZoneNameServers: null,
     shopLoadBalancerDependency: httpListener,
     shopTargetGroupArn: shopTargetGroup.arn,
+    shopTargetGroupArnSuffix: getTargetGroupArnSuffix(shopTargetGroup.arn),
     shopTargetGroupName: shopTargetGroup.name,
   };
+}
+
+function getLoadBalancerArnSuffix(loadBalancerArn: pulumi.Input<string>) {
+  return pulumi.output(loadBalancerArn).apply((arn) => {
+    const suffix = arn.split('loadbalancer/')[1];
+
+    if (!suffix) {
+      throw new Error(`Could not derive load balancer ARN suffix from ${arn}.`);
+    }
+
+    return suffix;
+  });
+}
+
+function getTargetGroupArnSuffix(targetGroupArn: pulumi.Input<string>) {
+  return pulumi.output(targetGroupArn).apply((arn) => {
+    const suffix = arn.split(':targetgroup/')[1];
+
+    if (!suffix) {
+      throw new Error(`Could not derive target group ARN suffix from ${arn}.`);
+    }
+
+    return `targetgroup/${suffix}`;
+  });
 }
 
 /**

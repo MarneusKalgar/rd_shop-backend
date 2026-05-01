@@ -6,14 +6,17 @@
 
 ## Current state
 
-- NestJS default logger with configurable log levels (`APP_LOG_LEVEL`)
+- `shop` uses `nestjs-pino` structured JSON logging
+- `payments` still uses NestJS default logger with configurable log levels (`APP_LOG_LEVEL`)
 - `RequestIdMiddleware`: generates/propagates `X-Request-ID` per request
 - `QueryLoggerMiddleware`: counts SQL queries per request via AsyncLocalStorage (GraphQL only)
 - `AsyncLocalStorage` for request-scoped context (`queryCount`)
 - Health checks: `/health` (liveness), `/ready` (postgres + rabbitmq + minio), `/status` (+ payments gRPC)
 - Graceful shutdown implemented
-- No structured logging, no metrics, no distributed tracing
-- No Winston/Pino — uses default NestJS `ConsoleLogger`
+- ECS task definitions already ship both services' stdout/stderr to CloudWatch Logs via `awslogs`
+- No CloudWatch dashboards, alarms, or SNS notification wiring yet
+- No application-level CloudWatch metrics (EMF / metric filters / custom namespace metrics) yet
+- No distributed tracing
 
 ---
 
@@ -34,24 +37,254 @@ The production observability backend is **AWS CloudWatch** (Logs, Metrics, Dashb
 
 ---
 
-## Phase 1 — CloudWatch Metrics via Embedded Metrics Format (EMF)
+## Phase 1 — Minimal Valid CloudWatch Monitoring
+
+> **Priority: 2 | Severity: 2 | Complexity: 1**
+>
+> **Goal:** close the current “no real monitoring tool” gap with the smallest safe AWS-native change set.
+>
+> **No application-code changes required.** This phase is IaC-first, stage-first.
+
+### Why this phase comes first
+
+| Reason                         | Effect                                                                      |
+| ------------------------------ | --------------------------------------------------------------------------- |
+| Uses built-in AWS metrics only | No EMF, no sidecars, no app instrumentation                                 |
+| Minimal AWS UI work            | Only SNS email subscription confirmation if email notifications are enabled |
+| Lowest debug risk              | Threshold tuning only; no runtime behavior changes                          |
+| Enough for the requirement     | Dashboard + alarms + logs = real monitoring tool                            |
+
+### Scope
+
+- CloudWatch Logs retention for ECS service log groups
+- One CloudWatch dashboard per environment
+- One SNS topic per environment for alarm notifications
+- A small alarm set built only from built-in AWS metrics
+- Stage-first rollout, then production reuse through the same Pulumi definitions
+
+### Metrics to use in the first dashboard
+
+| Area               | Metric source      | Initial metrics                                                                                  |
+| ------------------ | ------------------ | ------------------------------------------------------------------------------------------------ |
+| Public API edge    | ALB / target group | `RequestCount`, `TargetResponseTime`, `HTTPCode_Target_5XX_Count`, `HealthyHostCount`            |
+| ECS services       | ECS service        | `CPUUtilization`, `MemoryUtilization`                                                            |
+| Databases          | RDS                | `CPUUtilization`, `DatabaseConnections`, `FreeStorageSpace`                                      |
+| Stateful EC2 hosts | EC2                | `StatusCheckFailed` for RabbitMQ host, NAT instances, and the stage PostgreSQL host when present |
+
+**Do not block this phase on Container Insights.** Standard ECS / ALB / RDS / EC2 metrics are enough for the first valid dashboard and alarm set. Container Insights is an enhancement, not a prerequisite.
+
+### Initial dashboards
+
+| Dashboard        | Widgets                                                                                                               |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Overview**     | ALB request count, target response time, target 5xx, healthy host count, shop ECS CPU/memory, payments ECS CPU/memory |
+| **Data**         | shop RDS CPU/connections/storage, payments RDS CPU/connections/storage, stage PostgreSQL host status where applicable |
+| **Stateful EC2** | RabbitMQ EC2 status checks, NAT EC2 status checks, stage PostgreSQL EC2 status checks                                 |
+
+Dashboards are defined as JSON in the Pulumi `infra/` project — same IaC pipeline, version-controlled, reproducible per environment.
+
+### Initial alarms
+
+| Alarm                      | Metric source               | Condition                            | Action      |
+| -------------------------- | --------------------------- | ------------------------------------ | ----------- |
+| ALB target 5xx             | `HTTPCode_Target_5XX_Count` | > 0 for 5 minutes                    | SNS → email |
+| ALB latency high           | `TargetResponseTime`        | above agreed threshold for 5 minutes | SNS → email |
+| Target group unhealthy     | `HealthyHostCount`          | below expected count for 2 periods   | SNS → email |
+| Shop ECS CPU high          | ECS `CPUUtilization`        | > 80% for 5 minutes                  | SNS → email |
+| Shop ECS memory high       | ECS `MemoryUtilization`     | > 80% for 5 minutes                  | SNS → email |
+| Payments ECS CPU high      | ECS `CPUUtilization`        | > 80% for 5 minutes                  | SNS → email |
+| Payments ECS memory high   | ECS `MemoryUtilization`     | > 80% for 5 minutes                  | SNS → email |
+| RDS connections high       | `DatabaseConnections`       | > 80% of chosen ceiling              | SNS → email |
+| Stateful EC2 status failed | EC2 `StatusCheckFailed`     | >= 1 for 2 periods                   | SNS → email |
+
+### Manual AWS work
+
+- Confirm SNS email subscription(s)
+- Optionally capture dashboard and alarm screenshots for evidence
+- No dashboard or alarm resources should be hand-created in the AWS console if Pulumi owns them
+
+### Pulumi scope
+
+- Set log-group retention days per environment
+- Create SNS topics and subscriptions
+- Create CloudWatch dashboard JSON definitions
+- Create CloudWatch alarms referencing existing ECS, ALB, RDS, and EC2 resources / outputs
+- Keep Container Insights explicitly out of scope for this first cut
+
+### Exact Pulumi work packages
+
+#### Recommended module placement
+
+1. Add a dedicated observability module under `infra/src/observability/`.
+2. Keep CloudWatch log-group ownership in `infra/src/compute/services.ts`, because ECS service log groups are already created there.
+3. Wire the new observability module from `infra/index.ts` after foundation, data, messaging, edge, and compute resources already exist.
+
+#### Existing anchors to reuse
+
+Use current stack outputs / resource metadata instead of discovering resources ad hoc:
+
+- ECS cluster: `ecsClusterName`
+- ECS services: `shopServiceName`, `paymentsServiceName`
+- ECS log groups: `shopLogGroupName`, `paymentsLogGroupName`
+- ALB edge: `publicAlbArn`, `publicAlbName`, `shopTargetGroupArn`, `shopTargetGroupName`, `publicEndpointUrl`
+- Databases: `databaseBackend`, `shopDatabaseIdentifier`, `paymentsDatabaseIdentifier`, `databaseBootstrapInstanceId`
+- Stateful EC2 hosts: `mqBrokerId`, `natInstanceId`
+
+One implementation nuance matters:
+
+- CloudWatch ALB / target-group metrics use **ALB / target-group ARN suffix dimensions**, not only friendly names.
+- Current edge exports expose `publicAlbArn` / `shopTargetGroupArn`, but not explicit ARN suffix outputs.
+- Before creating target-group widgets and alarms, either:
+  - expose `publicAlbArnSuffix` and `shopTargetGroupArnSuffix` from `infra/src/compute/edge.ts`, or
+  - create the ALB / target-group dashboard metrics inside the edge module while raw Pulumi resources are still in scope.
+
+#### Concrete resource checklist
+
+- [ ] Update `createLogGroup(...)` in `infra/src/compute/services.ts` to set `retentionInDays` by stack:
+  - stage: `30`
+  - production: `90`
+- [ ] Add `createObservability(...)` in `infra/src/observability/`.
+- [ ] Create one `aws.sns.Topic` per environment:
+  - `rd-shop-stage-alarms`
+  - `rd-shop-production-alarms`
+- [ ] Create one `aws.sns.TopicSubscription` per environment for the chosen email receiver.
+- [ ] Create one `aws.cloudwatch.Dashboard` per environment for the initial widgets.
+- [ ] Create `aws.cloudwatch.MetricAlarm` resources for:
+  - ALB target 5xx
+  - ALB latency
+  - target-group healthy-host count
+  - shop ECS CPU
+  - shop ECS memory
+  - payments ECS CPU
+  - payments ECS memory
+  - RDS connections / free storage only when `databaseBackend != 'ec2-postgres'`
+  - EC2 `StatusCheckFailed` for `mqBrokerId`, `natInstanceId`, and `databaseBootstrapInstanceId` when present
+- [ ] Export dashboard names and SNS topic ARNs from `infra/index.ts` so CI / operators can link to them later.
+
+#### Exact environment behavior
+
+- **Stage**
+  - Use ALB, ECS, RabbitMQ EC2, NAT EC2, and stage PostgreSQL EC2 metrics.
+  - Skip RDS widgets / alarms when `databaseBackend == 'ec2-postgres'`.
+- **Production**
+  - Use ALB, ECS, RabbitMQ EC2, NAT EC2, and both RDS identifiers.
+  - `databaseBootstrapInstanceId` will normally be absent; skip DB-host EC2 widgets there.
+
+#### Alarm tuning rules for the minimal phase
+
+- Prefer longer evaluation windows for alarms that may flap during planned deploys.
+- The deploy workflows intentionally quiesce ECS services to `0` during migration windows, so alarms must avoid false positives on short planned dips.
+- Recommended first-cut settings:
+  - `HealthyHostCount`: alarm only if below `1` for `15` minutes
+  - ECS CPU / memory: alarm only after `3` periods of `5` minutes each
+  - EC2 `StatusCheckFailed`: alarm after `2` consecutive `5` minute periods
+  - RDS `DatabaseConnections`: alarm after `3` periods of `5` minutes
+- Stage and production may share the same resources, but production SNS should go to the real operator mailbox; stage can use a lower-noise mailbox.
+
+#### Operator validation checklist
+
+After `pulumi up --stack stage`:
+
+- [ ] verify both ECS log groups show the configured retention days
+- [ ] verify the stage dashboard loads widgets without missing-metric errors
+- [ ] verify SNS email subscription is confirmed
+- [ ] manually trigger one harmless test alarm or temporarily lower one threshold to prove the notification path
+- [ ] restore the real threshold before promoting the same resources to production
+
+### Rollout order
+
+1. Add Pulumi resources for both environments.
+2. `pulumi up --stack stage`.
+3. Confirm stage dashboard widgets populate and one test alarm can fire and reset.
+4. `pulumi up --stack production`.
+5. Capture screenshots / evidence for the requirement.
+
+### Exit criteria
+
+- Stage and production both have an accessible CloudWatch dashboard.
+- At least one alarm per environment is wired to SNS.
+- Log retention is enforced (`30d` stage, `90d` production).
+- Section 6.5 can point to dashboard + alarms as the monitoring-tool evidence.
+
+---
+
+## Phase 2 — Recommended Application Metrics & Log Consistency
 
 > **Priority: 3 | Severity: 3 | Complexity: 2**
 >
-> **Prerequisite:** Pino structured logging (`security-hardening-plan.md`, Prerequisite section)
+> **Goal:** extend Phase 1 from infrastructure monitoring to business-aware monitoring without introducing Prometheus / Grafana into production.
+>
+> Start only after Phase 1 is live and stable.
 
-### Why EMF over CloudWatch Agent sidecar
+### Why this is a separate phase
 
-| Approach         | Requires                                                        | RAM overhead | Fit for t3.micro        |
-| ---------------- | --------------------------------------------------------------- | ------------ | ----------------------- |
-| **EMF**          | Nothing — Pino logs with `_aws` field, CloudWatch auto-extracts | 0            | Yes                     |
-| CW Agent sidecar | Sidecar container scraping `/metrics`                           | ~100-200MB   | No — no memory headroom |
+| Factor                          | Effect                                                                                                   |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Requires app-code changes       | Higher regression and rollout risk than Phase 1                                                          |
+| Metric schema choices matter    | Bad dimensions / names create noisy or costly metrics                                                    |
+| Cross-service consistency helps | `payments` still uses the NestJS default logger while `shop` already uses Pino                           |
+| More useful outcome             | Dashboard starts reflecting order flow, worker throughput, and gRPC health instead of infra-only signals |
 
-EMF embeds metric data directly in Pino log lines. CloudWatch parses the `_aws` field and creates real CloudWatch Metrics automatically — no sidecar, no Prometheus server, no additional compute.
+### Scope
 
-### Implementation
+- Keep CloudWatch as the only production observability backend
+- Add application-level metrics, preferably via EMF-formatted structured logs
+- Optionally align `payments` with Pino for consistent JSON logs across both services
+- Extend dashboards and alarms with business-flow metrics
 
-**`MetricsInterceptor`** — global NestJS interceptor that emits EMF-formatted log lines:
+### Runtime rules (shop-first)
+
+- Encapsulate CloudWatch / EMF formatting behind a dedicated sink service. Domain emitters should call semantic metric methods rather than write raw `_aws` payloads directly.
+- First Phase 2 implementation targets `shop` only. Defer `payments` Pino alignment and inbound `payments` metrics until the `shop` slice is stable.
+- Current rollout keeps Phase 2 custom metrics, custom dashboard widgets, and app-level custom alarms in `production` only. `stage` keeps the Phase 1 infra-only dashboard/alarm set.
+- Add `OBSERVABILITY_METRICS_ENABLED` to the app runtime contract. Bind the real CloudWatch sink only when:
+  - `OBSERVABILITY_METRICS_ENABLED=true`
+  - `DEPLOYMENT_ENVIRONMENT` is `production`
+- Bind a no-op sink in `stage`, local development, unit tests, integration tests, local e2e, and any other non-production environment.
+
+### Validation traffic
+
+- Built-in AWS metrics (ALB, ECS, RDS, EC2) will still include validation traffic in every environment and should be accepted as low-volume noise.
+- Stage validation does not need special request tagging because Phase 2 custom app metrics are disabled outside `production`.
+- No client-controlled header or request-scoped suppression path should exist for custom metric emission.
+- If synthetic traffic ever needs to hit `production`, handle that as an explicit future design with a trusted server-side signal rather than a public request header.
+
+### Common-code boundary
+
+Put only reusable primitives in `libs/`:
+
+- log-level normalization / shared logger constants
+- EMF namespace constants and metric-helper builders
+- shared field naming conventions
+
+Keep app-specific adapters in each app:
+
+- `shop` HTTP / `pinoHttp` logger config stays in `apps/shop`
+- `payments` gRPC logger bootstrap stays in `apps/payments`
+- service-specific metric emitters stay near the owning modules
+
+### Minimal-blast implementation order
+
+1. Add runtime gate + no-op sink + `shop` observability module scaffolding.
+2. Add request tagging for live stage-validation traffic and log marking in `shop`.
+3. Add `HttpMetricsService` for REST-only request count / duration. Exclude health endpoints and GraphQL.
+4. Add `DbMetricsService` for `DbQueriesPerRequest` using the existing AsyncLocalStorage + TypeORM query-count hooks.
+5. Add `OrdersMetricsService` for `OrderCreatedCount`, `OrderCompletionCount{PAID}`, and `OrderCompletionCount{CANCELLED}`.
+6. Add `WorkerMetricsService` for `RabbitMqPublishCount`, `OrderWorkerMessageCount`, and `OrderProcessingDurationMs`.
+7. Add `PaymentsClientMetricsService` in `shop` for outbound gRPC client request count / duration / outcome.
+8. Extend Pulumi dashboards and alarms only after stage metrics are visible and metric names are stable.
+9. Add a separate observability module under `apps/payments/` only when `payments` app metrics are started. Extract shared sink helpers to `libs/common/` later only if duplication becomes real.
+
+### Why EMF over sidecars
+
+| Approach                 | Requires                                       | RAM overhead | Fit for t3.micro |
+| ------------------------ | ---------------------------------------------- | ------------ | ---------------- |
+| **EMF**                  | Structured log lines with `_aws` field         | 0            | Yes              |
+| CloudWatch Agent sidecar | Extra container scraping or forwarding metrics | ~100-200MB   | No               |
+
+EMF embeds metric data directly in structured log lines. CloudWatch extracts the `_aws` block and creates real CloudWatch Metrics automatically.
+
+### Example EMF event
 
 ```typescript
 logger.info({
@@ -72,90 +305,114 @@ logger.info({
 });
 ```
 
-### Custom metrics
+### Recommended custom metrics
 
-| Metric                              | Type    | Labels                     | Purpose               |
-| ----------------------------------- | ------- | -------------------------- | --------------------- |
-| `http_requests_total`               | Counter | method, path, status       | Request volume        |
-| `http_request_duration_ms`          | Value   | method, path, status       | Latency               |
-| `orders_created_total`              | Counter | status                     | Order creation volume |
-| `orders_processed_total`            | Counter | result (success/retry/dlq) | Worker throughput     |
-| `rabbitmq_messages_published_total` | Counter | queue                      | Queue publish volume  |
-| `grpc_requests_total`               | Counter | method, status             | gRPC call volume      |
-| `grpc_request_duration_ms`          | Value   | method                     | gRPC latency          |
-| `db_query_duration_ms`              | Value   | operation                  | SQL query latency     |
-| `db_queries_per_request`            | Value   | path                       | N+1 detection         |
+Use one CloudWatch namespace for all application metrics:
+
+- `Namespace = RdShop/Application`
+
+Keep dimensions intentionally low-cardinality. Never emit request ids, user ids, emails, order ids, raw SQL, or raw URLs as metric dimensions.
+
+| Metric                      | Unit         | Dimensions                                                   | Purpose                          |
+| --------------------------- | ------------ | ------------------------------------------------------------ | -------------------------------- |
+| `HttpRequestCount`          | Count        | `Environment`, `Service`, `Route`, `Method`, `StatusClass`   | request volume                   |
+| `HttpRequestDurationMs`     | Milliseconds | `Environment`, `Service`, `Route`, `Method`                  | HTTP latency                     |
+| `OrderCreatedCount`         | Count        | `Environment`, `Service`, `InitialStatus`                    | order creation volume            |
+| `OrderCompletionCount`      | Count        | `Environment`, `Service`, `FinalStatus`                      | paid / cancelled volume          |
+| `OrderWorkerMessageCount`   | Count        | `Environment`, `Service`, `Queue`, `Result`                  | worker throughput / retry / DLQ  |
+| `OrderProcessingDurationMs` | Milliseconds | `Environment`, `Service`, `Result`                           | end-to-end async processing time |
+| `RabbitMqPublishCount`      | Count        | `Environment`, `Service`, `Queue`                            | queue publish volume             |
+| `GrpcClientRequestCount`    | Count        | `Environment`, `Service`, `PeerService`, `Method`, `Outcome` | outbound gRPC volume / failures  |
+| `GrpcClientDurationMs`      | Milliseconds | `Environment`, `Service`, `PeerService`, `Method`            | outbound gRPC latency            |
+| `GrpcServerRequestCount`    | Count        | `Environment`, `Service`, `Method`, `Outcome`                | inbound gRPC volume / failures   |
+| `GrpcServerDurationMs`      | Milliseconds | `Environment`, `Service`, `Method`                           | inbound gRPC latency             |
+| `DbQueryDurationMs`         | Milliseconds | `Environment`, `Service`, `Operation`, `Entity`              | SQL latency                      |
+| `DbQueriesPerRequest`       | Count        | `Environment`, `Service`, `Route`                            | N+1 / query explosion signal     |
+
+#### Dimension contract before code work
+
+- `Environment`: `stage` or `production`
+- `Service`: `shop` or `payments`
+- `Route`: normalized logical route key, not raw URL; examples:
+  - `auth:signin`
+  - `products:list`
+  - `orders:create`
+  - `orders:get-by-id`
+- `StatusClass`: `2xx`, `4xx`, `5xx`
+- `Outcome`: `success`, `error`, `timeout`, `retry`, `dlq`
+- `Entity`: repository / aggregate name such as `Order`, `Product`, `User`, `Payment`
+
+If a route cannot be normalized safely, do not emit route-level metrics for it until a stable key exists.
+
+Current first-cut scoping rules:
+
+- Skip GraphQL metrics in the initial `shop` rollout. Add only REST request metrics first.
+- Do not emit `OrderCompletionCount{FinalStatus=failed}` because the current orders domain has no terminal failed order state.
 
 ### Instrumentation points
 
-- `MetricsInterceptor` — global NestJS interceptor for HTTP request metrics
+- global NestJS metrics interceptor for HTTP request metrics
 - `RabbitMQService.publish()` and `OrderWorkerService.handleMessage()`
-- `PaymentsGrpcService.authorize()` and `getPaymentStatus()`
-- TypeORM query logger (extend existing `AsyncLocalStorage` pattern)
+- payments gRPC server handlers and shop gRPC client calls
+- TypeORM query logger / existing AsyncLocalStorage-based request context
 
-### Local dev: Prometheus (optional)
+### Dashboard and alarm extensions
 
-For local development, keep `prom-client` + `@willsoto/nestjs-prometheus` as optional dependencies. The `/metrics` endpoint works in dev for Prometheus scraping + Grafana visualization. In AWS, EMF takes over — the `/metrics` endpoint is not used in production.
+Add a second-wave dashboard once EMF metrics exist:
+
+- request rate / error rate / latency by path
+- orders created / processed / paid / cancelled
+- worker retry / DLQ volume
+- gRPC latency / failure rate
+
+Add alarms only after real metric baselines are visible. App-level alarms should start narrow and conservative.
+
+#### Initial alarm set for Phase 2
+
+Lock these as the **first** app-level alarms before writing code:
+
+| Alarm                       | Metric / expression                                                   | Initial threshold                                        | Notes                                  |
+| --------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------- |
+| HTTP 5xx rate high          | `HttpRequestCount` metric math using `StatusClass=5xx` over total     | `> 5%` for `5` minutes, only when total requests `>= 50` | service-wide first, not per-route      |
+| HTTP latency high           | `HttpRequestDurationMs` p95                                           | `> 1500 ms` for `15` minutes                             | start with `shop` only                 |
+| Worker DLQ message seen     | `OrderWorkerMessageCount{Result=dlq}` sum                             | `>= 1` over `10` minutes                                 | critical business alarm                |
+| gRPC client error rate high | `GrpcClientRequestCount` metric math using `Outcome=error` over total | `> 5%` for `5` minutes, only when total requests `>= 20` | watch `shop -> payments` path          |
+| gRPC client latency high    | `GrpcClientDurationMs` p95                                            | `> 500 ms` for `10` minutes                              | start with payments authorization path |
+
+Dashboard-only in the first app-metrics cut:
+
+- `DbQueryDurationMs`
+- `DbQueriesPerRequest`
+- `OrderProcessingDurationMs`
+
+These should be graphed first and promoted to alarms only after real stage baselines are collected.
+
+#### Code-work sequence after the metric contract is frozen
+
+1. Add `shop` sink scaffolding and runtime gate.
+2. Add request tagging support for live stage-validation traffic.
+3. Emit `HttpRequestCount` and `HttpRequestDurationMs` from `shop` REST only.
+4. Emit `DbQueriesPerRequest` from `shop`.
+5. Emit orders, worker, and RabbitMQ metrics in `shop`.
+6. Emit outbound gRPC client metrics in `shop`.
+7. Extend Pulumi dashboards and alarms only after stage metrics are visible in CloudWatch.
+8. Revisit `payments` Pino alignment and inbound metrics only after the `shop` slice is proven stable.
 
 ### Dependencies
 
-```
-npm install aws-embedded-metrics
-```
+No extra dependency is required if EMF is emitted manually in structured logs. If preferred, `aws-embedded-metrics` is acceptable.
 
-Or emit EMF format manually via Pino (no extra dependency — just structured log lines with `_aws` field).
+### Manual AWS work
 
-### Tasks
+- none beyond normal metric validation and optional screenshot capture
+- metric propagation delay in CloudWatch should be expected during first validation
 
-- [ ] Create `MetricsInterceptor` (global NestJS interceptor)
-- [ ] Define EMF metric schemas for HTTP, orders, RabbitMQ, gRPC
-- [ ] Instrument `RabbitMQService.publish()` and `OrderWorkerService.handleMessage()`
-- [ ] Instrument `PaymentsGrpcService` methods
-- [ ] Instrument TypeORM query logger for DB metrics
-- [ ] Optional: add `prom-client` + `/metrics` for local dev Prometheus
-- [ ] Verify metrics appear in CloudWatch Metrics console
+### Exit criteria
 
----
-
-## Phase 2 — CloudWatch Dashboards & Alarms
-
-> **Priority: 2 | Severity: 2 | Complexity: 2**
->
-> **Prerequisite:** Phase 1 (metrics must exist in CloudWatch before dashboards can visualize them)
-
-### Dashboards (provisioned via Pulumi)
-
-| Dashboard          | Widgets                                                                                  |
-| ------------------ | ---------------------------------------------------------------------------------------- |
-| **API Overview**   | Request rate, error rate (5xx), p50/p95/p99 latency                                      |
-| **Orders**         | Creation rate, processing time, retry rate, DLQ volume                                   |
-| **Infrastructure** | ECS CPU/memory utilization (built-in ECS metrics), RDS connections, AmazonMQ queue depth |
-
-Dashboards are defined as JSON in the Pulumi `infra/` project — same IaC pipeline, version-controlled, reproducible per environment.
-
-### Alarms
-
-| Alarm                    | Metric source                              | Condition                | Action                 |
-| ------------------------ | ------------------------------------------ | ------------------------ | ---------------------- |
-| High error rate          | `http_requests_total` (EMF)                | 5xx > 5% of total for 5m | SNS → email            |
-| Slow responses           | `http_request_duration_ms` p95             | > 2s for 5m              | SNS → email            |
-| DLQ growing              | `orders_processed_total{result=dlq}`       | > 0 for 10m              | SNS → email            |
-| Service unhealthy        | ECS health check (built-in)                | 3 consecutive failures   | ECS auto-restart + SNS |
-| High CPU/memory          | ECS `CPUUtilization` / `MemoryUtilization` | > 80% for 5m             | SNS → email            |
-| DB connections exhausted | RDS `DatabaseConnections` (built-in)       | > 80% of max for 1m      | SNS → email            |
-
-### Notifications
-
-- SNS topic per environment: `rd-shop-alarms-stage`, `rd-shop-alarms-production`
-- Email subscription initially; Slack webhook (via Lambda) as future enhancement
-
-### Tasks
-
-- [ ] Create CloudWatch Dashboard definitions in Pulumi
-- [ ] Create CloudWatch Alarms in Pulumi
-- [ ] Create SNS topics + email subscriptions in Pulumi
-- [ ] Set CloudWatch Logs retention policies (30 days stage, 90 days production)
-- [ ] Document alarm runbook (what each alarm means, how to respond)
+- Both services emit consistent, searchable structured logs, or `payments` divergence is an explicit conscious deferral.
+- CloudWatch shows application metrics in a dedicated namespace.
+- Dashboards visualize at least one business-flow view, not only infrastructure health.
+- Requirement evidence is stronger than logs-only fallback.
 
 ---
 
@@ -230,7 +487,12 @@ Auto-instruments: HTTP, Express, pg (PostgreSQL), amqplib (RabbitMQ), gRPC.
 
 > Part of AWS migration — no separate implementation phase needed.
 
-Pino writes JSON to stdout → ECS `awslogs` log driver captures it → CloudWatch Logs ingests each line as a structured JSON event. **Zero application code changes.**
+Current state:
+
+- `shop` already writes structured JSON logs through Pino
+- `payments` still lands in CloudWatch Logs through ECS `awslogs`, but log structure remains less consistent until Phase 2
+
+ECS `awslogs` captures both services' stdout/stderr and sends them to CloudWatch Logs.
 
 **ECS task definition (configured in Pulumi):**
 
@@ -245,7 +507,7 @@ Pino writes JSON to stdout → ECS `awslogs` log driver captures it → CloudWat
 }
 ```
 
-**CloudWatch Logs Insights** can query Pino fields directly:
+**CloudWatch Logs Insights** can query shop Pino fields directly today:
 
 ```
 fields @timestamp, req.method, req.url, res.statusCode, responseTime
@@ -270,9 +532,9 @@ Security Hardening (Pino + Helmet + Throttler)  ← Prerequisite — see securit
   ↓
 AWS Migration Phases 0-2 (VPC + Data + Compute) ← Infrastructure must exist for CloudWatch
   ↓
-Phase 1 (CloudWatch Metrics via EMF)             ← MetricsInterceptor + EMF format
+Phase 1 (Minimal CloudWatch monitoring)          ← Dashboards + alarms + retention from built-in AWS metrics
   ↓
-Phase 2 (CloudWatch Dashboards + Alarms)         ← Pulumi IaC, SNS notifications
+Phase 2 (App metrics + log consistency)          ← EMF metrics + optional payments Pino alignment
   ↓
 Phase 3 (X-Ray Tracing)                          ← Deferred to post-free-tier (t3.small or Fargate)
 ```

@@ -1,13 +1,15 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
+import { ObservabilityModule } from '@/observability';
+
 import { PAYMENTS_GRPC_CLIENT } from './constants';
 import { PaymentsGrpcClient, PaymentsGrpcClientService } from './payments-grpc-client.service';
 import { PaymentsGrpcService } from './payments-grpc.service';
 
 @Module({
   exports: [PaymentsGrpcClientService, PaymentsGrpcService, PAYMENTS_GRPC_CLIENT],
-  imports: [ConfigModule],
+  imports: [ConfigModule, ObservabilityModule],
   providers: [
     PaymentsGrpcClientService,
     {

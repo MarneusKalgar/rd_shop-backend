@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
 
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
+import { OrdersMetricsService } from '@/observability';
 import { PaymentsGrpcService } from '@/payments/payments-grpc.service';
 import { ProcessedMessage } from '@/rabbitmq/processed-message.entity';
 import { simulateExternalService } from '@/utils';
@@ -43,6 +44,7 @@ export class OrderProcessingService {
     private readonly paymentsGrpcService: PaymentsGrpcService,
     private readonly auditLogService: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly ordersMetricsService: OrdersMetricsService,
   ) {}
 
   /**
@@ -76,6 +78,7 @@ export class OrderProcessingService {
         await this.ordersRepository
           .getRepository()
           .update({ id: order.id }, { paymentId: response.paymentId, status: OrderStatus.PAID });
+        this.ordersMetricsService.recordOrderCompleted({ finalStatus: OrderStatus.PAID });
 
         this.logger.log(
           `Payment authorized: paymentId=${response.paymentId}, status=${response.status} for order=${order.id}`,

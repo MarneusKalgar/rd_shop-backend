@@ -6,6 +6,8 @@ export interface RequestContext {
 
 export const requestContext = new AsyncLocalStorage<RequestContext>();
 
+export const getRequestContext = (): RequestContext | undefined => requestContext.getStore();
+
 export const incrementQueryCount = () => {
   const store = requestContext.getStore();
   if (store) {

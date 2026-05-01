@@ -1,6 +1,4 @@
-import supertest from 'supertest';
-
-import { BASE_URL } from './constants';
+import { e2eRequest } from './request';
 import { getConfiguredProductId } from './validation-config';
 
 interface ProductBody {
@@ -13,9 +11,7 @@ export async function resolveE2EProductId(minStock: number): Promise<string> {
   const configuredProductId = getConfiguredProductId();
 
   if (configuredProductId) {
-    const res = await supertest(BASE_URL)
-      .get(`/api/v1/products/${configuredProductId}`)
-      .expect(200);
+    const res = await e2eRequest('get', `/api/v1/products/${configuredProductId}`).expect(200);
     const { data: product } = res.body as unknown as { data: ProductBody };
 
     if (product.stock < minStock) {
@@ -27,7 +23,7 @@ export async function resolveE2EProductId(minStock: number): Promise<string> {
     return product.id;
   }
 
-  const res = await supertest(BASE_URL).get('/api/v1/products').expect(200);
+  const res = await e2eRequest('get', '/api/v1/products').expect(200);
   const { data: products } = res.body as unknown as { data: ProductBody[] };
   const available = products.find((product) => product.stock >= minStock);
 

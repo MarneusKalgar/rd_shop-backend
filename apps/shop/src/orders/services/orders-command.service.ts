@@ -12,6 +12,7 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditAction, AuditLogService, AuditOutcome } from '@/audit-log';
 import { AuditEventContext } from '@/audit-log/audit-log.types';
 import { AuthUser } from '@/auth/types';
+import { OrdersMetricsService } from '@/observability';
 import { User } from '@/users/user.entity';
 
 import { CreateOrderDto } from '../dto';
@@ -64,6 +65,7 @@ export class OrdersCommandService {
     private readonly orderStockService: OrderStockService,
     private readonly orderPublisherService: OrderPublisherService,
     private readonly pgErrorMapperService: PgErrorMapperService,
+    private readonly ordersMetricsService: OrdersMetricsService,
   ) {}
 
   async cancelOrder(user: AuthUser, orderId: string, context?: AuditEventContext): Promise<Order> {
@@ -72,6 +74,7 @@ export class OrdersCommandService {
     const order = await this.executeCancelTransaction(orderId, userId);
 
     this.eventEmitter.emit(ORDER_CANCELLED_EVENT, new OrderCancelledEvent(order.id, userEmail));
+    this.ordersMetricsService.recordOrderCompleted({ finalStatus: order.status });
 
     void this.auditLogService.log({
       action: AuditAction.ORDER_CANCELLED,
@@ -115,6 +118,7 @@ export class OrdersCommandService {
     try {
       const createdOrder = await this.executeOrderTransaction(createOrderDto, user, productIds);
       this.orderPublisherService.publishOrderProcessing(createdOrder, idempotencyKey);
+      this.ordersMetricsService.recordOrderCreated({ initialStatus: createdOrder.status });
       this.eventEmitter.emit(
         ORDER_CREATED_EVENT,
         new OrderCreatedEvent(createdOrder.id, user.email),
