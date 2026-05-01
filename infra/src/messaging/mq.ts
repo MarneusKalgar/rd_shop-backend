@@ -133,39 +133,45 @@ export function createMessageBroker({
     type: 'gp3',
   });
 
-  const broker = new aws.ec2.Instance(stackName('shop-rabbitmq-broker'), {
-    ami: brokerAmiId,
-    associatePublicIpAddress: false,
-    iamInstanceProfile: brokerInstanceProfile.name,
-    instanceType: messageBrokerConfig.instanceType,
-    metadataOptions: {
-      httpEndpoint: 'enabled',
-      httpTokens: 'required',
+  const broker = new aws.ec2.Instance(
+    stackName('shop-rabbitmq-broker'),
+    {
+      ami: brokerAmiId,
+      associatePublicIpAddress: false,
+      iamInstanceProfile: brokerInstanceProfile.name,
+      instanceType: messageBrokerConfig.instanceType,
+      metadataOptions: {
+        httpEndpoint: 'enabled',
+        httpTokens: 'required',
+      },
+      subnetId: selectedSubnetId,
+      tags: {
+        ...commonTags,
+        Component: 'queue',
+        Name: messageBrokerConfig.brokerName,
+        Scope: 'private',
+        Service: 'shop',
+      },
+      userData: pulumi
+        .all([brokerBootstrapSecret.arn, brokerDataVolume.id])
+        .apply(([brokerSecretArn, dataVolumeId]) =>
+          buildMessageBrokerUserData({
+            brokerSecretArn,
+            dataVolumeDeviceName: messageBrokerConfig.dataVolumeDeviceName,
+            dataVolumeId,
+            dataVolumeMountPath: messageBrokerConfig.dataVolumeMountPath,
+            image: messageBrokerConfig.image,
+            port: messageBrokerConfig.port,
+            region,
+          }),
+        ),
+      userDataReplaceOnChange: true,
+      vpcSecurityGroupIds: [securityGroupId],
     },
-    subnetId: selectedSubnetId,
-    tags: {
-      ...commonTags,
-      Component: 'queue',
-      Name: messageBrokerConfig.brokerName,
-      Scope: 'private',
-      Service: 'shop',
+    {
+      deleteBeforeReplace: true,
     },
-    userData: pulumi
-      .all([brokerBootstrapSecret.arn, brokerDataVolume.id])
-      .apply(([brokerSecretArn, dataVolumeId]) =>
-        buildMessageBrokerUserData({
-          brokerSecretArn,
-          dataVolumeDeviceName: messageBrokerConfig.dataVolumeDeviceName,
-          dataVolumeId,
-          dataVolumeMountPath: messageBrokerConfig.dataVolumeMountPath,
-          image: messageBrokerConfig.image,
-          port: messageBrokerConfig.port,
-          region,
-        }),
-      ),
-    userDataReplaceOnChange: true,
-    vpcSecurityGroupIds: [securityGroupId],
-  });
+  );
 
   new aws.ec2.VolumeAttachment(
     stackName('shop-rabbitmq-data-volume-attachment'),

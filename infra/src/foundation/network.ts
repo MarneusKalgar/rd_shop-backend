@@ -93,26 +93,32 @@ export function createFoundationNetwork() {
     vpcId: vpc.id,
   });
 
-  const natInstance = new aws.ec2.Instance(stackName('nat-instance'), {
-    ami: natInstanceAmiId,
-    associatePublicIpAddress: true,
-    instanceType: networkConfig.natInstanceType,
-    metadataOptions: {
-      httpEndpoint: 'enabled',
-      httpTokens: 'required',
+  const natInstance = new aws.ec2.Instance(
+    stackName('nat-instance'),
+    {
+      ami: natInstanceAmiId,
+      associatePublicIpAddress: true,
+      instanceType: networkConfig.natInstanceType,
+      metadataOptions: {
+        httpEndpoint: 'enabled',
+        httpTokens: 'required',
+      },
+      sourceDestCheck: false,
+      subnetId: publicSubnets[0].id,
+      tags: {
+        ...commonTags,
+        Component: 'network',
+        Name: stackName('nat-instance'),
+        Scope: 'public',
+      },
+      userData: buildNatInstanceUserData(),
+      userDataReplaceOnChange: true,
+      vpcSecurityGroupIds: [natSecurityGroup.id],
     },
-    sourceDestCheck: false,
-    subnetId: publicSubnets[0].id,
-    tags: {
-      ...commonTags,
-      Component: 'network',
-      Name: stackName('nat-instance'),
-      Scope: 'public',
+    {
+      deleteBeforeReplace: true,
     },
-    userData: buildNatInstanceUserData(),
-    userDataReplaceOnChange: true,
-    vpcSecurityGroupIds: [natSecurityGroup.id],
-  });
+  );
 
   const natElasticIp = new aws.ec2.Eip(stackName('nat-eip'), {
     domain: 'vpc',
