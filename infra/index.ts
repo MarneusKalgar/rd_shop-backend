@@ -113,6 +113,7 @@ const computeServices = createComputeServices({
     shopRuntimeSecretVersionId: foundationRuntimeConfig.shopRuntimeSecretVersionId,
   },
   ses: {
+    shopSesFromAddress: foundationSes.shopSesFromAddress,
     shopSesIdentityArn: foundationSes.shopSesIdentityArn,
   },
 });

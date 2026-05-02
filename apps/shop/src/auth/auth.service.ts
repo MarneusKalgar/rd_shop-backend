@@ -64,7 +64,17 @@ export class AuthService {
     if (!user) return SAFE_RESPONSE;
 
     const rawToken = await this.tokenService.issuePasswordResetToken(user.id);
-    await this.mailService.sendPasswordResetEmail(user.email, rawToken);
+
+    try {
+      await this.mailService.sendPasswordResetEmail(user.email, rawToken);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send password reset email for user: ${user.id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+
+      return SAFE_RESPONSE;
+    }
 
     this.logger.log(`Password reset email sent to: ${user.email}`);
 
@@ -205,8 +215,8 @@ export class AuthService {
   }
 
   /**
-   * Registers a new user, hashes the password, persists the record, and sends a
-   * verification email. Throws `ConflictException` if the email is already taken.
+   * Registers a new user, hashes the password, persists the record, and attempts to
+   * send a verification email. Throws `ConflictException` if the email is already taken.
    */
   async signup(signupDto: SignupDto, context?: AuditEventContext): Promise<SignupResponseDto> {
     const { confirmedPassword, email, password } = signupDto;
@@ -247,7 +257,7 @@ export class AuthService {
       targetType: 'User',
     });
 
-    await this.issueAndSendVerificationToken(user);
+    await this.issueAndSendVerificationToken(user, { failOnDeliveryError: false });
 
     return {
       email: user.email,
@@ -283,8 +293,23 @@ export class AuthService {
   }
 
   /** Issues a new email verification token and sends the verification email. */
-  private async issueAndSendVerificationToken(user: User): Promise<void> {
+  private async issueAndSendVerificationToken(
+    user: User,
+    options: { failOnDeliveryError?: boolean } = {},
+  ): Promise<void> {
     const rawToken = await this.tokenService.issueVerificationToken(user.id);
-    await this.mailService.sendVerificationEmail(user.email, rawToken);
+
+    try {
+      await this.mailService.sendVerificationEmail(user.email, rawToken);
+    } catch (error) {
+      if (options.failOnDeliveryError ?? true) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Failed to send verification email for user: ${user.id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 }
