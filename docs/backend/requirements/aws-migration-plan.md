@@ -422,6 +422,11 @@ Tightening later:
 - `github-actions-stage` should keep only `<STAGE_KMS_KEY_ARN>`
 - `github-actions-production` should keep only `<PRODUCTION_KMS_KEY_ARN>`
 
+Production naming note:
+
+- Pulumi stack is `production`, but physical AWS resource names use `prod` via `resourceStackName = stack === 'production' ? 'prod' : stack`
+- Production-scoped IAM resource patterns therefore must target `rd-shop-prod-*`, not `rd-shop-production-*`
+
 #### Preferred hardened end state
 
 - `github-actions-build` → trust only `repo:MarneusKalgar/rd_shop-backend:ref:refs/heads/development` and grant ECR-only permissions
@@ -436,7 +441,7 @@ Start with one bootstrap role if you want fewer moving parts. Split roles before
 - Keep `github-actions-build` ECR-only. Do not add ECS / RDS / IAM deploy permissions to the build role
 - Make Pulumi-created IAM artifacts environment-scoped so deploy roles can narrow `iam:PassRole` and IAM management safely:
   - `rd-shop-stage-*`
-  - `rd-shop-production-*`
+  - `rd-shop-prod-*`
 - After first successful deploy, narrow wildcard `Resource: "*"` grants to exact environment resources where practical:
   - ECS clusters / services / task definitions
   - CloudWatch log groups

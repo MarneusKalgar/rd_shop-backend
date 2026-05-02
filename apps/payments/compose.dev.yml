@@ -36,6 +36,7 @@ services:
 
   migrate:
     container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}-migrate
+    image: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_payments_dev}_migrate_tmp
     build:
       context: ../..
       dockerfile: Dockerfile.dev
