@@ -68,7 +68,7 @@ services:
 
   migrate:
     container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-migrate
-    image: rd_shop_dev_migrate_tmp
+    image: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}_migrate_tmp
     environment:
       TS_NODE_PROJECT: tsconfig.app.json
       APP: shop
@@ -88,7 +88,7 @@ services:
 
   seed:
     container_name: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}-seed
-    image: rd_shop_dev_seed_tmp
+    image: ${COMPOSE_PROJECT_NAME:-rd_shop_backend_shop_dev}_seed_tmp
     environment:
       TS_NODE_PROJECT: tsconfig.app.json
       APP: shop

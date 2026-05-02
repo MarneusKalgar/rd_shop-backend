@@ -103,7 +103,7 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 
 ### Required
 
-- Node.js (v18+ recommended)
+- Node.js (v22+ recommended)
 - npm or yarn
 - Git
 
@@ -115,6 +115,16 @@ A production-ready, type-safe REST API built with NestJS, featuring comprehensiv
 ## Description
 
 NestJS monorepo with two independently deployed services: **shop-service** (HTTP REST + GraphQL + RabbitMQ consumer) and **payments-service** (gRPC only).
+
+## Deployed Services
+
+- Stage: https://dxkl8eocmyjhj.cloudfront.net
+- Production: https://d1bupksw8nr8i8.cloudfront.net
+- Health/status probe example: `https://dxkl8eocmyjhj.cloudfront.net/status`
+
+## Submission Artifacts
+
+For the final submission package, evidence links, deployed URLs, pipeline screenshots, and artifact mapping, see [project-evidences/final-artifacts.md](project-evidences/final-artifacts.md).
 
 ## 🔧 Installation
 
@@ -206,6 +216,43 @@ cd apps/shop && npm run docker:start:dev
 # or: docker compose -p rd_shop_backend_shop_dev -f apps/shop/compose.yml -f apps/shop/compose.dev.yml up
 ```
 
+If Docker project-name collisions are possible on the review machine, prefix the commands with `COMPOSE_PROJECT_NAME=<unique-base>`. The wrapper scripts derive app-specific project names from that base (`<base>_payments_dev`, `<base>_shop_dev`), so both dev stacks can run side-by-side without `postgres`/`migrate` namespace collisions.
+
+### Raw Docker Compose Commands (without npm wrappers)
+
+If you want to run Compose directly, do **not** reuse the same literal `--project-name` for both apps. Use one shared base and append the app suffix yourself:
+
+```bash
+docker network create rd_shop_backend_dev_shared || true
+
+BASE=reviewer01
+
+# payments-service first
+docker compose --project-name "${BASE}_payments_dev" \
+  -f apps/payments/compose.yml -f apps/payments/compose.dev.yml up
+
+# shop-service
+docker compose --project-name "${BASE}_shop_dev" \
+  -f apps/shop/compose.yml -f apps/shop/compose.dev.yml up
+
+# migrations / seed
+docker compose --project-name "${BASE}_payments_dev" \
+  -f apps/payments/compose.yml -f apps/payments/compose.dev.yml run --rm migrate
+
+docker compose --project-name "${BASE}_shop_dev" \
+  -f apps/shop/compose.yml -f apps/shop/compose.dev.yml run --rm migrate
+
+docker compose --project-name "${BASE}_shop_dev" \
+  -f apps/shop/compose.yml -f apps/shop/compose.dev.yml run --rm seed
+
+# teardown
+docker compose --project-name "${BASE}_shop_dev" \
+  -f apps/shop/compose.yml -f apps/shop/compose.dev.yml down
+
+docker compose --project-name "${BASE}_payments_dev" \
+  -f apps/payments/compose.yml -f apps/payments/compose.dev.yml down
+```
+
 ### Migrations & Seeding
 
 ```bash
@@ -225,14 +272,14 @@ cd apps/payments && npm run docker:down:dev
 docker network rm rd_shop_backend_dev_shared
 ```
 
-### Production (local compose parity)
+### Production-Like Local Runs
+
+The old per-service production compose npm scripts are deprecated because the real deployed runtime is the AWS stack described in [docs/backend/architecture/infra-aws.md](docs/backend/architecture/infra-aws.md).
+
+If you need the closest local full-stack smoke environment, use the shop e2e compose stack instead:
 
 ```bash
-# payments-service
-cd apps/payments && npm run docker:start:prod
-
-# shop-service
-cd apps/shop && npm run docker:start:prod
+cd apps/shop && npm run e2e:fresh
 ```
 
 ### Docker Features
