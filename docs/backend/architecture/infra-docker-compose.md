@@ -1,6 +1,6 @@
 # rd_shop — Docker & Compose
 
-This page documents the container image pipeline and the compose profiles kept in the repo for local dev, e2e, perf, and self-hosted flows.
+This page documents the container image pipeline and the compose profiles kept in the repo for local dev, e2e, perf, and legacy self-hosted flows.
 The deployed AWS stage/prod runtime is described in [infra-aws.md](infra-aws.md); the compose topology below is not the active cloud deployment surface.
 
 ## Dockerfile (multi-stage production)
@@ -37,6 +37,8 @@ Command is overridden in compose: proto copy → `npm run start:dev` (hot reload
 
 ## Shop compose (self-hosted production profile) — `apps/shop/compose.yml`
 
+This profile remains in the repo for reference and occasional manual debugging, but the package-level `docker:*:prod` shortcuts were intentionally removed. Prefer the AWS deploy flow for real production behavior and the e2e compose stack for local full-stack checks.
+
 | Service      | Image                           | Key Config                                                                        |
 | ------------ | ------------------------------- | --------------------------------------------------------------------------------- |
 | `shop`       | distroless-shop                 | Port 8080. Healthcheck: `/health`. Depends on postgres (healthy), minio, rabbitmq |
@@ -50,6 +52,8 @@ Command is overridden in compose: proto copy → `npm run start:dev` (hot reload
 
 ## Payments compose (self-hosted production profile) — `apps/payments/compose.yml`
 
+Same status as the shop production compose: retained as legacy self-hosted topology reference, not as the recommended local run path.
+
 | Service    | Image                          | Key Config                                                                 |
 | ---------- | ------------------------------ | -------------------------------------------------------------------------- |
 | `payments` | distroless-payments            | No exposed ports (gRPC internal only). Joins `rd_shop_backend_prod_shared` |
@@ -62,6 +66,7 @@ Command is overridden in compose: proto copy → `npm run start:dev` (hot reload
 - `node_modules` is a named volume (not bind-mounted — prevents host pollution)
 - Shop dev command: copy proto → `npm run start:dev`
 - Payments dev command: copy proto → `npm run start:dev`
+- Dev compose npm wrappers accept `COMPOSE_PROJECT_NAME=<unique-base>` and derive app-specific project names from it, so shop and payments can share one reviewer-specific base without colliding on compose service namespaces, container names, or temporary migrate/seed images
 - Dev shared bridge: `rd_shop_backend_dev_shared` (separate from prod)
 - MinIO console (9001) and RabbitMQ management (15672) exposed in dev
 
