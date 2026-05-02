@@ -225,7 +225,7 @@ cd apps/payments && npm run docker:down:dev
 docker network rm rd_shop_backend_dev_shared
 ```
 
-### Production (WIP)
+### Production (local compose parity)
 
 ```bash
 # payments-service
@@ -381,9 +381,9 @@ Path aliases available in every spec file (depth-independent):
 
 The `@test/paths` module exports the `MIGRATIONS_GLOB` constant anchored to the test root, so migration paths never contain `../` traversals regardless of how deeply nested a spec file is.
 
-#### e2e tests (TBD)
+#### e2e tests (`test/e2e/**/*.e2e-spec.ts`)
 
-Will test the complete deployed stack with zero mocks — all services running as Docker containers. The `jest-e2e.json` config and `test/e2e/` directory are reserved; the `npm run test:e2e:shop` script is wired but no specs exist yet.
+Exercise the full shop stack with Docker-managed dependencies and zero mocked application services. Current coverage includes cart flow, order lifecycle, and order querying scenarios under `apps/shop/test/e2e/`.
 
 ### Commands
 
@@ -780,18 +780,18 @@ The project ships a four-workflow GitHub Actions pipeline. A single immutable Do
 
 ### Workflow overview
 
-| Workflow                | Trigger                                  | Purpose                                                                 |
-| ----------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
-| **PR Checks**           | `pull_request` → dev / main / release/\* | Lint, type-check, unit tests, Docker preview build                      |
-| **Build and Push**      | `push` → `development`                   | Build + push both service images to GHCR, produce release manifest      |
-| **Deploy — Stage**      | `workflow_run` (build success)           | Pull pre-built images, SSH deploy to stage VM, smoke test               |
-| **Deploy — Production** | `workflow_dispatch` (manual)             | Pull pre-built images, SSH deploy to prod VM, approval gate, smoke test |
+| Workflow                | Trigger                                  | Purpose                                                                                  |
+| ----------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **PR Checks**           | `pull_request` → dev / main / release/\* | Lint, type-check, unit tests, Docker preview build                                       |
+| **Build and Push**      | `push` → `development`                   | Build + push both service images to ECR, produce release manifest                        |
+| **Deploy — Stage**      | `workflow_run` (build success)           | Promote pre-built images to AWS stage, run Pulumi/IaC-driven deploy, smoke test          |
+| **Deploy — Production** | `workflow_dispatch` (manual)             | Promote pre-built images to AWS production, approval gate, Pulumi/IaC deploy, smoke test |
 
 ### Key design decisions
 
 - **Build once, deploy many** — images tagged `sha-<full-sha>` (immutable) are the deployment unit; no rebuilds during promotion.
 - **Release manifest** — a JSON artifact carrying image references and digests is the handoff contract between build and deploy workflows.
-- **Rollback** — re-running the production workflow with a past `run_id` / `sha` restores both images and compose configuration in sync.
+- **Rollback** — re-running the production workflow with a past `run_id` / `sha` restores both images and Pulumi stack image references in sync.
 - **Sentinel check** — `All Checks Passed` job aggregates all PR results into one required status check entry in branch protection.
 - **Seven reusable composite actions** encapsulate install, code-quality, manifest parsing, deployment, smoke testing, and summary writing.
 

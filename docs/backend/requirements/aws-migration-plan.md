@@ -1306,6 +1306,117 @@ Items that become available or mandatory after AWS migration.
 - JWT signing secret: custom rotation Lambda with dual-key verification window
 - AWS credentials: IAM task roles (no static keys — no rotation needed)
 
+#### 6.2.1 Pulumi ESC proof-of-concept — `shopJwtAccessSecret` on `stage`
+
+Use this as the smallest safe trial when moving deploy-time Pulumi stack secrets out of `infra/Pulumi.stage.yaml`.
+
+**Scope:** one key only — `rd-shop-infra:shopJwtAccessSecret`
+
+**Important constraints before starting:**
+
+- Do **not** copy the existing `secure: AAAB...` ciphertext from `infra/Pulumi.stage.yaml` into ESC. Pulumi stack ciphertext and ESC ciphertext are different formats.
+- Migration path is: **Pulumi stack ciphertext -> plaintext once -> ESC re-encrypts -> ESC ciphertext**.
+- On the currently installed CLI (`pulumi v3.231.0`), `pulumi config get --show-secrets` does **not** work. Use `pulumi config --stack stage --show-secrets` instead.
+
+**Goal:** make `config.getSecret('shopJwtAccessSecret')` resolve from an imported ESC environment instead of the stack-local `secure:` block, while keeping the secret value unchanged.
+
+1. Read the current plaintext value from the `stage` stack.
+
+```bash
+cd infra
+pulumi config --stack stage --show-secrets
+```
+
+Copy only the plaintext value of `rd-shop-infra:shopJwtAccessSecret`.
+
+2. Create one ESC environment for this proof-of-concept, for example `<org>/<project>/stage-secrets-poc`, and define only this key.
+
+```yaml
+values:
+  pulumiConfig:
+    'rd-shop-infra:shopJwtAccessSecret':
+      fn::secret: <paste-current-plaintext-value-once>
+```
+
+Save the environment. ESC will re-encrypt the plaintext into its own ciphertext format.
+
+3. Validate the ESC environment before attaching it to the stack.
+
+```bash
+pulumi env get <org>/<project>/stage-secrets-poc --show-secrets
+```
+
+Confirm `values.pulumiConfig."rd-shop-infra:shopJwtAccessSecret"` resolves to the same plaintext value captured in step 1.
+
+4. Attach the ESC environment to the `stage` stack.
+
+```bash
+pulumi config env add <org>/<project>/stage-secrets-poc --stack stage -y
+```
+
+5. Remove the stack-local key from `infra/Pulumi.stage.yaml`.
+
+Remove only this block:
+
+```yaml
+rd-shop-infra:shopJwtAccessSecret:
+  secure: ...
+```
+
+Do this in the same change window as step 4. Do not leave both definitions in place and rely on precedence accidentally.
+
+6. Verify that the stack now resolves the key through ESC.
+
+```bash
+pulumi config env ls --stack stage
+pulumi config --stack stage --show-secrets
+```
+
+Expected result:
+
+- the ESC environment is listed on the stack
+- `rd-shop-infra:shopJwtAccessSecret` still resolves to the same plaintext value
+
+7. Run a safe preview.
+
+```bash
+pulumi preview --stack stage
+```
+
+Expected result: no meaningful infrastructure replacement or broad config drift from this secret-source move alone.
+
+8. Run one stage smoke check for auth behavior.
+
+Minimum check:
+
+- sign in with an existing user and confirm JWT-protected endpoints still work
+- if needed, create a fresh user and confirm access tokens are still accepted
+
+**Blast radius:**
+
+- `rd-shop-infra:shopJwtAccessSecret` flows through `infra/src/data/runtime-config-config.ts` into the shop runtime secret, then into ECS task env secret injection, and is consumed by `apps/shop/src/auth/auth.module.ts` and `apps/shop/src/auth/jwt.strategy.ts`.
+- If the plaintext value stays identical, functional blast radius should be near zero.
+- If the value changes accidentally or fails to resolve, JWT signing/verification breaks and protected endpoints start returning `401`.
+- If the resolved runtime secret version changes, ECS may roll the `shop` task definition once because task definitions carry the runtime secret version marker.
+
+**Rollback:**
+
+1. Restore the original `rd-shop-infra:shopJwtAccessSecret` `secure:` block in `infra/Pulumi.stage.yaml`.
+2. Remove the ESC environment from the stack.
+
+```bash
+pulumi config env rm <org>/<project>/stage-secrets-poc --stack stage -y
+```
+
+3. Re-run:
+
+```bash
+pulumi config --stack stage --show-secrets
+pulumi preview --stack stage
+```
+
+Confirm the stack-local secret is again the active source.
+
 #### 6.3 TLS everywhere
 
 - ALB → HTTPS (ACM cert, auto-renewal)

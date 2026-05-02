@@ -37,6 +37,7 @@ interface CreateComputeServicesArgs {
     shopRuntimeSecretVersionId: pulumi.Input<string>;
   };
   ses: {
+    shopSesFromAddress: pulumi.Input<string>;
     shopSesIdentityArn: pulumi.Input<string>;
   };
 }
@@ -122,8 +123,13 @@ export function createComputeServices({
         },
         {
           Action: ['ses:SendEmail', 'ses:SendRawEmail'],
+          Condition: {
+            StringEquals: {
+              'ses:FromAddress': ses.shopSesFromAddress,
+            },
+          },
           Effect: 'Allow',
-          Resource: [ses.shopSesIdentityArn],
+          Resource: '*',
         },
       ],
       Version: '2012-10-17',
