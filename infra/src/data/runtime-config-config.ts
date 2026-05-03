@@ -188,7 +188,7 @@ function getRequiredSecretConfig(key: string, minimumLength: number) {
   }
 
   throw new Error(
-    `Missing required secret config "${key}". Set it with pulumi config set --secret ${key} <value>.`,
+    `Missing required secret config "${key}". Provide it via stack-local config or an imported Pulumi ESC environment (fallback: pulumi config set --secret ${key} <value>).`,
   );
 }
 

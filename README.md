@@ -122,6 +122,13 @@ NestJS monorepo with two independently deployed services: **shop-service** (HTTP
 - Production: https://d1bupksw8nr8i8.cloudfront.net
 - Health/status probe example: `https://dxkl8eocmyjhj.cloudfront.net/status`
 
+## AWS Deployment and Secrets
+
+- The active deployment target is AWS: CloudFront + ALB public edge, ECS-on-EC2 for `shop` and `payments`, S3 file storage, SES mail delivery, a dedicated RabbitMQ EC2 broker, and stack-specific databases.
+- Deploy-time Pulumi secrets now resolve from Pulumi ESC environments: `rd-shop/stage` and `rd-shop/production`.
+- Runtime application secrets/config are published by Pulumi to AWS Secrets Manager + SSM Parameter Store and injected into ECS tasks.
+- Deploy-time secrets were rotated during the Pulumi ESC migration cutover for stage and production.
+
 ## Submission Artifacts
 
 For the final submission package, evidence links, deployed URLs, pipeline screenshots, and artifact mapping, see [project-evidences/final-artifacts.md](project-evidences/final-artifacts.md).

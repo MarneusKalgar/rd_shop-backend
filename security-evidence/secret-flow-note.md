@@ -5,25 +5,32 @@
 ## Where secrets live
 
 ```
-GitHub Environment Secrets (environments: stage / production)
-  │  base64-encoded ENV_FILE_SHOP, ENV_FILE_PAYMENTS
+Pulumi ESC (deploy-time Pulumi config)
+  │  `rd-shop/stage`, `rd-shop/production`
   ↓
-GitHub Actions deploy workflow (SSH into VM)
-  │  printf '%s' "${ENV_FILE_SHOP}" | base64 -d > apps/shop/.env.production
+Pulumi stack settings import
+  │  `environment:` in `infra/Pulumi.<stack>.yaml`
   ↓
-VM file system: apps/{shop,payments}/.env.production
-  │  plaintext, VM-local, owner = deploy user only
+GitHub Actions deploy workflow
+  │  `pulumi up` with OIDC AWS auth + Pulumi access token
   ↓
-docker compose env_file mount → container env vars at runtime
+AWS Secrets Manager + SSM Parameter Store
+  │  Pulumi writes runtime secrets and non-secret config per stack/service
+  ↓
+ECS task definitions (`valueFrom`)
+  │
+  ↓
+Container env at startup
 ```
 
 **Security properties:**
 
-- Secrets never baked into Docker images (`.env*` deleted at build stage)
-- Per-environment isolation (`stage` and `production` are separate GH environments)
+- Deploy-time Pulumi secrets are centralized in Pulumi ESC, not active stack-local `secure:` entries
+- Runtime secrets are not copied to VM filesystems; ECS resolves them directly from AWS secret stores
+- Per-environment isolation exists across GitHub Environments, Pulumi ESC environments, AWS Secrets Manager names, and SSM parameter prefixes
 - Production deploys require **manual approval gate** in GitHub
-- SSH tunnel for all secret injection (not over HTTP)
-- GitHub Actions masks secret values in job logs
+- GitHub Actions holds deploy credentials/tokens, not application secret payload files
+- Deploy-time secrets were rotated during the Pulumi ESC cutover
 
 ## What must never be logged
 
@@ -44,17 +51,18 @@ docker compose env_file mount → container env vars at runtime
 - `password` column: `select: false` on `User` entity (never included in queries by default)
 - Stack traces: stripped by `GlobalExceptionFilter` before reaching HTTP responses
 
-## Current vs. target secrets delivery
+## Current secret delivery model
 
-| Dimension          | Current (VM + Docker Compose)    | Target (AWS)                                  |
-| ------------------ | -------------------------------- | --------------------------------------------- |
-| Secret store       | GitHub Environment Secrets       | AWS Secrets Manager                           |
-| Delivery mechanism | base64 → SSH → `.env.production` | ECS task secrets / SSM Parameter Store        |
-| Rotation           | Manual (no automation)           | Automated via Secrets Manager rotation Lambda |
-| Access control     | GH environment protection rules  | IAM role + resource-based policy              |
-| Audit trail        | GH Actions logs                  | CloudTrail + Secrets Manager audit            |
+| Layer                     | Current implementation                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| Deploy-time secret store  | Pulumi ESC (`rd-shop/stage`, `rd-shop/production`)                                   |
+| Runtime secret store      | AWS Secrets Manager (`rd-shop/shop/<stack>`, `rd-shop/payments/<stack>`)             |
+| Runtime non-secret config | SSM Parameter Store (`/rd-shop/<stack>/<service>/*`)                                 |
+| Delivery mechanism        | Pulumi writes stores, ECS injects by ARN / parameter name                            |
+| Access control            | GitHub Environment + Pulumi access token for deploy-time; IAM task roles for runtime |
+| Audit trail               | GitHub Actions for deploys; CloudTrail / Secrets Manager access logs in AWS          |
 
 ## Residual risk
 
-- No automated rotation (blocked on [AWS migration](../docs/backend/requirements/aws-migration-plan.md))
-- `.env.production` is plaintext on disk — mitigated by SSH-only access and file ownership
+- No automated rotation for deploy-time JWT / RabbitMQ secrets yet; updates are currently procedural through Pulumi ESC change windows
+- Runtime secret rotation runbooks are still incomplete even though the AWS secret stores are in place

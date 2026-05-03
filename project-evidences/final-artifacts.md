@@ -65,6 +65,13 @@ cd apps/shop && npm run e2e:fresh
 - Docker/compose topology: [infra-docker-compose](../docs/backend/architecture/infra-docker-compose.md)
 - Main order lifecycle and async path: [feature-order-creation-flow](../docs/backend/architecture/feature-order-creation-flow.md)
 
+Deployment / secrets note:
+
+- AWS migration is the active production path; local Docker Compose remains for development, e2e, and performance workflows only.
+- Deploy-time Pulumi secrets now come from Pulumi ESC environments `rd-shop/stage` and `rd-shop/production`.
+- Runtime secrets/config are delivered through AWS Secrets Manager + SSM Parameter Store into ECS task definitions.
+- Deploy-time secrets were rotated during the Pulumi ESC migration cutover.
+
 Infrastructure screenshots:
 
 - VPC: [project-evidences/aws-infrastructure/vpc.png](aws-infrastructure/vpc.png)

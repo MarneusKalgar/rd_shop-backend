@@ -110,49 +110,53 @@ No `SECURITY-BASELINE.md` exists. Architecture docs (`docs/backend/architecture/
 
 ### Requirements
 
-| #   | Requirement                                                  | Status                       |
-| --- | ------------------------------------------------------------ | ---------------------------- |
-| 2.1 | Secrets are not hardcoded in application code                | ✅                           |
-| 2.2 | Secrets are not committed to the repository                  | ✅                           |
-| 2.3 | Secrets are not logged (raw JWT, passwords, payment details) | ✅                           |
-| 2.4 | Environment separation — different configs for dev/test/prod | ✅                           |
-| 2.5 | Env validation at startup (fail-fast on missing secrets)     | ✅                           |
-| 2.6 | Secrets delivery — document current flow (GH Secrets → VM)   | ✅                           |
-| 2.7 | Document what must never be logged                           | ✅                           |
-| 2.8 | Secrets rotation strategy (JWT, DB, AWS)                     | 🔜 Deferred to AWS migration |
-| 2.9 | External secrets manager integration                         | 🔜 Deferred to AWS migration |
+| #   | Requirement                                                                      | Status                       |
+| --- | -------------------------------------------------------------------------------- | ---------------------------- |
+| 2.1 | Secrets are not hardcoded in application code                                    | ✅                           |
+| 2.2 | Secrets are not committed to the repository                                      | ✅                           |
+| 2.3 | Secrets are not logged (raw JWT, passwords, payment details)                     | ✅                           |
+| 2.4 | Environment separation — different configs for dev/test/prod                     | ✅                           |
+| 2.5 | Env validation at startup (fail-fast on missing secrets)                         | ✅                           |
+| 2.6 | Secrets delivery — document current flow (Pulumi ESC → AWS runtime stores → ECS) | ✅                           |
+| 2.7 | Document what must never be logged                                               | ✅                           |
+| 2.8 | Secrets rotation strategy (JWT, DB, AWS)                                         | 🔜 Deferred to AWS migration |
+| 2.9 | External secrets manager integration                                             | ✅                           |
 
 ### Current secrets delivery flow
 
 ```
-GitHub Environment Secrets (stage / production)
-  │  base64-encoded ENV_FILE_SHOP, ENV_FILE_PAYMENTS
+Pulumi ESC (rd-shop/stage, rd-shop/production)
+  │  deploy-time Pulumi config via imported stack environments
   ↓
-GitHub Actions deploy workflow (SSH into VM)
-  │  printf '%s' "${ENV_FILE_SHOP}" | base64 -d > .env.production
+GitHub Actions deploy workflow
+  │  OIDC AWS auth + Pulumi CLI + imported ESC values
   ↓
-VM file system: apps/{shop,payments}/.env.production
-  │  plaintext, VM-local only
+AWS Secrets Manager + SSM Parameter Store
+  │  Pulumi publishes runtime secrets and non-secret config
   ↓
-docker compose env_file mount → container env vars at runtime
+ECS task definitions (`valueFrom` by ARN / parameter name)
+  │
+  ↓
+Container env at task start
 ```
 
 **Security properties of current flow:**
 
-- Secrets never baked into Docker images (`.env*` deleted at build time)
-- Per-environment isolation (stage / production are separate GH environments)
-- Production deploys require manual approval gate
-- SSH tunnel for all secret injection (not over HTTP)
-- GitHub masks secret values in Actions logs
+- Deploy-time Pulumi secrets live in Pulumi ESC, not active stack-local `secure:` entries
+- Runtime app secrets are injected from Secrets Manager / SSM, not copied onto a VM filesystem
+- Per-environment isolation exists at three layers: GitHub Environments, Pulumi ESC environments, and AWS runtime secret names / SSM paths
+- Production deploys still require manual approval gate
+- ECS task execution role is scoped to the runtime secret ARN set and SSM path prefix
+- Deploy-time secrets were rotated during the Pulumi ESC migration cutover
 
 ### Fully implemented
 
 - **No hardcoded secrets in source** — all secrets loaded via `ConfigService` from env vars
-- **`.env.production` is gitignored** — confirmed in `.gitignore`
+- **Local `.env.*` files are gitignored and limited to dev / compose flows** — deployed stage / production runtime config no longer depends on VM env files
 - **Env validation at startup** — `apps/shop/src/core/environment/schema.ts` and `apps/payments/src/core/environment/schema.ts` use `class-validator` decorators; app crashes immediately on invalid/missing vars
-- **Separate env files** — `.env.development`, `.env.test`, `.env.production`, `.env.example` per service
+- **Separate env files still exist for local/dev flows** — `.env.development`, `.env.test`, `.env.production`, `.env.example` per service
 - **Token secrets use `crypto.randomBytes()`** — no weak RNG
-- **Secrets isolated per GH environment** — `stage` and `production` have independent secret sets
+- **Deploy-time secrets isolated per stack** — `rd-shop/stage` and `rd-shop/production` are separate Pulumi ESC environments
 
 ### Partially implemented — rework needed
 
@@ -161,15 +165,15 @@ docker compose env_file mount → container env vars at runtime
 
 ### What to deliver now
 
-- **2.6 — Document the current secrets flow** in `SECURITY-BASELINE.md`: where secrets live (GH environment secrets), how they reach runtime (base64 → SSH → VM → compose mount), what can't be logged
+- **2.6 — Document the current secrets flow** in `SECURITY-BASELINE.md`: where deploy-time secrets live (Pulumi ESC), how runtime secrets reach ECS (Pulumi → Secrets Manager / SSM → task definitions), what can't be logged
 - **2.7 — Formalize a "never-log" policy** — create a short list of fields/headers that must be excluded from logs (Authorization, cookie, password, tokenHash, raw JWT, payment card details). This list will feed into Pino `redact` config when implemented.
 
 ### Deferred to AWS migration plan
 
-- **Secrets rotation** — requires external secrets manager. Current GH Secrets model has no rotation automation. Two paths to evaluate during AWS migration:
-  - **AWS Secrets Manager** — native rotation for RDS credentials, Lambda-based rotation for custom secrets (JWT), tight IAM integration, pay-per-secret pricing
-  - **Third-party vault (HashiCorp Vault / Doppler)** — cloud-agnostic, richer policy engine, but extra infrastructure to manage
-- **Runtime secrets injection** — replace `.env` file mount with native secret injection (ECS task secrets from Secrets Manager, or sidecar pattern)
+- **Secrets rotation** — external secret stores are now in place, but rotation automation and runbooks are still incomplete
+  - **AWS Secrets Manager** — native path for runtime secret delivery and eventual rotation of managed credentials
+  - **Pulumi ESC** — current deploy-time secret source for Pulumi stack config, but secret rotation is still procedural
+- **Rotation automation** — JWT / RabbitMQ rotation still needs an explicit operational runbook and dual-key/cutover design where applicable
 
 ---
 
@@ -464,24 +468,24 @@ Sets secure HTTP headers automatically. Consider surface-specific overrides:
 
 ### ✅ Fully Implemented (no further work)
 
-| Area                               | Details                                                                                              |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| JWT auth (access + refresh tokens) | Passport JWT, short-lived access (15m), opaque refresh in DB, bcrypt-hashed                          |
-| RBAC guards & decorators           | `JwtAuthGuard`, `RolesGuard`, `ScopesGuard`, `@Roles()`, `@Scopes()`, `@CurrentUser()`               |
-| Refresh token cookie security      | `httpOnly`, `secure` (prod), `sameSite: strict`, scoped to `/api/v1/auth`                            |
-| Password hashing                   | bcrypt with configurable salt rounds (default 10), `select: false` on entity                         |
-| Input validation                   | Global `ValidationPipe` with `whitelist: true`, `forbidNonWhitelisted: true`, `class-validator` DTOs |
-| SQL injection prevention           | TypeORM parameterized queries, ILIKE wildcard escaping                                               |
-| CORS configuration                 | Environment-driven origin allow-list, `credentials: true`, `maxAge: 86400`                           |
-| Opaque token format validation     | `parseOpaqueToken()` rejects malformed tokens before DB/bcrypt work                                  |
-| User enumeration prevention        | `forgotPassword` always returns safe 200 regardless of email existence                               |
-| Env var validation at startup      | `class-validator` schemas in both services; fail-fast on missing/invalid vars                        |
-| Secret exclusion from repo         | `.env.production` gitignored; `.env.example` has empty placeholder values                            |
-| Docker security                    | Non-root user (1001), tini init, distroless option, `.env*` deleted at build time                    |
-| Error response sanitization        | No stack traces to clients; 4xx logged without trace, 5xx trace internal-only                        |
-| Request ID propagation             | `X-Request-ID` middleware generates/forwards UUID per request                                        |
-| Token reuse prevention             | Atomic `UPDATE … WHERE used_at IS NULL` on verification and reset tokens                             |
-| Refresh token rotation             | Old token revoked atomically when new one is issued; single-session model                            |
+| Area                               | Details                                                                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| JWT auth (access + refresh tokens) | Passport JWT, short-lived access (15m), opaque refresh in DB, bcrypt-hashed                                                   |
+| RBAC guards & decorators           | `JwtAuthGuard`, `RolesGuard`, `ScopesGuard`, `@Roles()`, `@Scopes()`, `@CurrentUser()`                                        |
+| Refresh token cookie security      | `httpOnly`, `secure` (prod), `sameSite: strict`, scoped to `/api/v1/auth`                                                     |
+| Password hashing                   | bcrypt with configurable salt rounds (default 10), `select: false` on entity                                                  |
+| Input validation                   | Global `ValidationPipe` with `whitelist: true`, `forbidNonWhitelisted: true`, `class-validator` DTOs                          |
+| SQL injection prevention           | TypeORM parameterized queries, ILIKE wildcard escaping                                                                        |
+| CORS configuration                 | Environment-driven origin allow-list, `credentials: true`, `maxAge: 86400`                                                    |
+| Opaque token format validation     | `parseOpaqueToken()` rejects malformed tokens before DB/bcrypt work                                                           |
+| User enumeration prevention        | `forgotPassword` always returns safe 200 regardless of email existence                                                        |
+| Env var validation at startup      | `class-validator` schemas in both services; fail-fast on missing/invalid vars                                                 |
+| Secret exclusion from repo         | Deploy-time secrets in Pulumi ESC; runtime secrets in Secrets Manager / SSM; local `.env.*` kept only for dev / compose flows |
+| Docker security                    | Non-root user (1001), tini init, distroless option, `.env*` deleted at build time                                             |
+| Error response sanitization        | No stack traces to clients; 4xx logged without trace, 5xx trace internal-only                                                 |
+| Request ID propagation             | `X-Request-ID` middleware generates/forwards UUID per request                                                                 |
+| Token reuse prevention             | Atomic `UPDATE … WHERE used_at IS NULL` on verification and reset tokens                                                      |
+| Refresh token rotation             | Old token revoked atomically when new one is issued; single-session model                                                     |
 
 ### ⚠️ Partially Implemented — Rework / Additional Work Needed
 

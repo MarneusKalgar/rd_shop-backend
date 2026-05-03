@@ -23,7 +23,17 @@ Pulumi TypeScript program for the AWS migration of rd_shop. This stack provision
 - Node.js 24 compatible npm environment
 - AWS credentials with rights to preview/apply the stack
 - Existing Pulumi stacks: `stage`, `production`
-- Required secret config set before first real `pulumi up`
+- Deploy-time Pulumi secrets resolved via imported Pulumi ESC environments:
+  - `stage` -> `rd-shop/stage`
+  - `production` -> `rd-shop/production`
+
+Verify the attached environment and resolved secrets before a real apply:
+
+```bash
+cd infra
+pulumi config env ls --stack stage
+pulumi config --stack stage --show-secrets
+```
 
 ## Install
 

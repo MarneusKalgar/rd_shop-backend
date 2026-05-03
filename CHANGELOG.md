@@ -9,12 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **PR checks dependency handling** — `pr-checks.yml` now restores and invalidates root and `infra/` `node_modules` caches independently; `code-quality` restores both caches before lint, type-check, and unit tests
-- **CI documentation** — `docs/backend/architecture/infra-ci-pipeline.md` and `homework17.md` now describe the current `install -> code-quality -> [integration-tests || docker-preview-build] -> all-checks-passed` flow, infra-aware validation, and the reduced local action set
+- No unreleased changes yet.
 
 ### Removed
 
-- **Unused `install-dependencies` composite action** — deleted `.github/actions/install-dependencies/action.yml`; install logic now lives directly in `pr-checks.yml`
+- No unreleased removals yet.
+
+## [1.0.0] - 2026-05-02
+
+### Added
+
+- **AWS migration completed** — Pulumi-managed `stage` and `production` stacks now provision CloudFront + ALB public edge, ECS-on-EC2 application services, production RDS, stage EC2 PostgreSQL host, S3 file storage, SES sender wiring, CloudWatch dashboards/alarms, and a dedicated RabbitMQ EC2 broker
+- **Deployment evidence and reviewer docs** — `project-evidences/final-artifacts.md`, architecture notes, security notes, and pipeline/observability evidence now describe the active AWS deployment path and reviewer entrypoints
+- **Pulumi ESC deploy-time secret source** — both stacks now import Pulumi ESC environments (`rd-shop/stage`, `rd-shop/production`) for required deploy-time Pulumi config while runtime secrets continue through AWS Secrets Manager + SSM into ECS tasks
+
+### Changed
+
+- **Secrets management** — deploy-time secrets were rotated during the Pulumi ESC cutover; active stack-local `secure:` entries were removed from `infra/Pulumi.stage.yaml` and `infra/Pulumi.production.yaml` and replaced with commented placeholders
+- **CI/CD deploy lanes** — stage deploy, stage validation, and production deploy workflows now align with the AWS/Pulumi release-manifest flow, environment-scoped Pulumi secret resolution, and post-deploy health validation
+- **Developer Docker workflow** — shop/payments Docker wrapper scripts now derive collision-safe project names from `COMPOSE_PROJECT_NAME`, create dynamic temp image names, and replace long repeated compose one-liners
+- **PR checks dependency handling** — `pr-checks.yml` now restores and invalidates root and `infra/` `node_modules` caches independently; `code-quality` restores both caches before lint, type-check, and unit tests
+- **CI documentation** — `docs/backend/architecture/infra-ci-pipeline.md` and `homework17.md` now describe the current `install -> code-quality -> [integration-tests || docker-preview-build] -> all-checks-passed` flow, infra-aware validation, and the reduced local action set
+
+### Fixed
+
+- **Auth mail failure behavior** — signup no longer fails after user creation when verification email delivery fails; forgot-password preserves the safe generic response on mail-send failure; resend-verification remains strict
+- **Pulumi ESC stack resolution** — committed stack `environment:` imports now prevent CI deploy failures caused by missing deploy-time secret resolution when the ESC environment exists but the stack import is absent
+- **SES task permissions** — the shop ECS task role now has the correct SES send permissions for verification/reset mail delivery in AWS
+- **Developer tooling** — restored the shop DB seed entrypoint and fixed shell wrapper `set -u` / empty-array handling in Docker helper scripts
+
+### Removed
+
+- **Deprecated per-app production compose shortcuts** — legacy compose-based production npm scripts were removed in favor of the AWS deployment path and the e2e/local review flows
 
 ## [0.2.4] - 2026-04-20
 

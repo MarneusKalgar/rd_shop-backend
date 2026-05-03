@@ -660,52 +660,52 @@ Provision managed data stores before migrating compute. This allows testing data
 - Free tier, no per-secret cost
 - Separate from Secrets Manager to allow different access policies
 
-**Mandatory before first `pulumi up` for each stack**
+**Current deploy-time Pulumi secret source**
 
-Preview may still succeed with dry-run placeholder secret values. That is **not** enough for apply. Before first real `pulumi up`, set required Pulumi secret config in `infra/`:
+Deploy-time Pulumi secrets now resolve from imported Pulumi ESC environments, not active stack-local `secure:` entries.
 
-```sh
-cd infra
+- `stage` stack imports `rd-shop/stage` in `infra/Pulumi.stage.yaml`
+- `production` stack imports `rd-shop/production` in `infra/Pulumi.production.yaml`
 
-# stage
-pulumi config set --stack stage --secret shopJwtAccessSecret '<32+ char secret>'
-pulumi config set --stack stage --secret shopTokenHmacSecret '<32+ char secret>'
+Current required ESC-backed keys:
 
-# production
-pulumi config set --stack production --secret shopJwtAccessSecret '<32+ char secret>'
-pulumi config set --stack production --secret shopTokenHmacSecret '<32+ char secret>'
-```
+- Both stacks: `rd-shop-infra:shopJwtAccessSecret`, `rd-shop-infra:shopTokenHmacSecret`, `rd-shop-infra:shopRabbitmqUser`, `rd-shop-infra:shopRabbitmqPassword`
+- Stage only: `rd-shop-infra:databaseHostAdminPassword`, `rd-shop-infra:shopDatabasePassword`, `rd-shop-infra:paymentsDatabasePassword`
 
-Optional now, but set before dedicated RabbitMQ broker credentials become real runtime inputs:
+Deploy-time secrets were rotated during the Pulumi ESC cutover.
+
+**Safe verification loop before `pulumi up`**
 
 ```sh
 cd infra
 
 # stage
-pulumi config set --stack stage --secret shopRabbitmqUser '<broker-user>'
-pulumi config set --stack stage --secret shopRabbitmqPassword '<broker-password>'
+pulumi env get MarneusKalgar/rd-shop/stage --show-secrets
+pulumi config env ls --stack stage
+pulumi config --stack stage --show-secrets
+pulumi preview --stack stage
 
 # production
-pulumi config set --stack production --secret shopRabbitmqUser '<broker-user>'
-pulumi config set --stack production --secret shopRabbitmqPassword '<broker-password>'
+pulumi env get MarneusKalgar/rd-shop/production --show-secrets
+pulumi config env ls --stack production
+pulumi config --stack production --show-secrets
+pulumi preview --stack production
 ```
 
-**Where Pulumi stores these values**
+**Important behavior**
 
-- `pulumi config set --secret ...` writes encrypted ciphertext into the stack settings file for that stack:
-  - `infra/Pulumi.stage.yaml`
-  - `infra/Pulumi.production.yaml`
-- Encrypted values appear under `config:` as `secure: ...`; that is expected and is normally safe to keep in git.
-- Only encrypted `secure:` entries should be versioned. Never commit plaintext secret values to stack YAML.
-- Do not copy encrypted `secure:` blobs between stacks manually. Pulumi encrypts stack secrets with stack-specific key material/provider context, so move/set them with `pulumi config set --stack <stack> --secret ...` instead of copy-paste.
+- Preview may still succeed when a required deploy-time key is missing because the Pulumi program emits preview-only placeholder values during dry runs. `pulumi up` still fails on apply when the real key cannot be resolved.
+- Any change to the resolved shop runtime secret payload can appear as a replacement of the `aws.secretsmanager.SecretVersion` resource because the shop secret is written as one JSON blob.
 
-**Decision for initial bootstrap (chosen path)**
+**Fallback path**
 
-- Do **not** block first real `pulumi up` on AWS KMS or Pulumi ESC adoption.
-- Use Pulumi's current/default stack secrets provider for bootstrap and first manual applies.
-- Reason: deploy-time secrets must be readable **before** the stack runs; a KMS key created by the same stack creates a chicken-and-egg bootstrap problem.
-- AWS Secrets Manager is still the correct target for **runtime** app secrets after infrastructure exists, but it does not replace the need for an initial deploy-time secret source.
-- Pulumi ESC is a valid future improvement for centralized deploy-time secrets/config, but it adds one more system and workflow to learn. It should not delay infrastructure bring-up.
+- `pulumi config set --secret ...` still works as an emergency stack-local fallback.
+- That fallback reintroduces encrypted `secure:` entries into `infra/Pulumi.<stack>.yaml` and is no longer the preferred steady-state path.
+
+**Legacy stack-local hardening note**
+
+- If stack-local `secure:` entries are ever reintroduced temporarily, keep them encrypted, never commit plaintext, and never copy ciphertext between stacks manually.
+- KMS-backed Pulumi secrets providers remain optional hardening for that fallback mode, but they are no longer required for the current ESC-based path.
 
 **Hardening step after Phase 4 (recommended timing)**
 
@@ -1311,116 +1311,43 @@ Items that become available or mandatory after AWS migration.
 - JWT signing secret: custom rotation Lambda with dual-key verification window
 - AWS credentials: IAM task roles (no static keys — no rotation needed)
 
-#### 6.2.1 Pulumi ESC proof-of-concept — `shopJwtAccessSecret` on `stage`
+#### 6.2.1 Pulumi ESC rollout — deploy-time Pulumi secrets
 
-Use this as the smallest safe trial when moving deploy-time Pulumi stack secrets out of `infra/Pulumi.stage.yaml`.
+Pulumi ESC is now the active deploy-time secret source for both stacks.
 
-**Scope:** one key only — `rd-shop-infra:shopJwtAccessSecret`
+**Current state**
 
-**Important constraints before starting:**
+- `stage` imports `rd-shop/stage`
+- `production` imports `rd-shop/production`
+- Stack-local deploy-time `secure:` entries have been removed from active config and replaced with commented placeholders in `infra/Pulumi.stage.yaml` and `infra/Pulumi.production.yaml`
+- Deploy-time secrets were rotated during the cutover from stack-local Pulumi secrets to Pulumi ESC.
 
-- Do **not** copy the existing `secure: AAAB...` ciphertext from `infra/Pulumi.stage.yaml` into ESC. Pulumi stack ciphertext and ESC ciphertext are different formats.
-- Migration path is: **Pulumi stack ciphertext -> plaintext once -> ESC re-encrypts -> ESC ciphertext**.
-- On the currently installed CLI (`pulumi v3.231.0`), `pulumi config get --show-secrets` does **not** work. Use `pulumi config --stack stage --show-secrets` instead.
+**Steady-state change procedure for a new or rotated key**
 
-**Goal:** make `config.getSecret('shopJwtAccessSecret')` resolve from an imported ESC environment instead of the stack-local `secure:` block, while keeping the secret value unchanged.
-
-1. Read the current plaintext value from the `stage` stack.
+1. Add or update the key under `values.pulumiConfig` in the target ESC environment.
+2. Validate the exact plaintext with `pulumi env get MarneusKalgar/rd-shop/<stack> --show-secrets`.
+3. Confirm stack resolution with:
 
 ```bash
 cd infra
-pulumi config --stack stage --show-secrets
+pulumi config env ls --stack <stack>
+pulumi config --stack <stack> --show-secrets
 ```
 
-Copy only the plaintext value of `rd-shop-infra:shopJwtAccessSecret`.
+4. If the key previously existed as a stack-local `secure:` entry, remove that entry in the same change window and keep only the commented placeholder.
+5. Run `pulumi preview --stack <stack>`.
+6. Run the real deploy and the environment-specific validation checks.
 
-2. Create one ESC environment for this proof-of-concept, for example `<org>/<project>/stage-secrets-poc`, and define only this key.
+**Operational caveats**
 
-```yaml
-values:
-  pulumiConfig:
-    'rd-shop-infra:shopJwtAccessSecret':
-      fn::secret: <paste-current-plaintext-value-once>
-```
+- Missing required keys can still be masked during preview by preview-only placeholder values. `pulumi up` is the authoritative check for apply-time resolution.
+- The shop runtime secret is one JSON payload, so an otherwise-identical secret-source move can still appear in preview as a `SecretVersion` replacement if any constituent value differs.
 
-Save the environment. ESC will re-encrypt the plaintext into its own ciphertext format.
+**Rollback**
 
-3. Validate the ESC environment before attaching it to the stack.
-
-```bash
-pulumi env get <org>/<project>/stage-secrets-poc --show-secrets
-```
-
-Confirm `values.pulumiConfig."rd-shop-infra:shopJwtAccessSecret"` resolves to the same plaintext value captured in step 1.
-
-4. Attach the ESC environment to the `stage` stack.
-
-```bash
-pulumi config env add <org>/<project>/stage-secrets-poc --stack stage -y
-```
-
-5. Remove the stack-local key from `infra/Pulumi.stage.yaml`.
-
-Remove only this block:
-
-```yaml
-rd-shop-infra:shopJwtAccessSecret:
-  secure: ...
-```
-
-Do this in the same change window as step 4. Do not leave both definitions in place and rely on precedence accidentally.
-
-6. Verify that the stack now resolves the key through ESC.
-
-```bash
-pulumi config env ls --stack stage
-pulumi config --stack stage --show-secrets
-```
-
-Expected result:
-
-- the ESC environment is listed on the stack
-- `rd-shop-infra:shopJwtAccessSecret` still resolves to the same plaintext value
-
-7. Run a safe preview.
-
-```bash
-pulumi preview --stack stage
-```
-
-Expected result: no meaningful infrastructure replacement or broad config drift from this secret-source move alone.
-
-8. Run one stage smoke check for auth behavior.
-
-Minimum check:
-
-- sign in with an existing user and confirm JWT-protected endpoints still work
-- if needed, create a fresh user and confirm access tokens are still accepted
-
-**Blast radius:**
-
-- `rd-shop-infra:shopJwtAccessSecret` flows through `infra/src/data/runtime-config-config.ts` into the shop runtime secret, then into ECS task env secret injection, and is consumed by `apps/shop/src/auth/auth.module.ts` and `apps/shop/src/auth/jwt.strategy.ts`.
-- If the plaintext value stays identical, functional blast radius should be near zero.
-- If the value changes accidentally or fails to resolve, JWT signing/verification breaks and protected endpoints start returning `401`.
-- If the resolved runtime secret version changes, ECS may roll the `shop` task definition once because task definitions carry the runtime secret version marker.
-
-**Rollback:**
-
-1. Restore the original `rd-shop-infra:shopJwtAccessSecret` `secure:` block in `infra/Pulumi.stage.yaml`.
-2. Remove the ESC environment from the stack.
-
-```bash
-pulumi config env rm <org>/<project>/stage-secrets-poc --stack stage -y
-```
-
-3. Re-run:
-
-```bash
-pulumi config --stack stage --show-secrets
-pulumi preview --stack stage
-```
-
-Confirm the stack-local secret is again the active source.
+1. Restore the previous value in the ESC environment or temporarily re-add a stack-local `secure:` entry.
+2. Re-run the stack resolution checks above.
+3. Re-run `pulumi preview --stack <stack>` before the next deploy attempt.
 
 #### 6.3 TLS everywhere
 
