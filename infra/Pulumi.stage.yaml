@@ -1,5 +1,5 @@
 environment:
-  - MarneusKalgar/rd-shop/stage
+  - rd-shop/stage
 
 config:
   aws:region: eu-central-1
