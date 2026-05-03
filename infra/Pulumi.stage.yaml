@@ -35,8 +35,8 @@ config:
   rd-shop-infra:shopDatabaseName: rd_shop
   rd-shop-infra:shopDatabaseUsername: shop
   rd-shop-infra:vpcCidr: 10.42.0.0/16
-  rd-shop-infra:shopJwtAccessSecret:
-    secure: AAABACN+qbmpP3m1T65tP8Wh1L+Fu2gy53ZblL7TixJ71mcZOrhvWj/Ai/l7DkmAt3xZMINJXZgeTskaMHpn8WzHmLhL2vWXKJ06jJ5o5cIKmMPS+RCOiZ/N6zanoNan
+  # rd-shop-infra:shopJwtAccessSecret:
+  #   secure: AAABACN+qbmpP3m1T65tP8Wh1L+Fu2gy53ZblL7TixJ71mcZOrhvWj/Ai/l7DkmAt3xZMINJXZgeTskaMHpn8WzHmLhL2vWXKJ06jJ5o5cIKmMPS+RCOiZ/N6zanoNan
   rd-shop-infra:shopTokenHmacSecret:
     secure: AAABAMz3OzVgsp1vvDFBT0hcQB5etnlodHuhsIbo7G2E+5X/RE9LBQ9BBikflMxex3uiQA2ITOmRtY27R4bqHa73JrRu5TJJZWVWDkcoPaoWWwptstkfXHiJJLhmmrSB
   rd-shop-infra:shopRabbitmqUser:
