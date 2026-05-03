@@ -46,12 +46,12 @@ config:
   #   secure: AAABAJ7WR6ysLvb/iHw+rTUYIDmhGo89nQRzkuRJFhLBJyzAz1mvn1jTEsN3
   # rd-shop-infra:shopRabbitmqPassword:
   #   secure: AAABAB5vJsgcYXyFy0ko01oKTDnn2znZ2yvysj0vkdAR/k3Nw2mnbLE9n7L0fnm1yhAVwJrmE9/+C640KWUzUx6PNzvpCHqVfAfTV2tRNOj7uNjsNoVJKgcQLVHyjnAn
-  rd-shop-infra:databaseHostAdminPassword:
-    secure: AAABAP1exaCdyba3DDoY7LZHL1OIGSH8lnClUDaNDtRCPjyCOQuZkGg3hAQTRZk2p1m7t24HNnqqyyiYUyeO95ar7LHi/gzImfY/hCTKNq4=
-  rd-shop-infra:shopDatabasePassword:
-    secure: AAABAIHOQbaXtEkKwvJV/62FEvvrW4GpK/EhZVQUi/bUKcXgN/rmv7mbE3Yw2i1+v47Now0U9iWViRaQH9yUuG2RKLalENbTxa9Fv1107uE=
-  rd-shop-infra:paymentsDatabasePassword:
-    secure: AAABABTDJOVDwJtExEevCD1lR69xF3DC/SrhG47KscLeBj6GbGr9lryougqrhnsaDNugTnIeTocurYAWNvh/ujlT8G5uS5kA4r3TWXyNqY8=
+  # rd-shop-infra:databaseHostAdminPassword:
+  #   secure: AAABAP1exaCdyba3DDoY7LZHL1OIGSH8lnClUDaNDtRCPjyCOQuZkGg3hAQTRZk2p1m7t24HNnqqyyiYUyeO95ar7LHi/gzImfY/hCTKNq4=
+  # rd-shop-infra:shopDatabasePassword:
+  #   secure: AAABAIHOQbaXtEkKwvJV/62FEvvrW4GpK/EhZVQUi/bUKcXgN/rmv7mbE3Yw2i1+v47Now0U9iWViRaQH9yUuG2RKLalENbTxa9Fv1107uE=
+  # rd-shop-infra:paymentsDatabasePassword:
+  #   secure: AAABABTDJOVDwJtExEevCD1lR69xF3DC/SrhG47KscLeBj6GbGr9lryougqrhnsaDNugTnIeTocurYAWNvh/ujlT8G5uS5kA4r3TWXyNqY8=
   # Pin singleton EC2 hosts to the current live AMIs before running preview/up to avoid drift-driven replacements.
   # rd-shop-infra:ecsOptimizedAmiId: ami-<current-stage-ecs-host-ami>
   # rd-shop-infra:shopRabbitmqAmiId: ami-<current-stage-rabbitmq-ami>
