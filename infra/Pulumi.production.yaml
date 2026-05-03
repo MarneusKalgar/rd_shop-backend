@@ -1,3 +1,6 @@
+environment:
+  - rd-shop/production
+
 config:
   aws:region: eu-central-1
   rd-shop-infra:databaseAllocatedStorageGiB: '20'
@@ -35,17 +38,22 @@ config:
   rd-shop-infra:shopDatabaseName: rd_shop
   rd-shop-infra:shopDatabaseUsername: shop
   rd-shop-infra:vpcCidr: 10.42.0.0/16
-  rd-shop-infra:shopJwtAccessSecret:
-    secure: AAABAIkNhUg8AtJO9BEWtc6kDMhJIHNpqiOb3WCLzobBvkGHw39CLMiS/Avd3tWFTMIEbRCxCTowVuDOjYL1D9hOG8aCbEcExKqrF2UVdjWBFYW/zmwG2ZKorvq2TTwC
-  rd-shop-infra:shopTokenHmacSecret:
-    secure: AAABAOdMB8MH0wGcddGmtAKLWO5vk1vSC1J082ZpvKuQEUFSoTMhhvm9yExEg1jUILZJ7/zB4WC48ymD3QFQvV4pLkiW0nGTPk3N7ZTk5GsqecKq2jXp3hSFdtsRnh4t
-  rd-shop-infra:shopRabbitmqUser:
-    secure: AAABABR55SQQoSq941wfZc9edeKU+ZLrQTyD8ud63l+jPEZv9fmi88chSMo=
-  rd-shop-infra:shopRabbitmqPassword:
-    secure: AAABAHCHPCUZQgmk/4rxk8o6cCA4gKWLODusH1O/WlzpeWZKWtbAYqmUGH0U9j2mrWrX9bRy3bXz3UHIM7z2QuJP8pxmS7/TfiSPjPUombOrip3noLzrj89KN90Wpulj
+  # Production deploy-time secrets now live in Pulumi ESC via the imported `rd-shop/production` environment.
+  # Keep stack-local secret entries absent from this file.
+  # rd-shop-infra:shopJwtAccessSecret:
+  #   secure: <managed-in-pulumi-esc: rd-shop/production>
+  # rd-shop-infra:shopTokenHmacSecret:
+  #   secure: <managed-in-pulumi-esc: rd-shop/production>
+  # rd-shop-infra:shopRabbitmqUser:
+  #   secure: <managed-in-pulumi-esc: rd-shop/production>
+  # rd-shop-infra:shopRabbitmqPassword:
+  #   secure: <managed-in-pulumi-esc: rd-shop/production>
   # ECS hosts are already controlled via a stack-specific SSM parameter path below.
   # Set ecsOptimizedAmiId directly only when you want the stack config itself to own the pin.
   # rd-shop-infra:ecsOptimizedAmiId: ami-<current-production-ecs-host-ami>
   rd-shop-infra:ecsOptimizedAmiSsmParameterName: /rd-shop/production/ecs/ami-id
   rd-shop-infra:natInstanceAmiId: ami-0e6ea107664115459
   rd-shop-infra:shopRabbitmqAmiId: ami-0de6934e87badb694
+
+  rd-shop-infra:shopImageUri: 458889635046.dkr.ecr.eu-central-1.amazonaws.com/rd-shop/shop:sha-2fdb21dd5050024790da117ab3c50b4e2019b321
+  rd-shop-infra:paymentsImageUri: 458889635046.dkr.ecr.eu-central-1.amazonaws.com/rd-shop/payments:sha-2fdb21dd5050024790da117ab3c50b4e2019b321

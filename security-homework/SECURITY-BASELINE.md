@@ -1,7 +1,7 @@
 # Security Baseline — rd_shop
 
 > OWASP ASVS mini-review for the `rd_shop` NestJS backend.
-> Last updated: April 2026.
+> Last updated: May 2026.
 
 ## Service Overview
 
@@ -16,24 +16,24 @@ Entry points: `POST /api/v1/auth/*`, `GET|POST /api/v1/orders/*`, `GET /api/v1/p
 
 ## Risk Surface Summary
 
-| Surface Area                           | Risk                                | Control (pre-HW)                  | Added                                                                          | Evidence                                                            | Residual Risk                                 |
-| -------------------------------------- | ----------------------------------- | --------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------- | --------------------------------------------- |
-| `POST /api/v1/auth/signin`             | Brute force / credential stuffing   | JWT auth, bcrypt                  | Throttle 5/min per IP, audit `AUTH_SIGNIN_FAILURE`                             | [rate-limit.txt](../security-evidence/rate-limit.txt)               | No CAPTCHA; anomaly detection not implemented |
-| `POST /api/v1/auth/signup`             | Spam account creation               | None                              | Throttle 10/min, audit `AUTH_SIGNUP`                                           | [rate-limit.txt](../security-evidence/rate-limit.txt)               | No email domain verification                  |
-| `POST /api/v1/auth/forgot-password`    | Account enumeration, email flooding | DB check (3/hr)                   | Throttle 3/hr per **email** (`UserEmailThrottleGuard`), safe 200 always, audit | [rate-limit.txt](../security-evidence/rate-limit.txt)               | None significant                              |
-| `POST /api/v1/auth/refresh`            | Token replay / session hijacking    | `httpOnly` cookie, single-session | Throttle 10/min                                                                | [headers.txt](../security-evidence/headers.txt)                     | No device fingerprinting                      |
-| `POST /api/v1/auth/logout`             | Session not invalidated             | Refresh token revocation          | Audit `AUTH_LOGOUT`                                                            | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
-| `POST /api/v1/orders`                  | Order spam, inventory abuse         | JWT + scope guard                 | Throttle 5/min, audit `ORDER_CREATED`                                          | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
-| `POST /api/v1/orders/:id/cancellation` | Rapid cancel loops                  | JWT + scope guard                 | Throttle 5/min, audit `ORDER_CANCELLED`                                        | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
-| `PATCH /api/v1/admin/users/:id/roles`  | Privilege escalation                | `UserRole.ADMIN` + scope guard    | Audit `USER_ROLE_CHANGED` with actorId + actorRole                             | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
-| `PATCH /api/v1/admin/users/:id/scopes` | Permission creep                    | Admin guard                       | Audit `USER_SCOPE_CHANGED` with actorId + actorRole                            | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
-| `DELETE /api/v1/admin/users/:id`       | Accidental/malicious delete         | Admin guard                       | Audit `USER_SOFT_DELETED` with actorId + actorRole                             | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | No hard-delete protection                     |
-| `POST /api/v1/files/presigned-upload`  | S3 cost abuse, storage exhaustion   | JWT auth                          | Throttle 10/min                                                                | [rate-limit.txt](../security-evidence/rate-limit.txt)               | —                                             |
-| `POST /api/v1/products/:id/reviews`    | Review spam                         | JWT auth                          | Throttle 5/min                                                                 | [rate-limit.txt](../security-evidence/rate-limit.txt)               | —                                             |
-| Request headers                        | Token / cookie leakage in logs      | No redaction                      | Pino `redact: [authorization, cookie]`                                         | [headers.txt](../security-evidence/headers.txt)                     | —                                             |
-| All responses                          | Stack traces, internal details      | `GlobalExceptionFilter`           | — (already done)                                                               | —                                                                   | —                                             |
-| Env vars / secrets                     | Secrets in logs / source            | `.env.production` gitignored      | Documented below                                                               | [secret-flow-note.md](../security-evidence/secret-flow-note.md)     | Rotation not automated                        |
-| Transport / TLS                        | Plain HTTP in dev                   | `secure` cookie in prod           | Documented below                                                               | [tls-note.md](../security-evidence/tls-note.md)                     | No TLS until AWS migration                    |
+| Surface Area                           | Risk                                | Control (pre-HW)                            | Added                                                                             | Evidence                                                            | Residual Risk                                 |
+| -------------------------------------- | ----------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------- |
+| `POST /api/v1/auth/signin`             | Brute force / credential stuffing   | JWT auth, bcrypt                            | Throttle 5/min per IP, audit `AUTH_SIGNIN_FAILURE`                                | [rate-limit.txt](../security-evidence/rate-limit.txt)               | No CAPTCHA; anomaly detection not implemented |
+| `POST /api/v1/auth/signup`             | Spam account creation               | None                                        | Throttle 10/min, audit `AUTH_SIGNUP`                                              | [rate-limit.txt](../security-evidence/rate-limit.txt)               | No email domain verification                  |
+| `POST /api/v1/auth/forgot-password`    | Account enumeration, email flooding | DB check (3/hr)                             | Throttle 3/hr per **email** (`UserEmailThrottleGuard`), safe 200 always, audit    | [rate-limit.txt](../security-evidence/rate-limit.txt)               | None significant                              |
+| `POST /api/v1/auth/refresh`            | Token replay / session hijacking    | `httpOnly` cookie, single-session           | Throttle 10/min                                                                   | [headers.txt](../security-evidence/headers.txt)                     | No device fingerprinting                      |
+| `POST /api/v1/auth/logout`             | Session not invalidated             | Refresh token revocation                    | Audit `AUTH_LOGOUT`                                                               | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
+| `POST /api/v1/orders`                  | Order spam, inventory abuse         | JWT + scope guard                           | Throttle 5/min, audit `ORDER_CREATED`                                             | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
+| `POST /api/v1/orders/:id/cancellation` | Rapid cancel loops                  | JWT + scope guard                           | Throttle 5/min, audit `ORDER_CANCELLED`                                           | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
+| `PATCH /api/v1/admin/users/:id/roles`  | Privilege escalation                | `UserRole.ADMIN` + scope guard              | Audit `USER_ROLE_CHANGED` with actorId + actorRole                                | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
+| `PATCH /api/v1/admin/users/:id/scopes` | Permission creep                    | Admin guard                                 | Audit `USER_SCOPE_CHANGED` with actorId + actorRole                               | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | —                                             |
+| `DELETE /api/v1/admin/users/:id`       | Accidental/malicious delete         | Admin guard                                 | Audit `USER_SOFT_DELETED` with actorId + actorRole                                | [audit-log-example.txt](../security-evidence/audit-log-example.txt) | No hard-delete protection                     |
+| `POST /api/v1/files/presigned-upload`  | S3 cost abuse, storage exhaustion   | JWT auth                                    | Throttle 10/min                                                                   | [rate-limit.txt](../security-evidence/rate-limit.txt)               | —                                             |
+| `POST /api/v1/products/:id/reviews`    | Review spam                         | JWT auth                                    | Throttle 5/min                                                                    | [rate-limit.txt](../security-evidence/rate-limit.txt)               | —                                             |
+| Request headers                        | Token / cookie leakage in logs      | No redaction                                | Pino `redact: [authorization, cookie]`                                            | [headers.txt](../security-evidence/headers.txt)                     | —                                             |
+| All responses                          | Stack traces, internal details      | `GlobalExceptionFilter`                     | — (already done)                                                                  | —                                                                   | —                                             |
+| Env vars / secrets                     | Secrets in logs / source            | Env validation + gitignored local env files | Pulumi ESC for deploy-time config, AWS Secrets Manager / SSM for runtime delivery | [secret-flow-note.md](../security-evidence/secret-flow-note.md)     | Rotation not automated                        |
+| Transport / TLS                        | Plain HTTP in dev                   | `secure` cookie in prod                     | Documented below                                                                  | [tls-note.md](../security-evidence/tls-note.md)                     | No TLS until AWS migration                    |
 
 ---
 
@@ -100,15 +100,17 @@ Entry points: `POST /api/v1/auth/*`, `GET|POST /api/v1/orders/*`, `GET /api/v1/p
 **Summary:**
 
 - All secrets loaded via `ConfigService` from env vars — no hardcoded values
-- Delivery: GitHub Environment Secrets → base64 decode over SSH → VM `.env.production` → Docker Compose `env_file` mount
+- Deploy-time Pulumi config: Pulumi ESC environments imported by `infra/Pulumi.<stack>.yaml`
+- Runtime delivery: Pulumi publishes secrets/config to AWS Secrets Manager / SSM, ECS task definitions inject them into containers
 - Header redaction (`Authorization`, `cookie`) enforced by Pino `redact` config
-- Automated rotation deferred to [AWS migration plan](../docs/backend/requirements/aws-migration-plan.md)
+- Deploy-time secrets were rotated during the Pulumi ESC migration cutover
+- Rotation automation still deferred to [AWS migration plan](../docs/backend/requirements/aws-migration-plan.md)
 
 ### Backlog / TODO
 
-- AWS Secrets Manager integration — see [aws-migration-plan.md](../docs/backend/requirements/aws-migration-plan.md)
 - Automated JWT secret rotation
-- Consider Doppler or HashiCorp Vault as cloud-agnostic option
+- RabbitMQ credential rotation runbook
+- Review whether Pulumi ESC should be paired with additional approval / audit policy for production secret edits
 
 ---
 

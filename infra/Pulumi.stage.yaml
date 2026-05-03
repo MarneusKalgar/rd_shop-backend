@@ -38,20 +38,22 @@ config:
   rd-shop-infra:shopDatabaseName: rd_shop
   rd-shop-infra:shopDatabaseUsername: shop
   rd-shop-infra:vpcCidr: 10.42.0.0/16
+  # Stage deploy-time secrets now live in Pulumi ESC via the imported `rd-shop/stage` environment.
+  # Keep stack-local secret entries absent from this file.
   # rd-shop-infra:shopJwtAccessSecret:
-  #   secure: AAABACN+qbmpP3m1T65tP8Wh1L+Fu2gy53ZblL7TixJ71mcZOrhvWj/Ai/l7DkmAt3xZMINJXZgeTskaMHpn8WzHmLhL2vWXKJ06jJ5o5cIKmMPS+RCOiZ/N6zanoNan
+  #   secure: <managed-in-pulumi-esc: rd-shop/stage>
   # rd-shop-infra:shopTokenHmacSecret:
-  #   secure: AAABAMz3OzVgsp1vvDFBT0hcQB5etnlodHuhsIbo7G2E+5X/RE9LBQ9BBikflMxex3uiQA2ITOmRtY27R4bqHa73JrRu5TJJZWVWDkcoPaoWWwptstkfXHiJJLhmmrSB
+  #   secure: <managed-in-pulumi-esc: rd-shop/stage>
   # rd-shop-infra:shopRabbitmqUser:
-  #   secure: AAABAJ7WR6ysLvb/iHw+rTUYIDmhGo89nQRzkuRJFhLBJyzAz1mvn1jTEsN3
+  #   secure: <managed-in-pulumi-esc: rd-shop/stage>
   # rd-shop-infra:shopRabbitmqPassword:
-  #   secure: AAABAB5vJsgcYXyFy0ko01oKTDnn2znZ2yvysj0vkdAR/k3Nw2mnbLE9n7L0fnm1yhAVwJrmE9/+C640KWUzUx6PNzvpCHqVfAfTV2tRNOj7uNjsNoVJKgcQLVHyjnAn
+  #   secure: <managed-in-pulumi-esc: rd-shop/stage>
   # rd-shop-infra:databaseHostAdminPassword:
-  #   secure: AAABAP1exaCdyba3DDoY7LZHL1OIGSH8lnClUDaNDtRCPjyCOQuZkGg3hAQTRZk2p1m7t24HNnqqyyiYUyeO95ar7LHi/gzImfY/hCTKNq4=
+  #   secure: <managed-in-pulumi-esc: rd-shop/stage>
   # rd-shop-infra:shopDatabasePassword:
-  #   secure: AAABAIHOQbaXtEkKwvJV/62FEvvrW4GpK/EhZVQUi/bUKcXgN/rmv7mbE3Yw2i1+v47Now0U9iWViRaQH9yUuG2RKLalENbTxa9Fv1107uE=
+  #   secure: <managed-in-pulumi-esc: rd-shop/stage>
   # rd-shop-infra:paymentsDatabasePassword:
-  #   secure: AAABABTDJOVDwJtExEevCD1lR69xF3DC/SrhG47KscLeBj6GbGr9lryougqrhnsaDNugTnIeTocurYAWNvh/ujlT8G5uS5kA4r3TWXyNqY8=
+  #   secure: <managed-in-pulumi-esc: rd-shop/stage>
   # Pin singleton EC2 hosts to the current live AMIs before running preview/up to avoid drift-driven replacements.
   # rd-shop-infra:ecsOptimizedAmiId: ami-<current-stage-ecs-host-ami>
   # rd-shop-infra:shopRabbitmqAmiId: ami-<current-stage-rabbitmq-ami>
