@@ -54,6 +54,3 @@ config:
   rd-shop-infra:ecsOptimizedAmiSsmParameterName: /rd-shop/production/ecs/ami-id
   rd-shop-infra:natInstanceAmiId: ami-0e6ea107664115459
   rd-shop-infra:shopRabbitmqAmiId: ami-0de6934e87badb694
-
-  rd-shop-infra:shopImageUri: 458889635046.dkr.ecr.eu-central-1.amazonaws.com/rd-shop/shop:sha-2fdb21dd5050024790da117ab3c50b4e2019b321
-  rd-shop-infra:paymentsImageUri: 458889635046.dkr.ecr.eu-central-1.amazonaws.com/rd-shop/payments:sha-2fdb21dd5050024790da117ab3c50b4e2019b321
